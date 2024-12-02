@@ -2,13 +2,13 @@
 use core::time;
 use std::io::{self};
 
-mod decode;
-mod encode;
+mod reader;
+mod writer;
 
-use crate::error::{AmfDecodeResult, AmfEncodeResult};
+use crate::errors::{AmfReadResult, AmfWriteResult};
 
-pub use self::decode::Decoder;
-pub use self::encode::Encoder;
+pub use self::reader::Decoder;
+pub use self::writer::Writer;
 
 /// @see: 3.1 Overview
 mod amf3_marker {
@@ -101,18 +101,18 @@ pub struct Amf3Trait {
 }
 
 impl Value {
-    pub fn read_from<R>(reader: R) -> AmfDecodeResult<Self>
+    pub fn read_from<R>(reader: R) -> AmfReadResult<Self>
     where
         R: io::Read,
     {
         Decoder::new(reader).decode()
     }
 
-    pub fn write_to<W>(&self, writer: W) -> AmfEncodeResult<()>
+    pub fn write_to<W>(&self, writer: W) -> AmfWriteResult
     where
         W: io::Write,
     {
-        Encoder::new(writer).encode(self)
+        Writer::new(writer).write(self)
     }
 
     pub fn try_as_str(&self) -> Option<&str> {

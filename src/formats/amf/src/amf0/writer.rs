@@ -1,18 +1,18 @@
 use core::time;
 use std::{collections::HashMap, io};
 
-use crate::{amf3, error::AmfEncodeResult};
+use crate::{amf3, errors::AmfWriteResult};
 
 use byteorder::{BigEndian, WriteBytesExt};
 
 use super::{Value, amf0_marker};
 
 #[derive(Debug)]
-pub struct Encoder<W> {
+pub struct Writer<W> {
     inner: W,
 }
 
-impl<W> Encoder<W> {
+impl<W> Writer<W> {
     pub fn inner(&self) -> &W {
         &self.inner
     }
@@ -24,131 +24,128 @@ impl<W> Encoder<W> {
     }
 }
 
-impl<W> Encoder<W>
+impl<W> Writer<W>
 where
     W: io::Write,
 {
     pub fn new(inner: W) -> Self {
         Self { inner }
     }
-    pub fn encode(&mut self, v: &Value) -> AmfEncodeResult<()> {
+    pub fn write(&mut self, v: &Value) -> AmfWriteResult {
         match *v {
-            Value::Number(n) => self.encode_number(n),
-            Value::Boolean(b) => self.encode_boolean(b),
-            Value::String(ref ss) => self.encode_string(ss),
+            Value::Number(n) => self.write_number(n),
+            Value::Boolean(b) => self.write_boolean(b),
+            Value::String(ref ss) => self.write_string(ss),
             Value::Object {
                 ref name,
                 ref entries,
             } => match name {
-                Some(name) => self.encode_typed_object_arr(&name, &entries),
-                None => self.encode_anonymous_object_arr(&entries),
+                Some(name) => self.write_typed_object_arr_inner(&name, &entries),
+                None => self.write_anonymous_object_arr(&entries),
             },
-            Value::Null => self.encode_null(),
-            Value::Undefined => self.encode_undefined(),
-            Value::Reference { index } => self.encode_reference(index),
-            Value::ECMAArray(ref arr) => self.encode_ecma_array(arr),
-            Value::ObjectEnd => self.encode_object_end(),
-            Value::StrictArray(ref arr) => self.encode_strict_array(arr),
+            Value::Null => self.write_null(),
+            Value::Undefined => self.write_undefined(),
+            Value::Reference { index } => self.write_reference(index),
+            Value::ECMAArray(ref arr) => self.write_ecma_array(arr),
+            Value::ObjectEnd => self.write_object_end(),
+            Value::StrictArray(ref arr) => self.write_strict_array(arr),
             Value::Date {
                 time_zone,
                 millis_timestamp: unix_timestamp,
-            } => self.encode_date(unix_timestamp, time_zone),
-            Value::XMLDocument(ref xml) => self.encode_xml(xml),
-            Value::AVMPlus(ref value) => self.encode_avm_plus(value),
+            } => self.write_date(unix_timestamp, time_zone),
+            Value::XMLDocument(ref xml) => self.write_xml(xml),
+            Value::AVMPlus(ref value) => self.write_avm_plus(value),
         }
     }
-    fn encode_number(&mut self, v: f64) -> AmfEncodeResult<()> {
+    fn write_number(&mut self, v: f64) -> AmfWriteResult {
         self.inner.write_u8(amf0_marker::NUMBER)?;
         self.inner.write_f64::<BigEndian>(v)?;
         Ok(())
     }
-    fn encode_boolean(&mut self, v: bool) -> AmfEncodeResult<()> {
+    fn write_boolean(&mut self, v: bool) -> AmfWriteResult {
         self.inner.write_u8(amf0_marker::BOOLEAN)?;
         self.inner.write_u8(v as u8)?;
         Ok(())
     }
-    fn write_short_string(&mut self, v: &str) -> AmfEncodeResult<()> {
+    fn write_short_string_inner(&mut self, v: &str) -> AmfWriteResult {
         assert!(v.len() < 0xFFFF); // TODO CHECK this
         self.inner.write_u16::<BigEndian>(v.len() as u16)?;
         self.inner.write_all(v.as_bytes())?;
         Ok(())
     }
-    fn write_long_string(&mut self, v: &str) -> AmfEncodeResult<()> {
+    fn write_long_string_inner(&mut self, v: &str) -> AmfWriteResult {
         assert!(v.len() <= 0xFFFF_FFFF);
         self.inner.write_u32::<BigEndian>(v.len() as u32)?;
         self.inner.write_all(v.as_bytes())?;
         Ok(())
     }
-    fn encode_string(&mut self, v: &str) -> AmfEncodeResult<()> {
+    fn write_string(&mut self, v: &str) -> AmfWriteResult {
         if v.len() < 0xFFFF {
             self.inner.write_u8(amf0_marker::STRING)?;
-            self.write_short_string(v)?;
+            self.write_short_string_inner(v)?;
         } else {
             self.inner.write_u8(amf0_marker::LONG_STRING)?;
-            self.write_long_string(v)?;
+            self.write_long_string_inner(v)?;
         }
         Ok(())
     }
-    fn write_pairs(&mut self, entries: &[(String, Value)]) -> AmfEncodeResult<()> {
+    fn write_pairs_inner(&mut self, entries: &[(String, Value)]) -> AmfWriteResult {
         for (key, value) in entries {
-            self.write_short_string(&key)?;
-            self.encode(value)?;
+            self.write_short_string_inner(&key)?;
+            self.write(value)?;
         }
         self.inner.write_u16::<BigEndian>(0)?;
         self.inner.write_u8(amf0_marker::OBJECT_END)?;
         Ok(())
     }
-    fn encode_anonymous_object_arr(&mut self, entries: &[(String, Value)]) -> AmfEncodeResult<()> {
+    fn write_anonymous_object_arr(&mut self, entries: &[(String, Value)]) -> AmfWriteResult {
         assert!(entries.len() <= 0xFFFF_FFFF);
         self.inner.write_u8(amf0_marker::OBJECT)?;
-        self.write_pairs(entries)?;
+        self.write_pairs_inner(entries)?;
         Ok(())
     }
-    pub fn encode_anonymous_object(
-        &mut self,
-        entries: &HashMap<String, Value>,
-    ) -> AmfEncodeResult<()> {
+    pub fn write_anonymous_object(&mut self, entries: &HashMap<String, Value>) -> AmfWriteResult {
         let arr: Vec<(_, _)> = entries
             .iter()
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
-        self.encode_anonymous_object_arr(arr.as_slice())?;
+        self.write_anonymous_object_arr(arr.as_slice())?;
         Ok(())
     }
-    fn encode_null(&mut self) -> AmfEncodeResult<()> {
+    fn write_null(&mut self) -> AmfWriteResult {
         self.inner.write_u8(amf0_marker::NULL)?;
         Ok(())
     }
-    fn encode_undefined(&mut self) -> AmfEncodeResult<()> {
+    fn write_undefined(&mut self) -> AmfWriteResult {
         self.inner.write_u8(amf0_marker::UNDEFINED)?;
         Ok(())
     }
-    fn encode_reference(&mut self, index: u16) -> AmfEncodeResult<()> {
+    fn write_reference(&mut self, index: u16) -> AmfWriteResult {
         self.inner.write_u8(amf0_marker::REFERENCE)?;
         self.inner.write_u16::<BigEndian>(index)?;
         Ok(())
     }
-    fn encode_ecma_array(&mut self, arr: &[(String, Value)]) -> AmfEncodeResult<()> {
+    fn write_ecma_array(&mut self, arr: &[(String, Value)]) -> AmfWriteResult {
         assert!(arr.len() <= 0xFFFF_FFFF);
         self.inner.write_u8(amf0_marker::ECMA_ARRAY)?;
         self.inner.write_u32::<BigEndian>(arr.len() as u32)?;
-        self.write_pairs(arr)?;
+        self.write_pairs_inner(arr)?;
         Ok(())
     }
-    fn encode_object_end(&mut self) -> AmfEncodeResult<()> {
+    fn write_object_end(&mut self) -> AmfWriteResult {
         self.inner.write_u8(amf0_marker::OBJECT_END)?;
         Ok(())
     }
-    fn encode_strict_array(&mut self, arr: &[Value]) -> AmfEncodeResult<()> {
+    fn write_strict_array(&mut self, arr: &[Value]) -> AmfWriteResult {
         assert!(arr.len() <= 0xFFFF_FFFF);
         self.inner.write_u8(amf0_marker::STRICT_ARRAY)?;
         self.inner.write_u32::<BigEndian>(arr.len() as u32)?;
         for v in arr {
-            self.encode(v)?;
+            self.write(v)?;
         }
         Ok(())
     }
-    fn encode_date(&mut self, date_time: time::Duration, time_zone: i16) -> AmfEncodeResult<()> {
+    fn write_date(&mut self, date_time: time::Duration, time_zone: i16) -> AmfWriteResult {
         assert!(time_zone == 0x0000);
         self.inner.write_u8(amf0_marker::DATE)?;
         self.inner
@@ -156,37 +153,37 @@ where
         self.inner.write_i16::<BigEndian>(0x0000)?;
         Ok(())
     }
-    fn encode_xml(&mut self, xml: &str) -> AmfEncodeResult<()> {
+    fn write_xml(&mut self, xml: &str) -> AmfWriteResult {
         self.inner.write_u8(amf0_marker::XML_DOCUMENT)?;
-        self.write_long_string(xml)?;
+        self.write_long_string_inner(xml)?;
         Ok(())
     }
-    fn encode_typed_object_arr(
+    fn write_typed_object_arr_inner(
         &mut self,
         name: &str,
         entries: &[(String, Value)],
-    ) -> AmfEncodeResult<()> {
+    ) -> AmfWriteResult {
         assert!(entries.len() <= 0xFFFF_FFFF);
         self.inner.write_u8(amf0_marker::TYPED_OBJECT)?;
-        self.write_short_string(name)?;
-        self.write_pairs(entries)?;
+        self.write_short_string_inner(name)?;
+        self.write_pairs_inner(entries)?;
         Ok(())
     }
-    pub fn encode_typed_object(
+    pub fn write_typed_object(
         &mut self,
         name: &str,
         entries: &HashMap<String, Value>,
-    ) -> AmfEncodeResult<()> {
+    ) -> AmfWriteResult {
         let arr: Vec<(_, _)> = entries
             .iter()
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
-        self.encode_typed_object_arr(name, &arr)?;
+        self.write_typed_object_arr_inner(name, &arr)?;
         Ok(())
     }
-    fn encode_avm_plus(&mut self, value: &amf3::Value) -> AmfEncodeResult<()> {
+    fn write_avm_plus(&mut self, value: &amf3::Value) -> AmfWriteResult {
         self.inner.write_u8(amf0_marker::AVMPLUS_OBJECT)?;
-        amf3::Encoder::new(&mut self.inner).encode(value)?;
+        amf3::Writer::new(&mut self.inner).write(value)?;
         Ok(())
     }
 }
@@ -197,11 +194,11 @@ mod tests {
 
     use crate::{amf0::Value, amf3};
 
-    use super::Encoder;
+    use super::Writer;
     macro_rules! encode {
         ($value:expr) => {{
             let mut buf = Vec::new();
-            let res = Encoder::new(&mut buf).encode(&$value);
+            let res = Writer::new(&mut buf).write(&$value);
             assert!(res.is_ok());
             buf
         }};
@@ -248,8 +245,8 @@ mod tests {
             ];
 
             let mut buf = Vec::new();
-            Encoder::new(&mut buf)
-                .encode_anonymous_object_arr(&arr)
+            Writer::new(&mut buf)
+                .write_anonymous_object_arr(&arr)
                 .unwrap();
 
             assert_eq!(
@@ -266,8 +263,8 @@ mod tests {
             ];
 
             let mut buf = Vec::new();
-            Encoder::new(&mut buf)
-                .encode_anonymous_object_arr(&arr)
+            Writer::new(&mut buf)
+                .write_anonymous_object_arr(&arr)
                 .unwrap();
 
             assert_eq!(buf, include_bytes!("../../test_data/amf0-object.bin"));
@@ -393,8 +390,8 @@ mod tests {
         ];
 
         let mut buf = Vec::new();
-        Encoder::new(&mut buf)
-            .encode_typed_object_arr("org.amf.ASClass", &arr)
+        Writer::new(&mut buf)
+            .write_typed_object_arr_inner("org.amf.ASClass", &arr)
             .unwrap();
 
         assert_eq!(buf, include_bytes!("../../test_data/amf0-typed-object.bin"));

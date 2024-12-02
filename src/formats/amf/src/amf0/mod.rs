@@ -3,13 +3,13 @@
 use core::time;
 use std::io;
 
-pub use self::decode::Decoder;
-pub use self::encode::Encoder;
+pub use self::reader::Reader;
+pub use self::writer::Writer;
 use crate::amf3;
-use crate::error::{AmfDecodeResult, AmfEncodeResult};
+use crate::errors::{AmfReadResult, AmfWriteResult};
 
-mod decode;
-mod encode;
+mod reader;
+mod writer;
 
 /// @see: 2.1 Types Overview
 mod amf0_marker {
@@ -72,18 +72,18 @@ pub enum Value {
 }
 
 impl Value {
-    pub fn read_from<R>(reader: R) -> AmfDecodeResult<Self>
+    pub fn read_from<R>(reader: R) -> AmfReadResult<Self>
     where
         R: io::Read,
     {
-        Decoder::new(reader).decode()
+        Reader::new(reader).read()
     }
 
-    pub fn write_to<W>(&self, writer: W) -> AmfEncodeResult<()>
+    pub fn write_to<W>(&self, writer: W) -> AmfWriteResult
     where
         W: io::Write,
     {
-        Encoder::new(writer).encode(self)
+        Writer::new(writer).write(self)
     }
 
     pub fn try_as_str(&self) -> Option<&str> {

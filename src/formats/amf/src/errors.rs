@@ -5,7 +5,7 @@ use thiserror::Error;
 use crate::amf3::{self};
 
 #[derive(Error, Debug)]
-pub enum AmfDecodeError {
+pub enum AmfReadError {
     #[error("IO error: {0}")]
     Io(#[from] io::Error),
     #[error("invalid utf8 data: {0}")]
@@ -26,10 +26,10 @@ pub enum AmfDecodeError {
     UnsupportedExternalizable { name: String },
 }
 
-pub type AmfDecodeResult<T> = Result<T, AmfDecodeError>;
+pub type AmfReadResult<T> = Result<T, AmfReadError>;
 
 #[derive(Error, Debug)]
-pub enum AmfEncodeError {
+pub enum AmfWriteError {
     #[error("IO error: {0}")]
     Io(#[from] io::Error),
     #[error("u29 value out of range, value: {value}")]
@@ -42,4 +42,4 @@ pub enum AmfEncodeError {
         sealed_count: usize,
     },
 }
-pub type AmfEncodeResult<T> = Result<T, AmfEncodeError>;
+pub type AmfWriteResult = Result<(), AmfWriteError>;

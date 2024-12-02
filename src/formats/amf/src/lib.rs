@@ -1,10 +1,10 @@
 use std::io;
 
-use error::{AmfDecodeResult, AmfEncodeResult};
+use errors::{AmfReadResult, AmfWriteResult};
 
 pub mod amf0;
 pub mod amf3;
-pub mod error;
+pub mod errors;
 
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -19,7 +19,7 @@ pub enum Version {
 }
 
 impl Value {
-    pub fn read_from<R>(reader: R, version: Version) -> AmfDecodeResult<Self>
+    pub fn read_from<R>(reader: R, version: Version) -> AmfReadResult<Self>
     where
         R: io::Read,
     {
@@ -29,7 +29,7 @@ impl Value {
         }
     }
 
-    pub fn write_to<W>(&self, writer: W) -> AmfEncodeResult<()>
+    pub fn write_to<W>(&self, writer: W) -> AmfWriteResult
     where
         W: io::Write,
     {

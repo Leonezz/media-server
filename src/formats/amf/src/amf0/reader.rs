@@ -3,7 +3,7 @@ use std::{io, vec};
 
 use byteorder::{BigEndian, ReadBytesExt};
 
-use crate::error::{AmfDecodeError, AmfDecodeResult};
+use crate::errors::{AmfReadError, AmfReadResult};
 
 use super::{Value, amf0_marker, amf3};
 
@@ -13,11 +13,11 @@ struct Amf0Referenceable {
 }
 
 #[derive(Debug)]
-pub struct Decoder<R> {
+pub struct Reader<R> {
     inner: R,
     referenceable: Amf0Referenceable,
 }
-impl<R> Decoder<R> {
+impl<R> Reader<R> {
     /// Unwraps this `Decoder`, returning the underlying reader.
     pub fn into_inner(self) -> R {
         self.inner
@@ -33,7 +33,7 @@ impl<R> Decoder<R> {
         &mut self.inner
     }
 }
-impl<R> Decoder<R>
+impl<R> Reader<R>
 where
     R: io::Read,
 {
@@ -45,58 +45,58 @@ where
             },
         }
     }
-    pub fn decode(&mut self) -> AmfDecodeResult<Value> {
+    pub fn read(&mut self) -> AmfReadResult<Value> {
         let marker = self.inner.read_u8()?;
         match marker {
-            amf0_marker::NUMBER => self.decode_number(),
-            amf0_marker::BOOLEAN => self.decode_boolean(),
-            amf0_marker::STRING => self.decode_string(),
-            amf0_marker::OBJECT => self.decode_anonymous_object(),
-            amf0_marker::MOVIECLIP => Err(AmfDecodeError::Unsupported { marker }),
+            amf0_marker::NUMBER => self.read_number(),
+            amf0_marker::BOOLEAN => self.read_boolean(),
+            amf0_marker::STRING => self.read_string(),
+            amf0_marker::OBJECT => self.read_anonymous_object(),
+            amf0_marker::MOVIECLIP => Err(AmfReadError::Unsupported { marker }),
             amf0_marker::NULL => Ok(Value::Null),
             amf0_marker::UNDEFINED => Ok(Value::Undefined),
-            amf0_marker::REFERENCE => self.decode_reference(),
-            amf0_marker::ECMA_ARRAY => self.decode_ecma_array(),
+            amf0_marker::REFERENCE => self.read_reference(),
+            amf0_marker::ECMA_ARRAY => self.read_ecma_array(),
             amf0_marker::OBJECT_END => Ok(Value::ObjectEnd),
-            amf0_marker::STRICT_ARRAY => self.decode_strict_array(),
-            amf0_marker::DATE => self.decode_date(),
-            amf0_marker::LONG_STRING => self.decode_long_string(),
-            amf0_marker::UNSUPPORTED => Err(AmfDecodeError::Unsupported { marker }),
-            amf0_marker::RECORDSET => Err(AmfDecodeError::Unsupported { marker }),
-            amf0_marker::XML_DOCUMENT => self.decode_xml_document(),
-            amf0_marker::TYPED_OBJECT => self.decode_typed_object(),
-            amf0_marker::AVMPLUS_OBJECT => self.decode_avm_plus(),
-            _ => Err(AmfDecodeError::Unknown { marker }),
+            amf0_marker::STRICT_ARRAY => self.read_strict_array(),
+            amf0_marker::DATE => self.read_date(),
+            amf0_marker::LONG_STRING => self.read_long_string(),
+            amf0_marker::UNSUPPORTED => Err(AmfReadError::Unsupported { marker }),
+            amf0_marker::RECORDSET => Err(AmfReadError::Unsupported { marker }),
+            amf0_marker::XML_DOCUMENT => self.read_xml_document(),
+            amf0_marker::TYPED_OBJECT => self.read_typed_object(),
+            amf0_marker::AVMPLUS_OBJECT => self.read_avm_plus(),
+            _ => Err(AmfReadError::Unknown { marker }),
         }
     }
-    fn decode_number(&mut self) -> AmfDecodeResult<Value> {
+    fn read_number(&mut self) -> AmfReadResult<Value> {
         let number = self.inner.read_f64::<BigEndian>()?;
         Ok(Value::Number(number))
     }
-    fn decode_boolean(&mut self) -> AmfDecodeResult<Value> {
+    fn read_boolean(&mut self) -> AmfReadResult<Value> {
         let bool = self.inner.read_u8()?;
         Ok(Value::Boolean(bool != 0))
     }
-    fn read_utf8(&mut self, len: usize) -> AmfDecodeResult<String> {
+    fn read_utf8_inner(&mut self, len: usize) -> AmfReadResult<String> {
         let mut buffer = vec![0; len];
         self.inner.read_exact(&mut buffer)?;
         let result = String::from_utf8(buffer)?;
         Ok(result)
     }
-    fn decode_string(&mut self) -> AmfDecodeResult<Value> {
+    fn read_string(&mut self) -> AmfReadResult<Value> {
         let len = self.inner.read_u16::<BigEndian>()?;
-        self.read_utf8(len as usize).map(Value::String)
+        self.read_utf8_inner(len as usize).map(Value::String)
     }
-    fn decode_long_string(&mut self) -> AmfDecodeResult<Value> {
+    fn read_long_string(&mut self) -> AmfReadResult<Value> {
         let len = self.inner.read_u32::<BigEndian>()?;
-        self.read_utf8(len as usize).map(Value::String)
+        self.read_utf8_inner(len as usize).map(Value::String)
     }
-    fn decode_key_value_pairs(&mut self) -> AmfDecodeResult<Vec<(String, Value)>> {
+    fn read_key_value_pairs_inner(&mut self) -> AmfReadResult<Vec<(String, Value)>> {
         let mut result: Vec<(String, Value)> = Vec::new();
         loop {
             let len: u16 = self.inner.read_u16::<BigEndian>()?;
-            let key = self.read_utf8(len as usize)?;
-            match self.decode() {
+            let key = self.read_utf8_inner(len as usize)?;
+            match self.read() {
                 Ok(Value::ObjectEnd) if key.is_empty() => {
                     break;
                 }
@@ -110,81 +110,81 @@ where
         }
         Ok(result)
     }
-    fn decode_anonymous_object(&mut self) -> AmfDecodeResult<Value> {
-        self.read_and_record_referenceable(|this| {
-            let pairs = this.decode_key_value_pairs()?;
+    fn read_anonymous_object(&mut self) -> AmfReadResult<Value> {
+        self.read_and_record_referenceable_inner(|this| {
+            let pairs = this.read_key_value_pairs_inner()?;
             Ok(Value::Object {
                 name: None,
                 entries: pairs,
             })
         })
     }
-    fn decode_reference(&mut self) -> AmfDecodeResult<Value> {
+    fn read_reference(&mut self) -> AmfReadResult<Value> {
         let index = self.inner.read_u16::<BigEndian>()? as usize;
         self.referenceable
             .objects
             .get(index)
-            .ok_or(AmfDecodeError::OutOfRangeReference { index: index })
+            .ok_or(AmfReadError::OutOfRangeReference { index: index })
             .and_then(|v| match *v {
-                Value::Null => Err(AmfDecodeError::CircularReference { index }),
+                Value::Null => Err(AmfReadError::CircularReference { index }),
                 _ => Ok(v.clone()),
             })
     }
-    fn decode_ecma_array(&mut self) -> AmfDecodeResult<Value> {
-        self.read_and_record_referenceable(|this| {
+    fn read_ecma_array(&mut self) -> AmfReadResult<Value> {
+        self.read_and_record_referenceable_inner(|this| {
             // TODO - is this completely useless?
             let _len = this.inner.read_u32::<BigEndian>()? as usize;
-            let pairs = this.decode_key_value_pairs()?;
+            let pairs = this.read_key_value_pairs_inner()?;
             Ok(Value::ECMAArray(pairs))
         })
     }
-    fn decode_strict_array(&mut self) -> AmfDecodeResult<Value> {
-        self.read_and_record_referenceable(|this| {
+    fn read_strict_array(&mut self) -> AmfReadResult<Value> {
+        self.read_and_record_referenceable_inner(|this| {
             let len = this.inner.read_u32::<BigEndian>()? as usize;
             let values = (0..len)
-                .map(|_| this.decode())
-                .collect::<AmfDecodeResult<_>>()?;
+                .map(|_| this.read())
+                .collect::<AmfReadResult<_>>()?;
             Ok(Value::StrictArray(values))
         })
     }
-    fn decode_date(&mut self) -> AmfDecodeResult<Value> {
+    fn read_date(&mut self) -> AmfReadResult<Value> {
         let timestamp = self.inner.read_f64::<BigEndian>()?;
         if !(timestamp.is_finite() && timestamp.is_sign_positive()) {
-            return Err(AmfDecodeError::InvalidDate {
+            return Err(AmfReadError::InvalidDate {
                 milliseconds: timestamp,
             });
         }
         let time_zone = self.inner.read_i16::<BigEndian>()?;
         if time_zone != 0x0000 {
-            return Err(AmfDecodeError::UnexpectedTimeZone { offset: time_zone });
+            return Err(AmfReadError::UnexpectedTimeZone { offset: time_zone });
         }
         Ok(Value::Date {
             time_zone,
             millis_timestamp: time::Duration::from_millis(timestamp as u64),
         })
     }
-    fn decode_xml_document(&mut self) -> AmfDecodeResult<Value> {
+    fn read_xml_document(&mut self) -> AmfReadResult<Value> {
         let len = self.inner.read_u32::<BigEndian>()?;
-        self.read_utf8(len as usize).map(Value::XMLDocument)
+        self.read_utf8_inner(len as usize).map(Value::XMLDocument)
     }
-    fn decode_typed_object(&mut self) -> AmfDecodeResult<Value> {
-        self.read_and_record_referenceable(|this| {
+    fn read_typed_object(&mut self) -> AmfReadResult<Value> {
+        self.read_and_record_referenceable_inner(|this| {
             let name_len = this.inner.read_u16::<BigEndian>()?;
-            let name = this.read_utf8(name_len as usize)?;
-            let pairs = this.decode_key_value_pairs()?;
+            let name = this.read_utf8_inner(name_len as usize)?;
+            let pairs = this.read_key_value_pairs_inner()?;
             Ok(Value::Object {
                 name: Some(name),
                 entries: pairs,
             })
         })
     }
-    fn decode_avm_plus(&mut self) -> AmfDecodeResult<Value> {
+    fn read_avm_plus(&mut self) -> AmfReadResult<Value> {
         let result = amf3::Decoder::new(&mut self.inner).decode()?;
         Ok(Value::AVMPlus(result))
     }
-    fn read_and_record_referenceable<F>(&mut self, f: F) -> AmfDecodeResult<Value>
+    fn read_and_record_referenceable_inner<F>(&mut self, f: F) -> AmfReadResult<Value>
     where
-        F: FnOnce(&mut Self) -> AmfDecodeResult<Value>,
+        F: FnOnce(&mut Self) -> AmfReadResult<Value>,
     {
         let len = self.referenceable.objects.len();
         self.referenceable.objects.push(Value::Null);
@@ -205,14 +205,14 @@ mod tests {
     use crate::{
         amf0::{Value, amf0_marker},
         amf3,
-        error::AmfDecodeError,
+        errors::AmfReadError,
     };
 
-    use super::Decoder;
+    use super::Reader;
     macro_rules! decode {
         ($file:expr) => {{
             let data = include_bytes!($file);
-            Decoder::new(&mut &data[..]).decode()
+            Reader::new(&mut &data[..]).read()
         }};
     }
 
@@ -220,7 +220,7 @@ mod tests {
         ($file:expr) => {
             let err = decode!($file).unwrap_err();
             match err {
-                AmfDecodeError::Io(e) => assert_eq!(e.kind(), io::ErrorKind::UnexpectedEof),
+                AmfReadError::Io(e) => assert_eq!(e.kind(), io::ErrorKind::UnexpectedEof),
                 _ => assert!(false),
             }
         };
@@ -335,7 +335,7 @@ mod tests {
     fn movieclip() {
         let err = decode!("../../test_data/amf0-movieclip.bin").unwrap_err();
         match err {
-            AmfDecodeError::Unsupported { marker } => assert_eq!(marker, amf0_marker::MOVIECLIP),
+            AmfReadError::Unsupported { marker } => assert_eq!(marker, amf0_marker::MOVIECLIP),
             _ => assert!(false),
         }
     }
@@ -441,11 +441,11 @@ mod tests {
         );
         assert!(matches!(
             decode!("../../test_data/amf0-date-minus.bin"),
-            Err(AmfDecodeError::InvalidDate { milliseconds: -1.0 })
+            Err(AmfReadError::InvalidDate { milliseconds: -1.0 })
         ));
         assert!(matches!(
             decode!("../../test_data/amf0-date-invalid.bin"),
-            Err(AmfDecodeError::InvalidDate {
+            Err(AmfReadError::InvalidDate {
                 milliseconds: f64::INFINITY
             })
         ));
@@ -474,19 +474,19 @@ mod tests {
     fn unsupported() {
         assert!(matches!(
             decode!("../../test_data/amf0-movieclip.bin"),
-            Err(AmfDecodeError::Unsupported {
+            Err(AmfReadError::Unsupported {
                 marker: amf0_marker::MOVIECLIP
             })
         ));
         assert!(matches!(
             decode!("../../test_data/amf0-recordset.bin"),
-            Err(AmfDecodeError::Unsupported {
+            Err(AmfReadError::Unsupported {
                 marker: amf0_marker::RECORDSET
             })
         ));
         assert!(matches!(
             decode!("../../test_data/amf0-unsupported.bin"),
-            Err(AmfDecodeError::Unsupported {
+            Err(AmfReadError::Unsupported {
                 marker: amf0_marker::UNSUPPORTED
             })
         ));
@@ -497,7 +497,7 @@ mod tests {
         assert_eof!("../../test_data/amf0-empty.bin");
         assert!(matches!(
             decode!("../../test_data/amf0-unknown-marker.bin"),
-            Err(AmfDecodeError::Unknown { marker: _ })
+            Err(AmfReadError::Unknown { marker: _ })
         ));
     }
 
