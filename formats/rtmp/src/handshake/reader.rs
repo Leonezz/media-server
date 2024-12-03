@@ -1,49 +1,70 @@
+use core::time;
 use std::io;
 
-use super::{C1S1Packet, C2S2Packet, Version, errors::HandshakeResult};
-use byteorder::{BigEndian, WriteBytesExt};
+use super::{
+    C0S0Packet, C1S1Packet, C2S2Packet, Version,
+    errors::{HandshakeError, HandshakeResult},
+};
+use byteorder::{BigEndian, ReadBytesExt};
 
-pub struct Reader<W> {
-    inner: W,
+pub struct Reader<R> {
+    inner: R,
 }
 
-impl<W> Reader<W> {
-    pub fn into_inner(self) -> W {
+impl<R> Reader<R> {
+    pub fn into_inner(self) -> R {
         self.inner
     }
 
-    pub fn inner(&self) -> &W {
+    pub fn inner(&self) -> &R {
         &self.inner
     }
 
-    pub fn inner_mut(&mut self) -> &mut W {
+    pub fn inner_mut(&mut self) -> &mut R {
         &mut self.inner
     }
 }
 
-impl<W> Reader<W>
+impl<R> Reader<R>
 where
-    W: io::Write,
+    R: io::Read,
 {
-    pub fn read_c0s0(&mut self, version: Version) -> HandshakeResult<()> {
-        self.inner.write_u8(version.into())?;
-        Ok(())
+    pub fn new(inner: R) -> Self {
+        Self { inner }
     }
 
-    pub fn read_c1s1(&mut self, packet: C1S1Packet) -> HandshakeResult<()> {
-        self.inner
-            .write_u32::<BigEndian>(packet.timestamp.as_millis() as u32)?;
-        self.inner.write_u32::<BigEndian>(0)?;
-        self.inner.write_all(&packet.random_bytes)?;
-        Ok(())
+    pub fn read_c0s0(&mut self) -> HandshakeResult<C0S0Packet> {
+        let version = self.inner.read_u8()?;
+        let version = match version {
+            0 => Version::V0,
+            1 => Version::V1,
+            2 => Version::V2,
+            3 => Version::V3,
+            _ => return Err(HandshakeError::BadVersion(version)),
+        };
+        Ok(C0S0Packet { version })
     }
 
-    pub fn read_c2s2(&mut self, packet: C2S2Packet) -> HandshakeResult<()> {
-        self.inner
-            .write_u32::<BigEndian>(packet.timestamp.as_millis() as u32)?;
-        self.inner
-            .write_u32::<BigEndian>(packet.timestamp2.as_millis() as u32)?;
-        self.inner.write_all(&packet.random_echo)?;
-        Ok(())
+    pub fn read_c1s1(&mut self) -> HandshakeResult<C1S1Packet> {
+        let time = self.inner.read_u32::<BigEndian>()?;
+        let _zero = self.inner.read_u32::<BigEndian>()?;
+        let mut buf = [0; 1528];
+        self.inner.read_exact(&mut buf)?;
+        Ok(C1S1Packet {
+            timestamp: time::Duration::from_millis(time as u64),
+            random_bytes: buf,
+        })
+    }
+
+    pub fn read_c2s2(&mut self) -> HandshakeResult<C2S2Packet> {
+        let time = self.inner.read_u32::<BigEndian>()?;
+        let time2 = self.inner.read_u32::<BigEndian>()?;
+        let mut buf = [0; 1528];
+        self.inner.read_exact(&mut buf)?;
+        Ok(C2S2Packet {
+            timestamp: time::Duration::from_millis(time as u64),
+            timestamp2: time::Duration::from_millis(time2 as u64),
+            random_echo: buf,
+        })
     }
 }

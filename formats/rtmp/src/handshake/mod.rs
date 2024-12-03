@@ -1,7 +1,7 @@
 use core::time;
 
-pub mod writer;
 pub mod reader;
+pub mod writer;
 pub mod errors;
 
 #[derive(Debug)]
@@ -38,21 +38,53 @@ impl Into<u8> for Version {
         }
     }
 }
-
+/// +-------------+                +-------------+
+/// |    Client   | TCP/IP Network |    Server   |
+/// +-------------+       |        +-------------+
+///        |              |               |
+///  Uninitialized        |         Uninitialized
+///        |      C0      |               |
+///        |------------->|        C0     |
+///        |              |-------------->|
+///        |      C1      |               |
+///        |------------->|        S0     |
+///        |              |<--------------|
+///        |              |        S1     |
+///  Version sent         |<--------------|
+///        |      S0      |               |
+///        |<-------------|               |
+///        |      S1      |               |
+///        |<-------------|         Version sent
+///        |              |        C1     |
+///        |              |-------------->|
+///        |      C2      |               |
+///        |------------->|        S2     |
+///        |              |<--------------|
+///     Ack sent          |            Ack Sent
+///        |      S2      |               |
+///        |<-------------|               |
+///        |              |        C2     |
+///        |              |-------------->|
+///   Handshake Done      |          Handshake Done
+///        |              |               |
+///     Pictorial Representation of Handshake
 #[derive(PartialEq, Eq)]
 pub enum HandshakeClientState {
-    WriteC0C1,
-    ReadS0S1S2,
-    WriteC2,
-    Finish,
+    Uninitialized,
+    VersionSent,
+    S0S1Recived,
+    AckSent,
+    Done
 }
 
 #[derive(Clone)]
 pub enum HandshakeServerState {
-    ReadC0C1,
-    WriteS0S1S2,
-    ReadC2,
-    Finish,
+    Uninitialized,
+    C0Recived,
+    VersionSent,
+    C1Recived,
+    AckSent,
+    Done
 }
 
 pub const RTMP_VERSION: u8 = 3;
