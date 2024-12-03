@@ -1,8 +1,9 @@
 use core::time;
 
+pub mod errors;
 pub mod reader;
 pub mod writer;
-pub mod errors;
+pub mod consts;
 
 #[derive(Debug)]
 pub struct C0S0Packet {
@@ -74,7 +75,7 @@ pub enum HandshakeClientState {
     VersionSent,
     S0S1Recived,
     AckSent,
-    Done
+    Done,
 }
 
 #[derive(Clone)]
@@ -84,7 +85,7 @@ pub enum HandshakeServerState {
     VersionSent,
     C1Recived,
     AckSent,
-    Done
+    Done,
 }
 
 pub const RTMP_VERSION: u8 = 3;
