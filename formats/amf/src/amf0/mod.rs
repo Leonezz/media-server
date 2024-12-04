@@ -10,6 +10,7 @@ use crate::errors::{AmfReadResult, AmfWriteResult};
 
 mod reader;
 mod writer;
+mod codec;
 
 /// @see: 2.1 Types Overview
 mod amf0_marker {
@@ -72,7 +73,7 @@ pub enum Value {
 }
 
 impl Value {
-    pub fn read_from<R>(reader: R) -> AmfReadResult<Self>
+    pub fn read_from<'a, R>(reader: R) -> AmfReadResult<Self>
     where
         R: io::Read,
     {
