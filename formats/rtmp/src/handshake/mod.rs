@@ -4,6 +4,7 @@ pub mod errors;
 pub mod reader;
 pub mod writer;
 pub mod consts;
+pub mod codec;
 
 #[derive(Debug)]
 pub struct C0S0Packet {

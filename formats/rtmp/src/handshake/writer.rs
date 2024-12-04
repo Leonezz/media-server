@@ -25,6 +25,9 @@ impl<W> Writer<W>
 where
     W: io::Write,
 {
+    pub fn new(inner: W) -> Self {
+        Self { inner }
+    }
     pub fn write_c0s0(&mut self, version: Version) -> HandshakeResult<()> {
         self.inner.write_u8(version.into())?;
         Ok(())
