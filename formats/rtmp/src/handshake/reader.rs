@@ -47,11 +47,12 @@ where
 
     pub fn read_c1s1(&mut self) -> HandshakeResult<C1S1Packet> {
         let time = self.inner.read_u32::<BigEndian>()?;
-        let _zero = self.inner.read_u32::<BigEndian>()?;
+        let zero = self.inner.read_u32::<BigEndian>()?;
         let mut buf = [0; 1528];
         self.inner.read_exact(&mut buf)?;
         Ok(C1S1Packet {
             timestamp: time::Duration::from_millis(time as u64),
+            zeros: zero,
             random_bytes: buf,
         })
     }

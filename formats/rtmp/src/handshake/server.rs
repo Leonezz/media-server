@@ -1,0 +1,315 @@
+use core::time;
+use std::{
+    io::{Cursor, Read, Seek, SeekFrom, copy},
+    mem::MaybeUninit,
+    net::SocketAddr,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+use byteorder::ReadBytesExt;
+use rand_core::RngCore;
+use tokio::{
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufWriter},
+    net::TcpListener,
+};
+use tokio_util::{
+    bytes::{Buf, BufMut, BytesMut},
+    codec::{Decoder, Encoder, Framed, FramedRead},
+    either::Either,
+};
+
+use super::{
+    C0S0Packet, C1S1Packet, C2S2Packet, HandshakeServerState, RTMP_VERSION,
+    codec::{C0S0PacketCodec, C1S1PacketCodec, C2S2PacketCodec},
+    consts::{RTMP_HANDSHAKE_SIZE, RTMP_SERVER_KEY, RTMP_SERVER_VERSION, SHA256_DIGEST_SIZE},
+    digest::{make_digest, make_message, validate_c1_digest},
+    errors::{DigestError, HandshakeError, HandshakeResult},
+    writer::Writer,
+};
+
+pub trait AsyncHandshakeServer {
+    async fn read_c0(&mut self) -> HandshakeResult<()>;
+    async fn read_c1(&mut self) -> HandshakeResult<()>;
+    async fn read_c2(&mut self) -> HandshakeResult<()>;
+
+    async fn write_s0(&mut self) -> HandshakeResult<()>;
+    async fn write_s1(&mut self) -> HandshakeResult<()>;
+    async fn write_s2(&mut self) -> HandshakeResult<()>;
+    async fn flush(&mut self) -> HandshakeResult<()>;
+
+    fn state(&self) -> HandshakeServerState;
+    fn set_state(&mut self, state: HandshakeServerState);
+
+    async fn handshake(&mut self) -> HandshakeResult<()> {
+        loop {
+            match self.state() {
+                HandshakeServerState::Uninitialized => {
+                    self.read_c0().await?;
+                    self.read_c1().await?;
+                    self.set_state(HandshakeServerState::C0C1Recived);
+                }
+                HandshakeServerState::C0C1Recived => {
+                    self.write_s0().await?;
+                    self.write_s1().await?;
+                    self.write_s2().await?;
+                    self.flush().await?;
+                    self.set_state(HandshakeServerState::S0S1S2Sent);
+
+                    break;
+                }
+                HandshakeServerState::S0S1S2Sent => {
+                    self.read_c2().await?;
+                    self.set_state(HandshakeServerState::Done);
+                }
+                HandshakeServerState::Done => break,
+            }
+        }
+        Ok(())
+    }
+}
+
+struct SimpleHandshakeServer<T: AsyncRead + AsyncWrite> {
+    io: T,
+    c1_bytes: BytesMut,
+    c1_timestamp: u32,
+    state: HandshakeServerState,
+}
+
+impl<T> SimpleHandshakeServer<T>
+where
+    T: AsyncRead + AsyncWrite + Unpin,
+{
+    pub fn new(io: T) -> Self {
+        Self {
+            io: io,
+            c1_bytes: BytesMut::with_capacity(1536),
+            c1_timestamp: 0,
+            state: HandshakeServerState::Uninitialized,
+        }
+    }
+}
+
+impl<IO> AsyncHandshakeServer for SimpleHandshakeServer<IO>
+where
+    IO: AsyncRead + AsyncWrite + Unpin,
+{
+    async fn flush(&mut self) -> HandshakeResult<()> {
+        BufWriter::new(&mut self.io).flush().await?;
+        Ok(())
+    }
+    fn state(&self) -> HandshakeServerState {
+        self.state.clone()
+    }
+    fn set_state(&mut self, state: HandshakeServerState) {
+        self.state = state
+    }
+    async fn read_c0(&mut self) -> HandshakeResult<()> {
+        self.io.read_u8().await?;
+        Ok(())
+    }
+    async fn read_c1(&mut self) -> HandshakeResult<()> {
+        self.c1_bytes.resize(RTMP_HANDSHAKE_SIZE, 0);
+        self.io.read_exact(&mut self.c1_bytes).await?;
+        Ok(())
+    }
+    async fn read_c2(&mut self) -> HandshakeResult<()> {
+        let mut buf: [u8; RTMP_HANDSHAKE_SIZE] = [0; RTMP_HANDSHAKE_SIZE];
+        self.io.read_exact(&mut buf);
+        Ok(())
+    }
+    async fn write_s0(&mut self) -> HandshakeResult<()> {
+        let mut bytes = BytesMut::with_capacity(1);
+        C0S0PacketCodec.encode(
+            C0S0Packet {
+                version: RTMP_VERSION,
+            },
+            &mut bytes,
+        )?;
+        self.io.write_all_buf(&mut bytes).await?;
+        Ok(())
+    }
+    async fn write_s1(&mut self) -> HandshakeResult<()> {
+        let mut bytes = BytesMut::with_capacity(RTMP_HANDSHAKE_SIZE);
+        let mut random_bytes: [u8; 1528] = [0; 1528];
+        let mut random_generator = rand::thread_rng();
+        random_generator.fill_bytes(&mut random_bytes);
+        C1S1PacketCodec.encode(
+            C1S1Packet {
+                timestamp: SystemTime::now().duration_since(UNIX_EPOCH)?,
+                zeros: self.c1_timestamp,
+                random_bytes: random_bytes,
+            },
+            &mut bytes,
+        )?;
+
+        self.io.write_all_buf(&mut bytes).await?;
+        Ok(())
+    }
+    async fn write_s2(&mut self) -> HandshakeResult<()> {
+        self.io.write_all_buf(&mut self.c1_bytes).await?;
+        Ok(())
+    }
+}
+
+struct ComplexHandshakeServer<T> {
+    io: T,
+    writer_buffer: BytesMut,
+    c1_digest: [u8; SHA256_DIGEST_SIZE],
+    c1_timestamp: u32,
+    state: HandshakeServerState,
+}
+
+impl<T> ComplexHandshakeServer<T>
+where
+    T: AsyncRead + AsyncWrite + Unpin,
+{
+    pub fn new(io: T) -> Self {
+        Self {
+            io,
+            writer_buffer: BytesMut::with_capacity(4096),
+            c1_digest: [0; SHA256_DIGEST_SIZE],
+            c1_timestamp: 0,
+            state: HandshakeServerState::Uninitialized,
+        }
+    }
+}
+
+impl<T> AsyncHandshakeServer for ComplexHandshakeServer<T>
+where
+    T: AsyncRead + AsyncWrite + Unpin,
+{
+    async fn flush(&mut self) -> HandshakeResult<()> {
+        self.io.write_all_buf(&mut self.writer_buffer).await?;
+        self.io.flush().await?;
+        self.writer_buffer.clear();
+        Ok(())
+    }
+    fn state(&self) -> HandshakeServerState {
+        self.state.clone()
+    }
+    fn set_state(&mut self, state: HandshakeServerState) {
+        self.state = state
+    }
+
+    async fn read_c0(&mut self) -> HandshakeResult<()> {
+        self.io.read_u8().await?;
+        Ok(())
+    }
+    async fn read_c1(&mut self) -> HandshakeResult<()> {
+        let mut bytes = [0; RTMP_HANDSHAKE_SIZE];
+        self.io.read_exact(&mut bytes).await?;
+        let digest = validate_c1_digest(&bytes)?;
+        if digest.len() != SHA256_DIGEST_SIZE {
+            return Err(HandshakeError::DigestError(DigestError::WrongLength {
+                length: digest.len(),
+            }));
+        }
+        for i in 0..SHA256_DIGEST_SIZE {
+            self.c1_digest[i] = digest[i]
+        }
+        Ok(())
+    }
+    async fn read_c2(&mut self) -> HandshakeResult<()> {
+        let mut bytes = [0 as u8; RTMP_HANDSHAKE_SIZE];
+        self.io.read_exact(&mut bytes).await?;
+        Ok(())
+    }
+    async fn write_s0(&mut self) -> HandshakeResult<()> {
+        C0S0PacketCodec.encode(
+            C0S0Packet {
+                version: RTMP_VERSION,
+            },
+            &mut self.writer_buffer,
+        )
+    }
+    async fn write_s1(&mut self) -> HandshakeResult<()> {
+        let mut bytes = BytesMut::with_capacity(RTMP_HANDSHAKE_SIZE);
+        let mut random_bytes: [u8; 1528] = [0; 1528];
+        let mut random_generator = rand::thread_rng();
+        random_generator.fill_bytes(&mut random_bytes);
+        C1S1PacketCodec.encode(
+            C1S1Packet {
+                timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap(),
+                zeros: RTMP_SERVER_VERSION.into(),
+                random_bytes: random_bytes,
+            },
+            &mut bytes,
+        )?;
+        let mut bytes_array: [u8; 1536] = [0; RTMP_HANDSHAKE_SIZE];
+        bytes.reader().read_exact(&mut bytes_array)?;
+        let message = make_message(&RTMP_SERVER_KEY, &bytes_array)?;
+        self.writer_buffer.extend_from_slice(&message);
+        Ok(())
+    }
+    async fn write_s2(&mut self) -> HandshakeResult<()> {
+        let mut bytes = BytesMut::with_capacity(RTMP_HANDSHAKE_SIZE);
+        let mut random_bytes: [u8; 1528] = [0; 1528];
+        let mut random_generator = rand::thread_rng();
+        random_generator.fill_bytes(&mut random_bytes);
+        C2S2PacketCodec.encode(
+            C2S2Packet {
+                timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap(),
+                timestamp2: time::Duration::from_millis(self.c1_timestamp as u64),
+                random_echo: random_bytes,
+            },
+            &mut bytes,
+        )?;
+        let key = make_digest(&RTMP_SERVER_KEY, &self.c1_digest.into())?;
+        let mut bytes_array: [u8; RTMP_HANDSHAKE_SIZE] = [0; RTMP_HANDSHAKE_SIZE];
+        bytes.reader().read_exact(&mut bytes_array)?;
+        let digest = make_digest(
+            &key,
+            &bytes_array[..RTMP_HANDSHAKE_SIZE - SHA256_DIGEST_SIZE].into(),
+        )?;
+        self.writer_buffer.extend_from_slice(
+            &[
+                &bytes_array[..RTMP_HANDSHAKE_SIZE - SHA256_DIGEST_SIZE],
+                &digest[..],
+            ]
+            .concat()
+            .as_slice(),
+        );
+        Ok(())
+    }
+}
+
+impl<T> Into<SimpleHandshakeServer<T>> for ComplexHandshakeServer<T>
+where
+    T: AsyncRead + AsyncWrite + Unpin,
+{
+    fn into(self) -> SimpleHandshakeServer<T> {
+        let mut res = SimpleHandshakeServer::new(self.io);
+        res.state = self.state;
+        res
+    }
+}
+
+struct HandshakeServer<T: AsyncRead + AsyncWrite> {
+    handshaker: Either<ComplexHandshakeServer<T>, SimpleHandshakeServer<T>>,
+}
+
+impl<T> HandshakeServer<T>
+where
+    T: AsyncRead + AsyncWrite + Unpin,
+{
+    pub fn new(io: T) -> Self {
+        Self {
+            handshaker: Either::Left(ComplexHandshakeServer::new(io)),
+        }
+    }
+    pub async fn handshake(mut self) -> HandshakeResult<()> {
+        if let Either::Left(mut h) = self.handshaker {
+            if let Err(HandshakeError::DigestError(_)) = h.handshake().await {
+                self.handshaker = Either::Right(h.into());
+            } else {
+                self.handshaker = Either::Left(h)
+            }
+        }
+
+        if let Either::Right(mut h) = self.handshaker {
+            h.handshake().await?;
+        }
+
+        Ok(())
+    }
+}

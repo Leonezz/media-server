@@ -1,3 +1,6 @@
+pub const RTMP_SERVER_KEY_FIRST_HALF: &str = "Genuine Adobe Flash Media Server 001";
+pub const RTMP_CLIENT_KEY_FIRST_HALF: &str = "Genuine Adobe Flash Player 001";
+
 pub const RTMP_SERVER_KEY: [u8; 68] = [
     b'G', b'e', b'n', b'u', b'i', b'n', b'e', b' ', b'A', b'd', b'o', b'b', b'e', b'i', b'F', b'l',
     b'a', b's', b'h', b' ', b'M', b'e', b'd', b'i', b'a', b' ', b'S', b'e', b'r', b'v', b'e', b'r',
@@ -14,6 +17,23 @@ pub const RTMP_CLIENT_KEY: [u8; 62] = [
     0x6E, 0xEC, 0x5D, 0x2D, 0x29, 0x80, 0x6F, 0xAB, 0x93, 0xB8, 0xE6, 0x36, 0xCF, 0xEB, 0x31, 0xAE,
 ];
 
-pub const RTMP_SERVER_VERSION: [u8; 4] = [0x0D, 0x0E, 0x0A, 0x0D];
-pub const RTMP_CLIENT_VERSION: [u8; 4] = [0x0C, 0x00, 0x0D, 0x0E];
+pub struct FourBytes([u8; 4]);
+pub const RTMP_SERVER_VERSION: FourBytes = FourBytes([0x0D, 0x0E, 0x0A, 0x0D]);
+pub const RTMP_CLIENT_VERSION: FourBytes = FourBytes([0x0C, 0x00, 0x0D, 0x0E]);
 pub const RTMP_HANDSHAKE_SIZE: usize = 1536;
+pub const SHA256_DIGEST_SIZE: usize = 32;
+
+impl Into<u32> for FourBytes {
+    fn into(self) -> u32 {
+        let mut res: u32 = 0;
+        res <<= 8;
+        res |= self.0[0] as u32;
+        res <<= 8;
+        res |= self.0[1] as u32;
+        res <<= 8;
+        res |= self.0[2] as u32;
+        res <<= 8;
+        res |= self.0[3] as u32;
+        res
+    }
+}

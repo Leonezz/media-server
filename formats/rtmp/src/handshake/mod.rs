@@ -1,10 +1,12 @@
 use core::time;
 
+pub mod codec;
+pub mod consts;
+pub mod digest;
 pub mod errors;
 pub mod reader;
+pub mod server;
 pub mod writer;
-pub mod consts;
-pub mod codec;
 
 #[derive(Debug)]
 pub struct C0S0Packet {
@@ -13,6 +15,7 @@ pub struct C0S0Packet {
 
 pub struct C1S1Packet {
     timestamp: time::Duration,
+    zeros: u32,
     random_bytes: [u8; 1528],
 }
 
@@ -73,7 +76,7 @@ impl Into<u8> for Version {
 #[derive(PartialEq, Eq)]
 pub enum HandshakeClientState {
     Uninitialized,
-    VersionSent,
+    C0C1Rent,
     S0S1Recived,
     AckSent,
     Done,
@@ -82,11 +85,9 @@ pub enum HandshakeClientState {
 #[derive(Clone)]
 pub enum HandshakeServerState {
     Uninitialized,
-    C0Recived,
-    VersionSent,
-    C1Recived,
-    AckSent,
+    C0C1Recived,
+    S0S1S2Sent,
     Done,
 }
 
-pub const RTMP_VERSION: u8 = 3;
+pub const RTMP_VERSION: Version = Version::V3;

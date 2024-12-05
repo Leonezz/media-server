@@ -14,6 +14,8 @@ pub enum DigestError {
     UnknownSchema(u8),
     #[error("digest not found")]
     NotFound,
+    #[error("digest validate failed")]
+    Invalid,
 }
 
 #[derive(Debug, Error)]
@@ -28,6 +30,8 @@ pub enum HandshakeError {
     S0VersionNotMatch,
     #[error("bad version: {0}")]
     BadVersion(u8),
+    #[error("insufficient data")]
+    InsufficientData { expected: usize },
 }
 
 pub type HandshakeResult<T> = Result<T, HandshakeError>;
