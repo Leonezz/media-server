@@ -82,7 +82,7 @@ pub enum HandshakeClientState {
     Done,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum HandshakeServerState {
     Uninitialized,
     C0C1Recived,

@@ -1,22 +1,18 @@
 use core::time;
 use std::{
-    io::{Cursor, Read, Seek, SeekFrom, copy},
-    mem::MaybeUninit,
-    net::SocketAddr,
+    fmt::Debug,
+    io::Read,
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use byteorder::ReadBytesExt;
 use rand_core::RngCore;
-use tokio::{
-    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufWriter},
-    net::TcpListener,
-};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufWriter};
 use tokio_util::{
-    bytes::{Buf, BufMut, BytesMut},
-    codec::{Decoder, Encoder, Framed, FramedRead},
+    bytes::{Buf, BytesMut},
+    codec::Encoder,
     either::Either,
 };
+use tracing::{debug, error, trace};
 
 use super::{
     C0S0Packet, C1S1Packet, C2S2Packet, HandshakeServerState, RTMP_VERSION,
@@ -24,7 +20,6 @@ use super::{
     consts::{RTMP_HANDSHAKE_SIZE, RTMP_SERVER_KEY, RTMP_SERVER_VERSION, SHA256_DIGEST_SIZE},
     digest::{make_digest, make_message, validate_c1_digest},
     errors::{DigestError, HandshakeError, HandshakeResult},
-    writer::Writer,
 };
 
 pub trait AsyncHandshakeServer {
@@ -42,7 +37,9 @@ pub trait AsyncHandshakeServer {
 
     async fn handshake(&mut self) -> HandshakeResult<()> {
         loop {
-            match self.state() {
+            let state = self.state();
+            debug!("handshake with state: {:?}", state);
+            match state {
                 HandshakeServerState::Uninitialized => {
                     self.read_c0().await?;
                     self.read_c1().await?;
@@ -68,6 +65,7 @@ pub trait AsyncHandshakeServer {
     }
 }
 
+#[derive(Debug)]
 struct SimpleHandshakeServer<T: AsyncRead + AsyncWrite> {
     io: T,
     c1_bytes: BytesMut,
@@ -91,7 +89,7 @@ where
 
 impl<IO> AsyncHandshakeServer for SimpleHandshakeServer<IO>
 where
-    IO: AsyncRead + AsyncWrite + Unpin,
+    IO: AsyncRead + AsyncWrite + Unpin + Debug,
 {
     async fn flush(&mut self) -> HandshakeResult<()> {
         BufWriter::new(&mut self.io).flush().await?;
@@ -103,20 +101,27 @@ where
     fn set_state(&mut self, state: HandshakeServerState) {
         self.state = state
     }
+    #[tracing::instrument]
     async fn read_c0(&mut self) -> HandshakeResult<()> {
         self.io.read_u8().await?;
+        debug!("read c0");
         Ok(())
     }
+    #[tracing::instrument]
     async fn read_c1(&mut self) -> HandshakeResult<()> {
         self.c1_bytes.resize(RTMP_HANDSHAKE_SIZE, 0);
         self.io.read_exact(&mut self.c1_bytes).await?;
+        debug!("read c1");
         Ok(())
     }
+    #[tracing::instrument]
     async fn read_c2(&mut self) -> HandshakeResult<()> {
         let mut buf: [u8; RTMP_HANDSHAKE_SIZE] = [0; RTMP_HANDSHAKE_SIZE];
-        self.io.read_exact(&mut buf);
+        self.io.read_exact(&mut buf).await?;
+        debug!("read c2");
         Ok(())
     }
+    #[tracing::instrument]
     async fn write_s0(&mut self) -> HandshakeResult<()> {
         let mut bytes = BytesMut::with_capacity(1);
         C0S0PacketCodec.encode(
@@ -126,8 +131,10 @@ where
             &mut bytes,
         )?;
         self.io.write_all_buf(&mut bytes).await?;
+        debug!("s0 bytes sent");
         Ok(())
     }
+    #[tracing::instrument]
     async fn write_s1(&mut self) -> HandshakeResult<()> {
         let mut bytes = BytesMut::with_capacity(RTMP_HANDSHAKE_SIZE);
         let mut random_bytes: [u8; 1528] = [0; 1528];
@@ -143,14 +150,18 @@ where
         )?;
 
         self.io.write_all_buf(&mut bytes).await?;
+        debug!("s1 bytes sent");
         Ok(())
     }
+    #[tracing::instrument]
     async fn write_s2(&mut self) -> HandshakeResult<()> {
         self.io.write_all_buf(&mut self.c1_bytes).await?;
+        debug!("s2 bytes sent");
         Ok(())
     }
 }
 
+#[derive(Debug)]
 struct ComplexHandshakeServer<T> {
     io: T,
     writer_buffer: BytesMut,
@@ -176,7 +187,7 @@ where
 
 impl<T> AsyncHandshakeServer for ComplexHandshakeServer<T>
 where
-    T: AsyncRead + AsyncWrite + Unpin,
+    T: AsyncRead + AsyncWrite + Unpin + Debug,
 {
     async fn flush(&mut self) -> HandshakeResult<()> {
         self.io.write_all_buf(&mut self.writer_buffer).await?;
@@ -190,14 +201,17 @@ where
     fn set_state(&mut self, state: HandshakeServerState) {
         self.state = state
     }
-
+    #[tracing::instrument]
     async fn read_c0(&mut self) -> HandshakeResult<()> {
         self.io.read_u8().await?;
+        debug!("read c0");
         Ok(())
     }
+    #[tracing::instrument]
     async fn read_c1(&mut self) -> HandshakeResult<()> {
         let mut bytes = [0; RTMP_HANDSHAKE_SIZE];
         self.io.read_exact(&mut bytes).await?;
+        debug!("read c1 digest");
         let digest = validate_c1_digest(&bytes)?;
         if digest.len() != SHA256_DIGEST_SIZE {
             return Err(HandshakeError::DigestError(DigestError::WrongLength {
@@ -207,21 +221,28 @@ where
         for i in 0..SHA256_DIGEST_SIZE {
             self.c1_digest[i] = digest[i]
         }
+        debug!("c1 validate success");
         Ok(())
     }
+    #[tracing::instrument]
     async fn read_c2(&mut self) -> HandshakeResult<()> {
         let mut bytes = [0 as u8; RTMP_HANDSHAKE_SIZE];
         self.io.read_exact(&mut bytes).await?;
+        debug!("read c2");
         Ok(())
     }
+    #[tracing::instrument]
     async fn write_s0(&mut self) -> HandshakeResult<()> {
         C0S0PacketCodec.encode(
             C0S0Packet {
                 version: RTMP_VERSION,
             },
             &mut self.writer_buffer,
-        )
+        )?;
+        debug!("write s0");
+        Ok(())
     }
+    #[tracing::instrument]
     async fn write_s1(&mut self) -> HandshakeResult<()> {
         let mut bytes = BytesMut::with_capacity(RTMP_HANDSHAKE_SIZE);
         let mut random_bytes: [u8; 1528] = [0; 1528];
@@ -239,8 +260,10 @@ where
         bytes.reader().read_exact(&mut bytes_array)?;
         let message = make_message(&RTMP_SERVER_KEY, &bytes_array)?;
         self.writer_buffer.extend_from_slice(&message);
+        debug!("write s1");
         Ok(())
     }
+    #[tracing::instrument]
     async fn write_s2(&mut self) -> HandshakeResult<()> {
         let mut bytes = BytesMut::with_capacity(RTMP_HANDSHAKE_SIZE);
         let mut random_bytes: [u8; 1528] = [0; 1528];
@@ -269,6 +292,7 @@ where
             .concat()
             .as_slice(),
         );
+        debug!("write s2");
         Ok(())
     }
 }
@@ -284,29 +308,47 @@ where
     }
 }
 
-struct HandshakeServer<T: AsyncRead + AsyncWrite> {
+#[derive(Debug)]
+pub struct HandshakeServer<T: AsyncRead + AsyncWrite> {
     handshaker: Either<ComplexHandshakeServer<T>, SimpleHandshakeServer<T>>,
 }
 
 impl<T> HandshakeServer<T>
 where
-    T: AsyncRead + AsyncWrite + Unpin,
+    T: AsyncRead + AsyncWrite + Unpin + Debug,
 {
     pub fn new(io: T) -> Self {
         Self {
             handshaker: Either::Left(ComplexHandshakeServer::new(io)),
         }
     }
-    pub async fn handshake(mut self) -> HandshakeResult<()> {
+    #[tracing::instrument]
+    pub async fn handshake(mut self, complex_only: bool) -> HandshakeResult<()> {
         if let Either::Left(mut h) = self.handshaker {
-            if let Err(HandshakeError::DigestError(_)) = h.handshake().await {
-                self.handshaker = Either::Right(h.into());
-            } else {
-                self.handshaker = Either::Left(h)
+            debug!("now do complex handshake");
+            match h.handshake().await {
+                Err(HandshakeError::DigestError(err)) => {
+                    if complex_only {
+                        return Err(HandshakeError::DigestError(err));
+                    }
+                    trace!(
+                        "complex handshake failed due to digest error: {}, retry with simple handshake",
+                        err
+                    );
+                    let mut sim: SimpleHandshakeServer<_> = h.into();
+                    sim.state = HandshakeServerState::C0C1Recived;
+                    self.handshaker = Either::Right(sim);
+                }
+                Err(err) => {
+                    error!("complex handshake failed: {}", err);
+                    return Err(err);
+                }
+                Ok(()) => return Ok(()),
             }
         }
 
         if let Either::Right(mut h) = self.handshaker {
+            debug!("now do simple handshake");
             h.handshake().await?;
         }
 

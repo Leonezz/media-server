@@ -1,10 +1,16 @@
 use std::vec;
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, Mac, digest};
 use sha2::Sha256;
+use tracing::debug;
+
+use crate::handshake::consts::RTMP_SERVER_KEY;
 
 use super::{
-    consts::{RTMP_CLIENT_KEY_FIRST_HALF, RTMP_HANDSHAKE_SIZE, SHA256_DIGEST_SIZE},
+    consts::{
+        RTMP_CLIENT_KEY, RTMP_CLIENT_KEY_FIRST_HALF, RTMP_HANDSHAKE_SIZE,
+        RTMP_SERVER_KEY_FIRST_HALF, SHA256_DIGEST_SIZE,
+    },
     errors::DigestError,
 };
 
@@ -46,7 +52,7 @@ fn get_digest_index(random_bytes: &[u8; RTMP_HANDSHAKE_SIZE], schema: DigestSche
             index += random_bytes[774] as usize;
             index += random_bytes[775] as usize;
             index %= 728;
-            index += 768;
+            index += 776;
         }
         DigestSchema::Schema2 => {
             index += random_bytes[8] as usize;
@@ -69,10 +75,15 @@ fn validate_c1_digest_with_schema(
     let hash_digest = &random_bytes[index..index + SHA256_DIGEST_SIZE];
     let right = &random_bytes[index + SHA256_DIGEST_SIZE..];
     let raw_message = [left, right].concat();
-    let digest = make_digest(RTMP_CLIENT_KEY_FIRST_HALF.as_bytes(), &raw_message)?;
-    if digest == hash_digest {
+    let digest = make_digest(&RTMP_CLIENT_KEY, &raw_message)?;
+    if &*digest == hash_digest {
         return Ok(digest);
     }
+    debug!(
+        "recived digest: {:?}, expected digest: {:?}",
+        hash_digest, digest
+    );
+
     Err(DigestError::Invalid)
 }
 
