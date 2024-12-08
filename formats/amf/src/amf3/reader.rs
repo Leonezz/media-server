@@ -1,7 +1,7 @@
 use core::time;
 use std::io;
 
-use crate::errors::{AmfReadError, AmfReadResult};
+use crate::errors::{AmfError, AmfResult};
 use byteorder::{BigEndian, ReadBytesExt};
 
 use super::{Amf3Trait, Value, amf3_marker};
@@ -19,12 +19,12 @@ struct Amf3Referenceable {
 }
 
 #[derive(Debug)]
-pub struct Decoder<R> {
+pub struct Reader<R> {
     inner: R,
     referenceable: Amf3Referenceable,
 }
 
-impl<R> Decoder<R> {
+impl<R> Reader<R> {
     pub fn into_inner(self) -> R {
         self.inner
     }
@@ -36,7 +36,7 @@ impl<R> Decoder<R> {
     }
 }
 
-impl<R> Decoder<R>
+impl<R> Reader<R>
 where
     R: io::Read,
 {
@@ -50,31 +50,40 @@ where
             },
         }
     }
-    pub fn decode(&mut self) -> AmfReadResult<Value> {
+    pub fn read(&mut self) -> AmfResult<Value> {
         let marker = self.inner.read_u8()?;
         match marker {
             amf3_marker::UNDEFINED => Ok(Value::Undefined),
             amf3_marker::NULL => Ok(Value::Null),
             amf3_marker::FALSE => Ok(Value::Boolean(false)),
             amf3_marker::TRUE => Ok(Value::Boolean(true)),
-            amf3_marker::INTEGER => self.decode_integer(),
-            amf3_marker::DOUBLE => self.decode_double(),
-            amf3_marker::STRING => self.decode_string(),
-            amf3_marker::XML_DOCUMENT => self.decode_xml_document(),
-            amf3_marker::DATE => self.decode_date(),
-            amf3_marker::ARRAY => self.decode_array(),
-            amf3_marker::OBJECT => self.decode_object(),
-            amf3_marker::XML => self.decode_xml(),
-            amf3_marker::BYTE_ARRAY => self.decode_byte_array(),
-            amf3_marker::VECTOR_INT => self.decode_i32_vector(),
-            amf3_marker::VECTOR_UINT => self.decode_u32_vector(),
-            amf3_marker::VECTOR_DOUBLE => self.decode_double_vector(),
-            amf3_marker::VECTOR_OBJECT => self.decode_object_vector(),
-            amf3_marker::DICTIONARY => self.decode_dictionary(),
-            _ => Err(AmfReadError::Unknown { marker }),
+            amf3_marker::INTEGER => self.read_integer(),
+            amf3_marker::DOUBLE => self.read_double(),
+            amf3_marker::STRING => self.read_string(),
+            amf3_marker::XML_DOCUMENT => self.read_xml_document(),
+            amf3_marker::DATE => self.read_date(),
+            amf3_marker::ARRAY => self.read_array(),
+            amf3_marker::OBJECT => self.read_object(),
+            amf3_marker::XML => self.read_xml(),
+            amf3_marker::BYTE_ARRAY => self.read_byte_array(),
+            amf3_marker::VECTOR_INT => self.read_i32_vector(),
+            amf3_marker::VECTOR_UINT => self.read_u32_vector(),
+            amf3_marker::VECTOR_DOUBLE => self.read_double_vector(),
+            amf3_marker::VECTOR_OBJECT => self.read_object_vector(),
+            amf3_marker::DICTIONARY => self.read_dictionary(),
+            _ => Err(AmfError::Unknown { marker }),
         }
     }
-    fn read_u29(&mut self) -> AmfReadResult<u32> {
+
+    pub fn read_all(&mut self) -> AmfResult<Vec<Value>> {
+        let mut result = Vec::new();
+        while let Ok(value) = self.read() {
+            result.push(value);
+        }
+        Ok(result)
+    }
+
+    fn read_u29(&mut self) -> AmfResult<u32> {
         let mut result: u32 = 0;
         for _ in 0..3 {
             let byte = self.inner.read_u8()?;
@@ -86,7 +95,7 @@ where
         let byte = self.inner.read_u8()?;
         Ok((result << 8) | (byte as u32))
     }
-    fn read_size_or_index(&mut self) -> AmfReadResult<SizeOrIndex> {
+    fn read_size_or_index(&mut self) -> AmfResult<SizeOrIndex> {
         let u29 = self.read_u29()? as usize;
         let is_index = (u29 & 0b01) == 0;
         let value = u29 >> 1;
@@ -96,24 +105,24 @@ where
             Ok(SizeOrIndex::Size(value))
         }
     }
-    fn read_bytes(&mut self, len: usize) -> AmfReadResult<Vec<u8>> {
+    fn read_bytes(&mut self, len: usize) -> AmfResult<Vec<u8>> {
         let mut buf = vec![0; len];
         self.inner.read_exact(&mut buf)?;
         Ok(buf)
     }
-    fn read_utf8(&mut self, len: usize) -> AmfReadResult<String> {
+    fn read_utf8(&mut self, len: usize) -> AmfResult<String> {
         let buf = self.read_bytes(len)?;
         let str = String::from_utf8(buf)?;
         Ok(str)
     }
-    fn read_and_record_utf8(&mut self) -> AmfReadResult<String> {
+    fn read_and_record_utf8(&mut self) -> AmfResult<String> {
         match self.read_size_or_index()? {
             SizeOrIndex::Index(index) => {
                 let result = self
                     .referenceable
                     .strings
                     .get(index)
-                    .ok_or(AmfReadError::OutOfRangeReference { index: index })?;
+                    .ok_or(AmfError::OutOfRangeReference { index: index })?;
                 Ok(result.clone())
             }
             SizeOrIndex::Size(size) => {
@@ -125,19 +134,19 @@ where
             }
         }
     }
-    fn read_and_record_object<F>(&mut self, f: F) -> AmfReadResult<Value>
+    fn read_and_record_object<F>(&mut self, f: F) -> AmfResult<Value>
     where
-        F: FnOnce(&mut Self, usize) -> AmfReadResult<Value>,
+        F: FnOnce(&mut Self, usize) -> AmfResult<Value>,
     {
         match self.read_size_or_index()? {
             SizeOrIndex::Index(index) => self
                 .referenceable
                 .objects
                 .get(index)
-                .ok_or(AmfReadError::OutOfRangeReference { index: index })
+                .ok_or(AmfError::OutOfRangeReference { index: index })
                 .and_then(|v| {
                     if *v == Value::Null {
-                        Err(AmfReadError::CircularReference { index: index })
+                        Err(AmfError::CircularReference { index: index })
                     } else {
                         Ok(v.clone())
                     }
@@ -152,20 +161,20 @@ where
         }
     }
 
-    fn read_trait(&mut self, size: usize) -> AmfReadResult<Amf3Trait> {
+    fn read_trait(&mut self, size: usize) -> AmfResult<Amf3Trait> {
         if (size & 0b1) == 0 {
             let index = (size >> 1) as usize;
             let result = self
                 .referenceable
                 .traits
                 .get(index)
-                .ok_or(AmfReadError::OutOfRangeReference { index })?;
+                .ok_or(AmfError::OutOfRangeReference { index })?;
             return Ok(result.clone());
         }
 
         if (size & 0b10) != 0 {
             let class_name = self.read_and_record_utf8()?;
-            return Err(AmfReadError::UnsupportedExternalizable { name: class_name });
+            return Err(AmfError::UnsupportedExternalizable { name: class_name });
         }
 
         let is_dynamic = (size & 0b100) != 0;
@@ -173,7 +182,7 @@ where
         let class_name = self.read_and_record_utf8()?;
         let fields = (0..field_num)
             .map(|_| self.read_and_record_utf8())
-            .collect::<AmfReadResult<_>>()?;
+            .collect::<AmfResult<_>>()?;
         let result = Amf3Trait {
             class_name: if class_name.is_empty() {
                 None
@@ -187,13 +196,13 @@ where
         Ok(result)
     }
 
-    fn read_and_record_trait(&mut self, size: usize) -> AmfReadResult<Amf3Trait> {
+    fn read_and_record_trait(&mut self, size: usize) -> AmfResult<Amf3Trait> {
         let result = self.read_trait(size)?;
         self.referenceable.traits.push(result.clone());
         Ok(result)
     }
 
-    fn decode_integer(&mut self) -> AmfReadResult<Value> {
+    pub fn read_integer(&mut self) -> AmfResult<Value> {
         let result = self.read_u29()? as i32;
         let result = if result >= (1 << 28) {
             result - (1 << 29)
@@ -202,22 +211,22 @@ where
         };
         Ok(Value::Integer(result))
     }
-    fn decode_double(&mut self) -> AmfReadResult<Value> {
+    pub fn read_double(&mut self) -> AmfResult<Value> {
         let result = self.inner.read_f64::<BigEndian>()?;
         Ok(Value::Double(result))
     }
-    fn decode_string(&mut self) -> AmfReadResult<Value> {
+    pub fn read_string(&mut self) -> AmfResult<Value> {
         let str = self.read_and_record_utf8()?;
         Ok(Value::String(str))
     }
-    fn decode_xml_document(&mut self) -> AmfReadResult<Value> {
+    pub fn read_xml_document(&mut self) -> AmfResult<Value> {
         self.read_and_record_object(|this, size| this.read_utf8(size).map(Value::XMLDocument))
     }
-    fn decode_date(&mut self) -> AmfReadResult<Value> {
+    pub fn read_date(&mut self) -> AmfResult<Value> {
         self.read_and_record_object(|this, _| {
             let millis_timestamp = this.inner.read_f64::<BigEndian>()?;
             if !(millis_timestamp.is_finite() && millis_timestamp.is_sign_positive()) {
-                Err(AmfReadError::InvalidDate {
+                Err(AmfError::InvalidDate {
                     milliseconds: millis_timestamp,
                 })
             } else {
@@ -227,40 +236,40 @@ where
             }
         })
     }
-    fn read_pairs(&mut self) -> AmfReadResult<Vec<(String, Value)>> {
+    fn read_pairs(&mut self) -> AmfResult<Vec<(String, Value)>> {
         let mut result = Vec::new();
         loop {
             let key = self.read_and_record_utf8()?;
             if key.is_empty() {
                 return Ok(result);
             }
-            let value = self.decode()?;
+            let value = self.read()?;
             result.push((key, value));
         }
     }
-    fn decode_array(&mut self) -> AmfReadResult<Value> {
+    pub fn read_array(&mut self) -> AmfResult<Value> {
         self.read_and_record_object(|this, size| {
             let assoc_entries = this.read_pairs()?;
             let dense_entries = (0..size)
-                .map(|_| this.decode())
-                .collect::<AmfReadResult<_>>()?;
+                .map(|_| this.read())
+                .collect::<AmfResult<_>>()?;
             Ok(Value::Array {
                 assoc_entries,
                 dense_entries,
             })
         })
     }
-    fn decode_object(&mut self) -> AmfReadResult<Value> {
+    pub fn read_object(&mut self) -> AmfResult<Value> {
         self.read_and_record_object(|this, size| {
             let amf3_trait = this.read_and_record_trait(size)?;
             let mut entries = amf3_trait
                 .fields
                 .iter()
                 .map(|key| {
-                    let value = this.decode()?;
+                    let value = this.read()?;
                     Ok((key.clone(), value))
                 })
-                .collect::<AmfReadResult<Vec<_>>>()?;
+                .collect::<AmfResult<Vec<_>>>()?;
             if amf3_trait.is_dynamic {
                 entries.extend(this.read_pairs()?);
             }
@@ -271,13 +280,13 @@ where
             })
         })
     }
-    fn decode_xml(&mut self) -> AmfReadResult<Value> {
+    pub fn read_xml(&mut self) -> AmfResult<Value> {
         self.read_and_record_object(|this, len| this.read_utf8(len).map(Value::XML))
     }
-    fn decode_byte_array(&mut self) -> AmfReadResult<Value> {
+    pub fn read_byte_array(&mut self) -> AmfResult<Value> {
         self.read_and_record_object(|this, len| this.read_bytes(len).map(Value::ByteArray))
     }
-    fn decode_i32_vector(&mut self) -> AmfReadResult<Value> {
+    pub fn read_i32_vector(&mut self) -> AmfResult<Value> {
         self.read_and_record_object(|this, count| {
             let is_fixed = this.inner.read_u8()? != 0;
             let entries = (0..count)
@@ -286,7 +295,7 @@ where
             Ok(Value::I32Vector { is_fixed, entries })
         })
     }
-    fn decode_u32_vector(&mut self) -> AmfReadResult<Value> {
+    pub fn read_u32_vector(&mut self) -> AmfResult<Value> {
         self.read_and_record_object(|this, count| {
             let is_fixed = this.inner.read_u8()? != 0;
             let entries = (0..count)
@@ -295,7 +304,7 @@ where
             Ok(Value::U32Vector { is_fixed, entries })
         })
     }
-    fn decode_double_vector(&mut self) -> AmfReadResult<Value> {
+    pub fn read_double_vector(&mut self) -> AmfResult<Value> {
         self.read_and_record_object(|this, count| {
             let is_fixed = this.inner.read_u8()? != 0;
             let entries = (0..count)
@@ -304,13 +313,13 @@ where
             Ok(Value::DoubleVector { is_fixed, entries })
         })
     }
-    fn decode_object_vector(&mut self) -> AmfReadResult<Value> {
+    pub fn read_object_vector(&mut self) -> AmfResult<Value> {
         self.read_and_record_object(|this, count| {
             let is_fixed = this.inner.read_u8()? != 0;
             let class_name = this.read_and_record_utf8()?;
             let entries = (0..count)
-                .map(|_| this.decode())
-                .collect::<AmfReadResult<_>>()?;
+                .map(|_| this.read())
+                .collect::<AmfResult<_>>()?;
             Ok(Value::ObjectVector {
                 is_fixed,
                 entries,
@@ -322,12 +331,12 @@ where
             })
         })
     }
-    fn decode_dictionary(&mut self) -> AmfReadResult<Value> {
+    pub fn read_dictionary(&mut self) -> AmfResult<Value> {
         self.read_and_record_object(|this, count| {
             let is_weak = this.inner.read_u8()? == 1;
             let entries = (0..count)
-                .map(|_| Ok((this.decode()?, this.decode()?)))
-                .collect::<AmfReadResult<_>>()?;
+                .map(|_| Ok((this.read()?, this.read()?)))
+                .collect::<AmfResult<_>>()?;
             Ok(Value::Dictionary { is_weak, entries })
         })
     }
@@ -341,13 +350,13 @@ mod tests {
         vec,
     };
 
-    use crate::{amf3::Value, errors::AmfReadError};
+    use crate::{amf3::Value, errors::AmfError};
 
-    use super::Decoder;
+    use super::Reader;
     macro_rules! decode {
         ($file:expr) => {{
             let data = include_bytes!($file);
-            Decoder::new(&mut &data[..]).decode()
+            Reader::new(&mut &data[..]).read()
         }};
     }
 
@@ -355,7 +364,7 @@ mod tests {
         ($file:expr) => {
             let err = decode!($file).unwrap_err();
             match err {
-                AmfReadError::Io(e) => assert_eq!(e.kind(), io::ErrorKind::UnexpectedEof),
+                AmfError::Io(e) => assert_eq!(e.kind(), io::ErrorKind::UnexpectedEof),
                 _ => assert!(false),
             }
         };
@@ -528,13 +537,13 @@ mod tests {
 
         assert!(matches!(
             decode!("../../test_data/amf3-date-invalid-millis.bin").unwrap_err(),
-            AmfReadError::InvalidDate {
+            AmfError::InvalidDate {
                 milliseconds: f64::INFINITY
             }
         ));
         assert!(matches!(
             decode!("../../test_data/amf3-date-minus-millis.bin").unwrap_err(),
-            AmfReadError::InvalidDate { milliseconds: -1.0 }
+            AmfError::InvalidDate { milliseconds: -1.0 }
         ));
     }
 
@@ -758,14 +767,14 @@ mod tests {
 
         assert!(matches!(
             decode!("../../test_data/amf3-externalizable.bin").unwrap_err(),
-            AmfReadError::UnsupportedExternalizable {
+            AmfError::UnsupportedExternalizable {
                 name
             } if name == "ExternalizableTest".to_string()
         ));
 
         assert!(matches!(
             decode!("../../test_data/amf3-array-collection.bin").unwrap_err(),
-            AmfReadError::UnsupportedExternalizable { name } if name == "flex.messaging.io.ArrayCollection".to_string()
+            AmfError::UnsupportedExternalizable { name } if name == "flex.messaging.io.ArrayCollection".to_string()
         ));
     }
 
@@ -929,22 +938,22 @@ mod tests {
     fn reference() {
         assert!(matches!(
             decode!("../../test_data/amf3-graph-member.bin").unwrap_err(),
-            AmfReadError::CircularReference { index: 0 }
+            AmfError::CircularReference { index: 0 }
         ));
 
         assert!(matches!(
             decode!("../../test_data/amf3-bad-object-ref.bin").unwrap_err(),
-            AmfReadError::OutOfRangeReference { index: 10 }
+            AmfError::OutOfRangeReference { index: 10 }
         ));
 
         assert!(matches!(
             decode!("../../test_data/amf3-bad-trait-ref.bin").unwrap_err(),
-            AmfReadError::OutOfRangeReference { index: 4 }
+            AmfError::OutOfRangeReference { index: 4 }
         ));
 
         assert!(matches!(
             decode!("../../test_data/amf3-bad-string-ref.bin").unwrap_err(),
-            AmfReadError::OutOfRangeReference { index: 8 }
+            AmfError::OutOfRangeReference { index: 8 }
         ));
     }
 
@@ -952,7 +961,7 @@ mod tests {
     fn unknown_marker() {
         assert!(matches!(
             decode!("../../test_data/amf3-unknown-marker.bin").unwrap_err(),
-            AmfReadError::Unknown { marker: 123 }
+            AmfError::Unknown { marker: 123 }
         ));
     }
 

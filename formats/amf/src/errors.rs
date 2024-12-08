@@ -5,7 +5,7 @@ use thiserror::Error;
 use crate::amf3::{self};
 
 #[derive(Error, Debug)]
-pub enum AmfReadError {
+pub enum AmfError {
     #[error("IO error: {0}")]
     Io(#[from] io::Error),
     #[error("invalid utf8 data: {0}")]
@@ -24,14 +24,6 @@ pub enum AmfReadError {
     InvalidDate { milliseconds: f64 },
     #[error("Unsupported externalizable data, name: {name}")]
     UnsupportedExternalizable { name: String },
-}
-
-pub type AmfReadResult<T> = Result<T, AmfReadError>;
-
-#[derive(Error, Debug)]
-pub enum AmfWriteError {
-    #[error("IO error: {0}")]
-    Io(#[from] io::Error),
     #[error("u29 value out of range, value: {value}")]
     U29OutOfRange { value: u32 },
     #[error("size value out of range, value: {value}")]
@@ -42,4 +34,5 @@ pub enum AmfWriteError {
         sealed_count: usize,
     },
 }
-pub type AmfWriteResult = Result<(), AmfWriteError>;
+
+pub type AmfResult<T> = Result<T, AmfError>;

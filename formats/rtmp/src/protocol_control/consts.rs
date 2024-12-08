@@ -1,0 +1,3 @@
+pub const MAX_CHUNK_SIZE: u32 = 0xFFFFFF;
+pub const PROTOCOL_CONTROL_CSID: u8 = 2;
+pub const PROTOCOL_CONTROL_MESSAGE_STREAM_ID: u8 = 0;

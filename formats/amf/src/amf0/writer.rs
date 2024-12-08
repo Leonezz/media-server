@@ -1,7 +1,7 @@
 use core::time;
 use std::{collections::HashMap, io};
 
-use crate::{amf3, errors::AmfWriteResult};
+use crate::{amf3, errors::AmfResult};
 
 use byteorder::{BigEndian, WriteBytesExt};
 
@@ -31,7 +31,7 @@ where
     pub fn new(inner: W) -> Self {
         Self { inner }
     }
-    pub fn write(&mut self, v: &Value) -> AmfWriteResult {
+    pub fn write(&mut self, v: &Value) -> AmfResult<()> {
         match *v {
             Value::Number(n) => self.write_number(n),
             Value::Boolean(b) => self.write_boolean(b),
@@ -57,29 +57,29 @@ where
             Value::AVMPlus(ref value) => self.write_avm_plus(value),
         }
     }
-    fn write_number(&mut self, v: f64) -> AmfWriteResult {
+    fn write_number(&mut self, v: f64) -> AmfResult<()> {
         self.inner.write_u8(amf0_marker::NUMBER)?;
         self.inner.write_f64::<BigEndian>(v)?;
         Ok(())
     }
-    fn write_boolean(&mut self, v: bool) -> AmfWriteResult {
+    fn write_boolean(&mut self, v: bool) -> AmfResult<()> {
         self.inner.write_u8(amf0_marker::BOOLEAN)?;
         self.inner.write_u8(v as u8)?;
         Ok(())
     }
-    fn write_short_string_inner(&mut self, v: &str) -> AmfWriteResult {
+    fn write_short_string_inner(&mut self, v: &str) -> AmfResult<()> {
         assert!(v.len() < 0xFFFF); // TODO CHECK this
         self.inner.write_u16::<BigEndian>(v.len() as u16)?;
         self.inner.write_all(v.as_bytes())?;
         Ok(())
     }
-    fn write_long_string_inner(&mut self, v: &str) -> AmfWriteResult {
+    fn write_long_string_inner(&mut self, v: &str) -> AmfResult<()> {
         assert!(v.len() <= 0xFFFF_FFFF);
         self.inner.write_u32::<BigEndian>(v.len() as u32)?;
         self.inner.write_all(v.as_bytes())?;
         Ok(())
     }
-    fn write_string(&mut self, v: &str) -> AmfWriteResult {
+    fn write_string(&mut self, v: &str) -> AmfResult<()> {
         if v.len() < 0xFFFF {
             self.inner.write_u8(amf0_marker::STRING)?;
             self.write_short_string_inner(v)?;
@@ -89,7 +89,7 @@ where
         }
         Ok(())
     }
-    fn write_pairs_inner(&mut self, entries: &[(String, Value)]) -> AmfWriteResult {
+    fn write_pairs_inner(&mut self, entries: &[(String, Value)]) -> AmfResult<()> {
         for (key, value) in entries {
             self.write_short_string_inner(&key)?;
             self.write(value)?;
@@ -98,13 +98,13 @@ where
         self.inner.write_u8(amf0_marker::OBJECT_END)?;
         Ok(())
     }
-    fn write_anonymous_object_arr(&mut self, entries: &[(String, Value)]) -> AmfWriteResult {
+    fn write_anonymous_object_arr(&mut self, entries: &[(String, Value)]) -> AmfResult<()> {
         assert!(entries.len() <= 0xFFFF_FFFF);
         self.inner.write_u8(amf0_marker::OBJECT)?;
         self.write_pairs_inner(entries)?;
         Ok(())
     }
-    pub fn write_anonymous_object(&mut self, entries: &HashMap<String, Value>) -> AmfWriteResult {
+    pub fn write_anonymous_object(&mut self, entries: &HashMap<String, Value>) -> AmfResult<()> {
         let arr: Vec<(_, _)> = entries
             .iter()
             .map(|(k, v)| (k.clone(), v.clone()))
@@ -112,31 +112,31 @@ where
         self.write_anonymous_object_arr(arr.as_slice())?;
         Ok(())
     }
-    fn write_null(&mut self) -> AmfWriteResult {
+    fn write_null(&mut self) -> AmfResult<()> {
         self.inner.write_u8(amf0_marker::NULL)?;
         Ok(())
     }
-    fn write_undefined(&mut self) -> AmfWriteResult {
+    fn write_undefined(&mut self) -> AmfResult<()> {
         self.inner.write_u8(amf0_marker::UNDEFINED)?;
         Ok(())
     }
-    fn write_reference(&mut self, index: u16) -> AmfWriteResult {
+    fn write_reference(&mut self, index: u16) -> AmfResult<()> {
         self.inner.write_u8(amf0_marker::REFERENCE)?;
         self.inner.write_u16::<BigEndian>(index)?;
         Ok(())
     }
-    fn write_ecma_array(&mut self, arr: &[(String, Value)]) -> AmfWriteResult {
+    fn write_ecma_array(&mut self, arr: &[(String, Value)]) -> AmfResult<()> {
         assert!(arr.len() <= 0xFFFF_FFFF);
         self.inner.write_u8(amf0_marker::ECMA_ARRAY)?;
         self.inner.write_u32::<BigEndian>(arr.len() as u32)?;
         self.write_pairs_inner(arr)?;
         Ok(())
     }
-    fn write_object_end(&mut self) -> AmfWriteResult {
+    fn write_object_end(&mut self) -> AmfResult<()> {
         self.inner.write_u8(amf0_marker::OBJECT_END)?;
         Ok(())
     }
-    fn write_strict_array(&mut self, arr: &[Value]) -> AmfWriteResult {
+    fn write_strict_array(&mut self, arr: &[Value]) -> AmfResult<()> {
         assert!(arr.len() <= 0xFFFF_FFFF);
         self.inner.write_u8(amf0_marker::STRICT_ARRAY)?;
         self.inner.write_u32::<BigEndian>(arr.len() as u32)?;
@@ -145,7 +145,7 @@ where
         }
         Ok(())
     }
-    fn write_date(&mut self, date_time: time::Duration, time_zone: i16) -> AmfWriteResult {
+    fn write_date(&mut self, date_time: time::Duration, time_zone: i16) -> AmfResult<()> {
         assert!(time_zone == 0x0000);
         self.inner.write_u8(amf0_marker::DATE)?;
         self.inner
@@ -153,7 +153,7 @@ where
         self.inner.write_i16::<BigEndian>(0x0000)?;
         Ok(())
     }
-    fn write_xml(&mut self, xml: &str) -> AmfWriteResult {
+    fn write_xml(&mut self, xml: &str) -> AmfResult<()> {
         self.inner.write_u8(amf0_marker::XML_DOCUMENT)?;
         self.write_long_string_inner(xml)?;
         Ok(())
@@ -162,7 +162,7 @@ where
         &mut self,
         name: &str,
         entries: &[(String, Value)],
-    ) -> AmfWriteResult {
+    ) -> AmfResult<()> {
         assert!(entries.len() <= 0xFFFF_FFFF);
         self.inner.write_u8(amf0_marker::TYPED_OBJECT)?;
         self.write_short_string_inner(name)?;
@@ -173,7 +173,7 @@ where
         &mut self,
         name: &str,
         entries: &HashMap<String, Value>,
-    ) -> AmfWriteResult {
+    ) -> AmfResult<()> {
         let arr: Vec<(_, _)> = entries
             .iter()
             .map(|(k, v)| (k.clone(), v.clone()))
@@ -181,7 +181,7 @@ where
         self.write_typed_object_arr_inner(name, &arr)?;
         Ok(())
     }
-    fn write_avm_plus(&mut self, value: &amf3::Value) -> AmfWriteResult {
+    fn write_avm_plus(&mut self, value: &amf3::Value) -> AmfResult<()> {
         self.inner.write_u8(amf0_marker::AVMPLUS_OBJECT)?;
         amf3::Writer::new(&mut self.inner).write(value)?;
         Ok(())

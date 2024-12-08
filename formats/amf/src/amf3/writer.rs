@@ -1,7 +1,7 @@
 use core::time;
 use std::io;
 
-use crate::errors::{AmfWriteError, AmfWriteResult};
+use crate::errors::{AmfError, AmfResult};
 use byteorder::{BigEndian, WriteBytesExt};
 
 use super::{
@@ -32,7 +32,7 @@ where
     pub fn new(inner: W) -> Self {
         Self { inner }
     }
-    pub fn write(&mut self, value: &Value) -> AmfWriteResult {
+    pub fn write(&mut self, value: &Value) -> AmfResult<()> {
         match *value {
             Value::Undefined => self.write_undefined(),
             Value::Null => self.write_null(),
@@ -83,27 +83,27 @@ where
         }
     }
 
-    fn write_undefined(&mut self) -> AmfWriteResult {
+    fn write_undefined(&mut self) -> AmfResult<()> {
         self.inner.write_u8(amf3_marker::UNDEFINED)?;
         Ok(())
     }
 
-    fn write_null(&mut self) -> AmfWriteResult {
+    fn write_null(&mut self) -> AmfResult<()> {
         self.inner.write_u8(amf3_marker::NULL)?;
         Ok(())
     }
 
-    fn write_false(&mut self) -> AmfWriteResult {
+    fn write_false(&mut self) -> AmfResult<()> {
         self.inner.write_u8(amf3_marker::FALSE)?;
         Ok(())
     }
 
-    fn write_true(&mut self) -> AmfWriteResult {
+    fn write_true(&mut self) -> AmfResult<()> {
         self.inner.write_u8(amf3_marker::TRUE)?;
         Ok(())
     }
 
-    fn write_u29_inner(&mut self, u29: u32) -> AmfWriteResult {
+    fn write_u29_inner(&mut self, u29: u32) -> AmfResult<()> {
         match u29 {
             i if i < 0x80 => {
                 self.inner.write_u8(i as u8)?;
@@ -123,12 +123,12 @@ where
                 self.inner.write_u8(((u29 >> 8) | 0b1000_0000) as u8)?;
                 self.inner.write_u8(((u29 >> 0) & 0b1111_1111) as u8)?;
             }
-            _ => return Err(AmfWriteError::U29OutOfRange { value: u29 }),
+            _ => return Err(AmfError::U29OutOfRange { value: u29 }),
         }
         Ok(())
     }
 
-    fn write_integer(&mut self, value: i32) -> AmfWriteResult {
+    fn write_integer(&mut self, value: i32) -> AmfResult<()> {
         self.inner.write_u8(amf3_marker::INTEGER)?;
         let u29 = if value >= 0 {
             value as u32
@@ -139,37 +139,37 @@ where
         Ok(())
     }
 
-    fn write_double(&mut self, value: f64) -> AmfWriteResult {
+    fn write_double(&mut self, value: f64) -> AmfResult<()> {
         self.inner.write_u8(amf3_marker::DOUBLE)?;
         self.inner.write_f64::<BigEndian>(value)?;
         Ok(())
     }
 
-    fn write_size_inner(&mut self, size: usize) -> AmfWriteResult {
+    fn write_size_inner(&mut self, size: usize) -> AmfResult<()> {
         if size >= (1 << 28) {
-            return Err(AmfWriteError::SizeOutOfRange { value: size });
+            return Err(AmfError::SizeOutOfRange { value: size });
         }
         let not_reference_bit = 1;
         self.write_u29_inner(((size << 1) | not_reference_bit) as u32)?;
         Ok(())
     }
-    fn write_utf8_inner(&mut self, value: &str) -> AmfWriteResult {
+    fn write_utf8_inner(&mut self, value: &str) -> AmfResult<()> {
         self.write_size_inner(value.len())?;
         self.inner.write_all(value.as_bytes())?;
         Ok(())
     }
-    fn write_string(&mut self, value: &str) -> AmfWriteResult {
+    fn write_string(&mut self, value: &str) -> AmfResult<()> {
         self.inner.write_u8(amf3_marker::STRING)?;
         self.write_utf8_inner(value)?;
         Ok(())
     }
-    fn write_xml_document(&mut self, xml_doc: &str) -> AmfWriteResult {
+    fn write_xml_document(&mut self, xml_doc: &str) -> AmfResult<()> {
         self.inner.write_u8(amf3_marker::XML_DOCUMENT)?;
         self.write_utf8_inner(xml_doc)?;
         Ok(())
     }
 
-    fn write_date(&mut self, millis_timestamp: time::Duration) -> AmfWriteResult {
+    fn write_date(&mut self, millis_timestamp: time::Duration) -> AmfResult<()> {
         self.inner.write_u8(amf3_marker::DATE)?;
         self.write_size_inner(0)?;
         self.inner
@@ -177,7 +177,7 @@ where
         Ok(())
     }
 
-    fn write_pairs_inner(&mut self, pairs: &[(String, Value)]) -> AmfWriteResult {
+    fn write_pairs_inner(&mut self, pairs: &[(String, Value)]) -> AmfResult<()> {
         for (key, value) in pairs {
             self.write_utf8_inner(&key)?;
             self.write(value)?;
@@ -185,14 +185,14 @@ where
         self.write_utf8_inner("")?;
         Ok(())
     }
-    fn write_array(&mut self, assoc: &[(String, Value)], dense: &[Value]) -> AmfWriteResult {
+    fn write_array(&mut self, assoc: &[(String, Value)], dense: &[Value]) -> AmfResult<()> {
         self.inner.write_u8(amf3_marker::ARRAY)?;
         self.write_size_inner(dense.len())?;
         self.write_pairs_inner(assoc)?;
         dense
             .iter()
             .map(|value| self.write(value))
-            .collect::<AmfWriteResult>()?;
+            .collect::<AmfResult<()>>()?;
         Ok(())
     }
 
@@ -201,9 +201,9 @@ where
         class_name: &Option<String>,
         entries: &[(String, Value)],
         sealed_count: usize,
-    ) -> AmfWriteResult {
+    ) -> AmfResult<()> {
         if sealed_count > entries.len() {
-            return Err(AmfWriteError::Amf3TraitInvalid {
+            return Err(AmfError::Amf3TraitInvalid {
                 entries: Vec::from(entries),
                 sealed_count: sealed_count,
             });
@@ -227,7 +227,7 @@ where
         class_name: &Option<String>,
         sealed_count: usize,
         entries: &[(String, Value)],
-    ) -> AmfWriteResult {
+    ) -> AmfResult<()> {
         self.inner.write_u8(amf3_marker::OBJECT)?;
         self.write_trait_inner(class_name, entries, sealed_count)?;
         for (_, value) in entries.iter().take(sealed_count) {
@@ -239,20 +239,20 @@ where
         Ok(())
     }
 
-    fn write_xml(&mut self, xml: &str) -> AmfWriteResult {
+    fn write_xml(&mut self, xml: &str) -> AmfResult<()> {
         self.inner.write_u8(amf3_marker::XML)?;
         self.write_utf8_inner(xml)?;
         Ok(())
     }
 
-    fn write_byte_array(&mut self, bytes: &[u8]) -> AmfWriteResult {
+    fn write_byte_array(&mut self, bytes: &[u8]) -> AmfResult<()> {
         self.inner.write_u8(amf3_marker::BYTE_ARRAY)?;
         self.write_size_inner(bytes.len())?;
         self.inner.write_all(bytes)?;
         Ok(())
     }
 
-    fn write_i32_vector(&mut self, is_fixed: bool, value: &[i32]) -> AmfWriteResult {
+    fn write_i32_vector(&mut self, is_fixed: bool, value: &[i32]) -> AmfResult<()> {
         self.inner.write_u8(amf3_marker::VECTOR_INT)?;
         self.write_size_inner(value.len())?;
         self.inner.write_u8(is_fixed as u8)?;
@@ -262,7 +262,7 @@ where
         Ok(())
     }
 
-    fn write_u32_vector(&mut self, is_fixed: bool, value: &[u32]) -> AmfWriteResult {
+    fn write_u32_vector(&mut self, is_fixed: bool, value: &[u32]) -> AmfResult<()> {
         self.inner.write_u8(amf3_marker::VECTOR_UINT)?;
         self.write_size_inner(value.len())?;
         self.inner.write_u8(is_fixed as u8)?;
@@ -272,7 +272,7 @@ where
         Ok(())
     }
 
-    fn write_double_vector(&mut self, is_fixed: bool, value: &[f64]) -> AmfWriteResult {
+    fn write_double_vector(&mut self, is_fixed: bool, value: &[f64]) -> AmfResult<()> {
         self.inner.write_u8(amf3_marker::VECTOR_DOUBLE)?;
         self.write_size_inner(value.len())?;
         self.inner.write_u8(is_fixed as u8)?;
@@ -287,7 +287,7 @@ where
         class_name: &Option<String>,
         is_fixed: bool,
         value: &[Value],
-    ) -> AmfWriteResult {
+    ) -> AmfResult<()> {
         self.inner.write_u8(amf3_marker::VECTOR_OBJECT)?;
         self.write_size_inner(value.len())?;
         self.inner.write_u8(is_fixed as u8)?;
@@ -298,7 +298,7 @@ where
         Ok(())
     }
 
-    fn write_dictionary(&mut self, is_weak: bool, entries: &[(Value, Value)]) -> AmfWriteResult {
+    fn write_dictionary(&mut self, is_weak: bool, entries: &[(Value, Value)]) -> AmfResult<()> {
         self.inner.write_u8(amf3_marker::DICTIONARY)?;
         self.write_size_inner(entries.len())?;
         self.inner.write_u8(is_weak as u8)?;
@@ -477,7 +477,7 @@ mod tests {
 
         let mut buf: Vec<u8> = Vec::new();
         amf3::Writer::new(&mut buf).write(&value).unwrap();
-        assert_eq!(amf3::Decoder::new(&mut &buf[..]).decode().unwrap(), value);
+        assert_eq!(amf3::Reader::new(&mut &buf[..]).read().unwrap(), value);
     }
 
     #[test]
@@ -594,7 +594,7 @@ mod tests {
         };
         let buf = encode!(value);
 
-        assert_eq!(amf3::Decoder::new(&mut &buf[..]).decode().unwrap(), value);
+        assert_eq!(amf3::Reader::new(&mut &buf[..]).read().unwrap(), value);
     }
 
     #[test]
@@ -620,7 +620,7 @@ mod tests {
             ],
         };
         let buf = encode!(value);
-        assert_eq!(amf3::Decoder::new(&mut &buf[..]).decode().unwrap(), value);
+        assert_eq!(amf3::Reader::new(&mut &buf[..]).read().unwrap(), value);
 
         assert_eq!(
             encode!(Value::Dictionary {

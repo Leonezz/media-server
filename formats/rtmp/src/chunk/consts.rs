@@ -1,0 +1,1 @@
+pub const MAX_TIMESTAMP: u32 = 0xFFFFFF;

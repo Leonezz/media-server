@@ -5,9 +5,9 @@ use std::io::{self};
 mod reader;
 mod writer;
 
-use crate::errors::{AmfReadResult, AmfWriteResult};
+use crate::errors::AmfResult;
 
-pub use self::reader::Decoder;
+pub use self::reader::Reader;
 pub use self::writer::Writer;
 
 /// @see: 3.1 Overview
@@ -101,14 +101,21 @@ pub struct Amf3Trait {
 }
 
 impl Value {
-    pub fn read_from<R>(reader: R) -> AmfReadResult<Self>
+    pub fn read_from<R>(reader: R) -> AmfResult<Self>
     where
         R: io::Read,
     {
-        Decoder::new(reader).decode()
+        Reader::new(reader).read()
     }
 
-    pub fn write_to<W>(&self, writer: W) -> AmfWriteResult
+    pub fn read_all<R>(reader: R) -> AmfResult<Vec<Self>>
+    where
+        R: io::Read,
+    {
+        Reader::new(reader).read_all()
+    }
+
+    pub fn write_to<W>(&self, writer: W) -> AmfResult<()>
     where
         W: io::Write,
     {
@@ -128,6 +135,13 @@ impl Value {
         match *self {
             Value::Integer(v) => Some(v as f64),
             Value::Double(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    pub fn try_as_bool(&self) -> Option<bool> {
+        match *self {
+            Value::Boolean(v) => Some(v),
             _ => None,
         }
     }
@@ -156,4 +170,28 @@ impl Value {
             _ => Err(self),
         }
     }
+}
+
+/// Makes a `String` value.
+pub fn string<T>(t: T) -> Value
+where
+    String: From<T>,
+{
+    Value::String(From::from(t))
+}
+
+/// Makes a `Number` value.
+pub fn number<T>(t: T) -> Value
+where
+    f64: From<T>,
+{
+    Value::Double(From::from(t))
+}
+
+/// Makes a `Bool` value.
+pub fn bool<T>(t: T) -> Value
+where
+    bool: From<T>,
+{
+    Value::Boolean(From::from(t))
 }
