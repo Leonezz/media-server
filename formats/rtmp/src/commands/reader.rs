@@ -146,7 +146,7 @@ where
         let transaction_id = self.read_amf_number()?;
         let command_object = self.read_amf_object()?;
 
-        let optional_arguments = self.read_amf_remaining_any()?;
+        let optional_arguments = self.read_amf_object()?;
         Ok(CallCommandRequest {
             procedure_name,
             transaction_id,
@@ -159,7 +159,7 @@ where
         let command_name = self.read_amf_string()?;
         let transaction_id = self.read_amf_number()?;
         let command_object = self.read_amf_object()?;
-        let response = self.read_amf_remaining_any()?;
+        let response = self.read_amf_object()?;
         Ok(CallCommandResponse {
             command_name,
             transaction_id,
@@ -306,7 +306,7 @@ where
         Ok(Play2Command {
             command_name: c2s_command_names::PLAY2.to_string(),
             transaction_id,
-            parameters: AmfValue::read_from(self.inner.by_ref(), self.amf_version)?,
+            parameters: self.read_amf_object()?.unwrap_or(HashMap::default()),
         })
     }
 

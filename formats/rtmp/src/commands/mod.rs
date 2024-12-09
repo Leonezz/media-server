@@ -155,7 +155,7 @@ pub struct CallCommandRequest {
     procedure_name: String,
     transaction_id: f64,
     command_object: Option<HashMap<String, amf::Value>>,
-    optional_arguments: Option<Vec<amf::Value>>,
+    optional_arguments: Option<HashMap<String, amf::Value>>,
 }
 
 #[derive(Debug)]
@@ -163,7 +163,7 @@ pub struct CallCommandResponse {
     command_name: String,
     transaction_id: f64,
     command_object: Option<HashMap<String, amf::Value>>,
-    response: Option<Vec<amf::Value>>,
+    response: Option<HashMap<String, amf::Value>>,
 }
 
 #[derive(Debug)]
@@ -206,7 +206,7 @@ pub struct Play2Command {
     command_name: String, // "play2"
     transaction_id: u8,   // 0
     // command_object is null
-    parameters: amf::Value,
+    parameters: HashMap<String, amf::Value>,
 }
 
 #[derive(Debug)]
