@@ -1,6 +1,11 @@
 use errors::{ChunkMessageError, ChunkMessageResult};
 use tokio_util::bytes::BytesMut;
 
+use crate::{
+    message::{RtmpMessage, RtmpMessageType},
+    protocol_control::{ProtocolControlMessage, ProtocolControlMessageType},
+};
+
 pub mod consts;
 pub mod errors;
 pub mod reader;
@@ -61,7 +66,7 @@ impl ChunkBasicHeader {
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ///                   Chunk Message Header - Type 0
 #[derive(Debug, Clone)]
-struct ChunkMessageHeaderType0 {
+pub struct ChunkMessageHeaderType0 {
     timestamp: u32,         // 3 bytes
     message_length: u32,    // 3 bytes
     message_type_id: u8,    // 1 byte
@@ -78,7 +83,7 @@ struct ChunkMessageHeaderType0 {
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ///                 Chunk Message Header - Type 1
 #[derive(Debug)]
-struct ChunkMessageHeaderType1 {
+pub struct ChunkMessageHeaderType1 {
     timestamp_delta: u32, // 3 bytes
     message_length: u32,  // 3 bytes
     message_type_id: u8,  // 1 byte
@@ -92,14 +97,14 @@ struct ChunkMessageHeaderType1 {
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ///         Chunk Message Header - Type 2
 #[derive(Debug)]
-struct ChunkMessageHeaderType2 {
+pub struct ChunkMessageHeaderType2 {
     timestamp_delta: u32, // 3 bytes
 }
 
 ///! @see: 5.3.1.2.4. Type 3 - for one message split into multiple chunks
 /// there are no message header for this type
 #[derive(Debug)]
-struct ChunkMessageHeaderType3 {}
+pub struct ChunkMessageHeaderType3 {}
 
 #[derive(Debug)]
 pub enum ChunkMessageHeader {
@@ -125,57 +130,32 @@ pub struct ChunkMessageCommonHeader {
 /// |                                                    |
 /// |<------------------- Chunk Header ----------------->|
 ///                             Chunk Format
-struct ChunkMessage {
+pub struct ChunkMessage {
     header: ChunkMessageCommonHeader,
-    chunk_data: BytesMut,
+    chunk_message_body: RtmpChunkMessageBody,
 }
 
-#[repr(u8)]
-#[derive(Debug)]
-pub enum ProtocolControlMessageType {
-    SetChunkSize = 1,
-    Abort = 2,
-    Acknowledgement = 3,
-    WindowAckSize = 5,
-    SetPeerBandwidth = 6,
-}
-
-impl Into<u8> for ProtocolControlMessageType {
-    fn into(self) -> u8 {
-        self as u8
-    }
-}
-
-impl TryFrom<u8> for ProtocolControlMessageType {
-    type Error = ChunkMessageError;
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            1 => Ok(ProtocolControlMessageType::SetChunkSize),
-            2 => Ok(ProtocolControlMessageType::Abort),
-            3 => Ok(ProtocolControlMessageType::Acknowledgement),
-            5 => Ok(ProtocolControlMessageType::WindowAckSize),
-            6 => Ok(ProtocolControlMessageType::SetPeerBandwidth),
-            _ => Err(ChunkMessageError::UnknownMessageType(value)),
-        }
-    }
+pub enum RtmpChunkMessageBody {
+    ProtocolControl(ProtocolControlMessage),
+    RtmpUserMessage(RtmpMessage),
 }
 
 #[repr(u8)]
 #[derive(Debug)]
 pub enum ChunkMessageType {
     ProtocolControl(ProtocolControlMessageType),
-    UserControl = 4,
+    RtmpUserMessage(RtmpMessageType),
 }
 
 impl TryFrom<u8> for ChunkMessageType {
     type Error = ChunkMessageError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        if value == 4 {
-            return Ok(ChunkMessageType::UserControl);
-        }
-
         if let Ok(v) = ProtocolControlMessageType::try_from(value) {
             return Ok(ChunkMessageType::ProtocolControl(v));
+        }
+
+        if let Ok(v) = RtmpMessageType::try_from(value) {
+            return Ok(ChunkMessageType::RtmpUserMessage(v));
         }
 
         Err(ChunkMessageError::UnknownMessageType(value))

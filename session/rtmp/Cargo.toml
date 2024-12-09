@@ -1,0 +1,8 @@
+[package]
+name = "rtmp-session"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rtmp-formats = { path = "../../formats/rtmp" }
+thiserror = "2.0.6"

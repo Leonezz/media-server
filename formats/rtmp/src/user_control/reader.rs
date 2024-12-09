@@ -2,7 +2,9 @@ use std::io;
 
 use byteorder::{BigEndian, ReadBytesExt};
 
-use super::{UserControlEvent, UserControlEventType, errors::errors::RtmpMessageResult};
+use crate::chunk::errors::ChunkMessageResult;
+
+use super::{UserControlEvent, UserControlEventType};
 
 #[derive(Debug)]
 pub struct Reader<R> {
@@ -17,7 +19,7 @@ where
         Self { inner }
     }
 
-    pub fn read(&mut self) -> RtmpMessageResult<UserControlEvent> {
+    pub fn read(&mut self) -> ChunkMessageResult<UserControlEvent> {
         let event_type = self.inner.read_u16::<BigEndian>()?;
         let event_type: UserControlEventType = event_type.try_into()?;
         match event_type {
@@ -31,44 +33,44 @@ where
         }
     }
 
-    fn read_stream_begin(&mut self) -> RtmpMessageResult<UserControlEvent> {
+    fn read_stream_begin(&mut self) -> ChunkMessageResult<UserControlEvent> {
         Ok(UserControlEvent::StreamBegin {
             stream_id: self.inner.read_u32::<BigEndian>()?,
         })
     }
 
-    fn read_stream_eof(&mut self) -> RtmpMessageResult<UserControlEvent> {
+    fn read_stream_eof(&mut self) -> ChunkMessageResult<UserControlEvent> {
         Ok(UserControlEvent::StreamEOF {
             stream_id: self.inner.read_u32::<BigEndian>()?,
         })
     }
 
-    fn read_stream_dry(&mut self) -> RtmpMessageResult<UserControlEvent> {
+    fn read_stream_dry(&mut self) -> ChunkMessageResult<UserControlEvent> {
         Ok(UserControlEvent::StreamDry {
             stream_id: self.inner.read_u32::<BigEndian>()?,
         })
     }
 
-    fn read_set_buffer_length(&mut self) -> RtmpMessageResult<UserControlEvent> {
+    fn read_set_buffer_length(&mut self) -> ChunkMessageResult<UserControlEvent> {
         Ok(UserControlEvent::SetBufferLength {
             stream_id: self.inner.read_u32::<BigEndian>()?,
             buffer_length: self.inner.read_u32::<BigEndian>()?,
         })
     }
 
-    fn read_stream_ids_recorded(&mut self) -> RtmpMessageResult<UserControlEvent> {
+    fn read_stream_ids_recorded(&mut self) -> ChunkMessageResult<UserControlEvent> {
         Ok(UserControlEvent::StreamIdsRecorded {
             stream_id: self.inner.read_u32::<BigEndian>()?,
         })
     }
 
-    fn read_ping_request(&mut self) -> RtmpMessageResult<UserControlEvent> {
+    fn read_ping_request(&mut self) -> ChunkMessageResult<UserControlEvent> {
         Ok(UserControlEvent::PingRequest {
             timestamp: self.inner.read_u32::<BigEndian>()?,
         })
     }
 
-    fn read_ping_response(&mut self) -> RtmpMessageResult<UserControlEvent> {
+    fn read_ping_response(&mut self) -> ChunkMessageResult<UserControlEvent> {
         Ok(UserControlEvent::PingResponse {
             timestamp: self.inner.read_u32::<BigEndian>()?,
         })

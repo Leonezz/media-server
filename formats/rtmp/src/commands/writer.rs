@@ -1,5 +1,7 @@
-use amf::{self, Value as AmfValue, amf0::Value as Amf0Value, amf3::Value as Amf3Value};
+use amf::{self, Value as AmfValue};
 use std::{collections::HashMap, io};
+
+use crate::chunk::errors::ChunkMessageResult;
 
 use super::{
     CallCommandRequest, CallCommandResponse, ConnectCommandRequest, ConnectCommandResponse,
@@ -7,7 +9,6 @@ use super::{
     PauseCommand, Play2Command, PlayCommand, PublishCommand, ReceiveAudioCommand,
     ReceiveVideoCommand, RtmpC2SCommands, RtmpS2CCommands, SeekCommand,
     consts::{c2s_command_names, s2c_command_names},
-    errors::CommandMessageResult,
 };
 pub struct Writer<W> {
     inner: W,
@@ -22,7 +23,7 @@ where
         Self { inner, amf_version }
     }
 
-    pub fn write_c2s_command(&mut self, command: RtmpC2SCommands) -> CommandMessageResult<()> {
+    pub fn write_c2s_command(&mut self, command: &RtmpC2SCommands) -> ChunkMessageResult<()> {
         match command {
             RtmpC2SCommands::Connect(command) => self.write_c2s_connect_command(command),
             RtmpC2SCommands::Call(command) => self.write_c2s_call_command(command),
@@ -38,7 +39,7 @@ where
         }
     }
 
-    pub fn write_s2c_command(&mut self, command: RtmpS2CCommands) -> CommandMessageResult<()> {
+    pub fn write_s2c_command(&mut self, command: &RtmpS2CCommands) -> ChunkMessageResult<()> {
         match command {
             RtmpS2CCommands::Connect(command) => self.write_s2c_connect_command(command),
             RtmpS2CCommands::CreateStream(command) => self.write_s2c_create_stream_command(command),
@@ -49,19 +50,19 @@ where
 
     fn write_c2s_connect_command(
         &mut self,
-        command: ConnectCommandRequest,
-    ) -> CommandMessageResult<()> {
+        command: &ConnectCommandRequest,
+    ) -> ChunkMessageResult<()> {
         self.write_amf_str(c2s_command_names::CONNECT)?;
         self.write_amf_number(1)?;
-        self.write_amf_object_or_null(Some(command.command_object))?;
-        self.write_amf_object_or_null(command.optional_user_arguments)?;
+        self.write_amf_object_or_null(Some(command.command_object.clone()))?;
+        self.write_amf_object_or_null(command.optional_user_arguments.clone())?;
         Ok(())
     }
 
     fn write_s2c_connect_command(
         &mut self,
-        command: ConnectCommandResponse,
-    ) -> CommandMessageResult<()> {
+        command: &ConnectCommandResponse,
+    ) -> ChunkMessageResult<()> {
         let command_name = if command.success {
             s2c_command_names::RESULT
         } else {
@@ -69,64 +70,61 @@ where
         };
         self.write_amf_str(command_name)?;
         self.write_amf_number(1)?;
-        self.write_amf_object_or_null(command.properties)?;
-        self.write_amf_object_or_null(Some(command.information))?;
+        self.write_amf_object_or_null(command.properties.clone())?;
+        self.write_amf_object_or_null(Some(command.information.clone()))?;
         Ok(())
     }
 
-    fn write_c2s_call_command(&mut self, command: CallCommandRequest) -> CommandMessageResult<()> {
+    fn write_c2s_call_command(&mut self, command: &CallCommandRequest) -> ChunkMessageResult<()> {
         self.write_amf_str(&command.procedure_name)?;
         self.write_amf_number(command.transaction_id)?;
-        self.write_amf_object_or_null(command.command_object)?;
-        self.write_amf_object_or_null(command.optional_arguments)?;
+        self.write_amf_object_or_null(command.command_object.clone())?;
+        self.write_amf_object_or_null(command.optional_arguments.clone())?;
         Ok(())
     }
 
-    fn write_s2c_call_command(&mut self, command: CallCommandResponse) -> CommandMessageResult<()> {
+    fn write_s2c_call_command(&mut self, command: &CallCommandResponse) -> ChunkMessageResult<()> {
         self.write_amf_str(&command.command_name)?;
         self.write_amf_number(command.transaction_id)?;
-        self.write_amf_object_or_null(command.command_object)?;
-        self.write_amf_object_or_null(command.response)?;
+        self.write_amf_object_or_null(command.command_object.clone())?;
+        self.write_amf_object_or_null(command.response.clone())?;
         Ok(())
     }
 
     fn write_c2s_create_stream_command(
         &mut self,
-        command: CreateStreamCommandRequest,
-    ) -> CommandMessageResult<()> {
+        command: &CreateStreamCommandRequest,
+    ) -> ChunkMessageResult<()> {
         self.write_amf_str(c2s_command_names::CREATE_STREAM)?;
         self.write_amf_number(command.transaction_id)?;
-        self.write_amf_object_or_null(command.command_object)?;
+        self.write_amf_object_or_null(command.command_object.clone())?;
         Ok(())
     }
 
     fn write_s2c_create_stream_command(
         &mut self,
-        command: CreateStreamCommandResponse,
-    ) -> CommandMessageResult<()> {
+        command: &CreateStreamCommandResponse,
+    ) -> ChunkMessageResult<()> {
         if command.success {
             self.write_amf_str(s2c_command_names::RESULT)?;
         } else {
             self.write_amf_str(s2c_command_names::ERROR)?;
         };
         self.write_amf_number(command.transaction_id)?;
-        self.write_amf_object_or_null(command.command_object)?;
+        self.write_amf_object_or_null(command.command_object.clone())?;
         self.write_amf_number(command.stream_id)?;
         Ok(())
     }
 
-    fn write_s2c_on_status_command(
-        &mut self,
-        command: OnStatusCommand,
-    ) -> CommandMessageResult<()> {
+    fn write_s2c_on_status_command(&mut self, command: &OnStatusCommand) -> ChunkMessageResult<()> {
         self.write_amf_str(s2c_command_names::ON_STATUS)?;
         self.write_amf_number(0)?;
         self.write_amf_null()?;
-        self.write_amf_object_or_null(Some(command.info_object))?;
+        self.write_amf_object_or_null(Some(command.info_object.clone()))?;
         Ok(())
     }
 
-    fn write_c2s_play_command(&mut self, command: PlayCommand) -> CommandMessageResult<()> {
+    fn write_c2s_play_command(&mut self, command: &PlayCommand) -> ChunkMessageResult<()> {
         self.write_amf_str(c2s_command_names::PLAY)?;
         self.write_amf_number(0)?;
         self.write_amf_null()?;
@@ -137,18 +135,18 @@ where
         Ok(())
     }
 
-    fn write_c2s_play2_command(&mut self, command: Play2Command) -> CommandMessageResult<()> {
+    fn write_c2s_play2_command(&mut self, command: &Play2Command) -> ChunkMessageResult<()> {
         self.write_amf_str(c2s_command_names::PLAY2)?;
         self.write_amf_number(0)?;
         self.write_amf_null()?;
-        self.write_amf_object_or_null(Some(command.parameters))?;
+        self.write_amf_object_or_null(Some(command.parameters.clone()))?;
         Ok(())
     }
 
     fn write_c2s_delete_stream_command(
         &mut self,
-        command: DeleteStreamCommand,
-    ) -> CommandMessageResult<()> {
+        command: &DeleteStreamCommand,
+    ) -> ChunkMessageResult<()> {
         self.write_amf_str(c2s_command_names::DELETE_STREAM)?;
         self.write_amf_number(0)?;
         self.write_amf_null()?;
@@ -158,8 +156,8 @@ where
 
     fn write_c2s_receive_audio_command(
         &mut self,
-        command: ReceiveAudioCommand,
-    ) -> CommandMessageResult<()> {
+        command: &ReceiveAudioCommand,
+    ) -> ChunkMessageResult<()> {
         self.write_amf_str(c2s_command_names::RECEIVE_AUDIO)?;
         self.write_amf_number(0)?;
         self.write_amf_null()?;
@@ -169,8 +167,8 @@ where
 
     fn write_c2s_receive_video_command(
         &mut self,
-        command: ReceiveVideoCommand,
-    ) -> CommandMessageResult<()> {
+        command: &ReceiveVideoCommand,
+    ) -> ChunkMessageResult<()> {
         self.write_amf_str(c2s_command_names::RECEIVE_VIDEO)?;
         self.write_amf_number(0)?;
         self.write_amf_null()?;
@@ -178,7 +176,7 @@ where
         Ok(())
     }
 
-    fn write_c2s_publish_command(&mut self, command: PublishCommand) -> CommandMessageResult<()> {
+    fn write_c2s_publish_command(&mut self, command: &PublishCommand) -> ChunkMessageResult<()> {
         self.write_amf_str(c2s_command_names::PUBLISH)?;
         self.write_amf_number(0)?;
         self.write_amf_null()?;
@@ -187,7 +185,7 @@ where
         Ok(())
     }
 
-    fn write_c2s_seek_command(&mut self, command: SeekCommand) -> CommandMessageResult<()> {
+    fn write_c2s_seek_command(&mut self, command: &SeekCommand) -> ChunkMessageResult<()> {
         self.write_amf_str(c2s_command_names::SEEK)?;
         self.write_amf_number(0)?;
         self.write_amf_null()?;
@@ -195,7 +193,7 @@ where
         Ok(())
     }
 
-    fn write_c2s_pause_command(&mut self, command: PauseCommand) -> CommandMessageResult<()> {
+    fn write_c2s_pause_command(&mut self, command: &PauseCommand) -> ChunkMessageResult<()> {
         self.write_amf_str(c2s_command_names::PAUSE)?;
         self.write_amf_number(0)?;
         self.write_amf_null()?;
@@ -204,17 +202,17 @@ where
         Ok(())
     }
 
-    fn write_amf_str(&mut self, value: &str) -> CommandMessageResult<()> {
+    fn write_amf_str(&mut self, value: &str) -> ChunkMessageResult<()> {
         AmfValue::write_str(value, self.inner.by_ref(), self.amf_version)?;
         Ok(())
     }
 
-    fn write_amf_bool(&mut self, value: bool) -> CommandMessageResult<()> {
+    fn write_amf_bool(&mut self, value: bool) -> ChunkMessageResult<()> {
         AmfValue::write_bool(value, self.inner.by_ref(), self.amf_version)?;
         Ok(())
     }
 
-    fn write_amf_number<T>(&mut self, value: T) -> CommandMessageResult<()>
+    fn write_amf_number<T>(&mut self, value: T) -> ChunkMessageResult<()>
     where
         T: Into<f64>,
     {
@@ -222,7 +220,7 @@ where
         Ok(())
     }
 
-    fn write_amf_object_or_null<T>(&mut self, value: Option<T>) -> CommandMessageResult<()>
+    fn write_amf_object_or_null<T>(&mut self, value: Option<T>) -> ChunkMessageResult<()>
     where
         T: Into<HashMap<String, AmfValue>>,
     {
@@ -235,7 +233,7 @@ where
         Ok(())
     }
 
-    fn write_amf_null(&mut self) -> CommandMessageResult<()> {
+    fn write_amf_null(&mut self) -> ChunkMessageResult<()> {
         AmfValue::write_null(self.inner.by_ref(), self.amf_version)?;
         Ok(())
     }

@@ -14,12 +14,22 @@ pub enum ChunkMessageError {
     InvalidBasicHeader(String),
     #[error("invalid message header: {0}")]
     InvalidMessageHead(String),
-    #[error("message length not match")]
-    MessageLengthNotMatch,
+    #[error("invalid message body: {0}")]
+    InvalidMessage(String),
     #[error("need context for chunk message")]
     NeedContext,
     #[error("failed to insert context")]
     AddContextFailed,
+    #[error("unknown event type: {0}")]
+    UnknownEventType(u16),
+    #[error("unexpected amf type: {0}")]
+    UnexpectedAmfType(String),
+    #[error("unexpected command name: {0}")]
+    UnexpectedCommandName(String),
+    #[error("unknown amf version: {0}")]
+    UnknownAmfVersion(u8),
+    #[error("error while read or write meta data message: {0}")]
+    MetaDataError(#[from] amf::errors::AmfError),
 }
 
 pub type ChunkMessageResult<T> = Result<T, ChunkMessageError>;

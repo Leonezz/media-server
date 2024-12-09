@@ -1,11 +1,14 @@
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
 use std::{collections::HashMap, io};
-use tokio_util::bytes::BytesMut;
+use tokio_util::bytes::{Buf, BytesMut};
+
+use crate::{message, protocol_control};
 
 use super::{
     CSID, ChunkBasicHeader, ChunkMessage, ChunkMessageCommonHeader, ChunkMessageHeader,
     ChunkMessageHeaderType0, ChunkMessageHeaderType1, ChunkMessageHeaderType2,
-    ChunkMessageHeaderType3, consts::MAX_TIMESTAMP, errors::ChunkMessageResult,
+    ChunkMessageHeaderType3, ChunkMessageType, RtmpChunkMessageBody, consts::MAX_TIMESTAMP,
+    errors::ChunkMessageResult,
 };
 
 #[derive(Debug, Default)]
@@ -20,7 +23,7 @@ pub struct ReadContext {
 
 type ChunkStreamReadContext = HashMap<CSID, ReadContext>;
 
-struct Reader<R> {
+pub struct Reader<R> {
     inner: R,
     context: ChunkStreamReadContext,
 }
@@ -35,22 +38,39 @@ where
             context: HashMap::new(),
         }
     }
-    pub fn read(&mut self) -> ChunkMessageResult<ChunkMessage> {
+    pub fn read(&mut self, c2s: bool) -> ChunkMessageResult<ChunkMessage> {
         let common_header = self.read_to_common_header()?;
         let message_length = common_header.message_length as usize;
         let mut bytes = BytesMut::with_capacity(message_length);
         bytes.resize(message_length, 0);
         self.inner.read_exact(&mut bytes)?;
+        let message_body = match common_header.message_type_id.try_into()? {
+            ChunkMessageType::ProtocolControl(message_type) => {
+                RtmpChunkMessageBody::ProtocolControl(
+                    protocol_control::ProtocolControlMessage::read_from(
+                        bytes.reader(),
+                        message_type,
+                    )?,
+                )
+            }
+            ChunkMessageType::RtmpUserMessage(message_type) => {
+                if c2s {
+                    RtmpChunkMessageBody::RtmpUserMessage(message::RtmpMessage::read_c2s_from(
+                        bytes.reader(),
+                        amf::Version::Amf0,
+                    )?)
+                } else {
+                    RtmpChunkMessageBody::RtmpUserMessage(message::RtmpMessage::read_s2c_from(
+                        bytes.reader(),
+                        amf::Version::Amf0,
+                    )?)
+                }
+            }
+        };
         Ok(ChunkMessage {
             header: common_header,
-            chunk_data: bytes,
+            chunk_message_body: message_body,
         })
-    }
-
-    fn validate_chunk_message(&self, message: &ChunkMessage) -> ChunkMessageResult<()> {
-        let message_type_id = message.header.message_type_id;
-
-        Ok(())
     }
 
     fn read_to_common_header(&mut self) -> ChunkMessageResult<ChunkMessageCommonHeader> {

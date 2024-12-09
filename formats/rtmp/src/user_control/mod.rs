@@ -1,4 +1,6 @@
-use errors::errors::RtmpMessageError;
+use std::io;
+
+use crate::chunk::errors::{ChunkMessageError, ChunkMessageResult};
 
 ///! @see: 7.1.7. User Control Message Events
 pub mod consts;
@@ -32,6 +34,22 @@ pub enum UserControlEvent {
     },
 }
 
+impl UserControlEvent {
+    pub fn read_from<R>(inner: R) -> ChunkMessageResult<UserControlEvent>
+    where
+        R: io::Read,
+    {
+        reader::Reader::new(inner).read()
+    }
+
+    pub fn write_to<W>(&self, inner: W) -> ChunkMessageResult<()>
+    where
+        W: io::Write,
+    {
+        writer::Writer::new(inner).write(self)
+    }
+}
+
 #[repr(u16)]
 #[derive(Debug)]
 pub enum UserControlEventType {
@@ -51,7 +69,7 @@ impl Into<u16> for UserControlEventType {
 }
 
 impl TryFrom<u16> for UserControlEventType {
-    type Error = RtmpMessageError;
+    type Error = ChunkMessageError;
     fn try_from(value: u16) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(UserControlEventType::StreamBegin),
@@ -61,7 +79,7 @@ impl TryFrom<u16> for UserControlEventType {
             4 => Ok(UserControlEventType::StreamIdsRecorded),
             6 => Ok(UserControlEventType::PingRequest),
             7 => Ok(UserControlEventType::PingResponse),
-            _ => Err(RtmpMessageError::UnknownEventType(value)),
+            _ => Err(ChunkMessageError::UnknownEventType(value)),
         }
     }
 }

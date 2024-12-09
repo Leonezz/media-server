@@ -1,13 +1,12 @@
 use byteorder::{BigEndian, LittleEndian, WriteBytesExt};
 use std::{
     collections::HashMap,
-    io::{self, Read},
+    io::{self},
 };
-use tokio_util::bytes::{Buf, BytesMut};
 
 use super::{
     CSID, ChunkBasicHeader, ChunkBasicHeaderType, ChunkMessage, ChunkMessageCommonHeader,
-    ChunkMessageHeader, consts::MAX_TIMESTAMP, errors::ChunkMessageResult,
+    ChunkMessageHeader, RtmpChunkMessageBody, consts::MAX_TIMESTAMP, errors::ChunkMessageResult,
 };
 
 #[derive(Debug, Default)]
@@ -39,23 +38,17 @@ where
         }
     }
 
-    pub fn transparent_write(
-        &mut self,
-        basic_header: ChunkBasicHeader,
-        message_header: ChunkMessageHeader,
-        chunk_data: BytesMut,
-    ) -> ChunkMessageResult<()> {
+    pub fn write(&mut self, value: ChunkMessage) -> ChunkMessageResult<()> {
+        let (basic_header, message_header) = self.justify_message_type(&value.header)?;
+        // self.transparent_write(basic_header, message_header, value.chunk_data)?;
         self.write_basic_header(&basic_header)?;
         self.write_message_header(&message_header, basic_header.chunk_stream_id)?;
-        self.write_chunk_data(chunk_data)?;
-        Ok(())
-    }
-
-    pub fn write(&mut self, value: ChunkMessage) -> ChunkMessageResult<()> {
-        self.validate_message(&value)?;
-
-        let (basic_header, message_header) = self.justify_message_type(&value.header)?;
-        self.transparent_write(basic_header, message_header, value.chunk_data)?;
+        match value.chunk_message_body {
+            RtmpChunkMessageBody::ProtocolControl(message) => message.write_to(self.inner.by_ref()),
+            RtmpChunkMessageBody::RtmpUserMessage(message) => {
+                message.write_c2s_to(self.inner.by_ref(), amf::Version::Amf0)
+            }
+        }?;
 
         Ok(())
     }
@@ -156,14 +149,6 @@ where
                 }),
             ));
         }
-    }
-
-    fn validate_message(&self, value: &ChunkMessage) -> ChunkMessageResult<()> {
-        if value.header.message_length as usize != value.chunk_data.remaining() {
-            return Err(super::errors::ChunkMessageError::MessageLengthNotMatch);
-        }
-
-        Ok(())
     }
 
     fn write_basic_header(&mut self, header: &ChunkBasicHeader) -> ChunkMessageResult<()> {
@@ -292,13 +277,6 @@ where
                 }
             }
         }
-        Ok(())
-    }
-
-    fn write_chunk_data(&mut self, bytes: BytesMut) -> ChunkMessageResult<()> {
-        let mut buf = Vec::new();
-        bytes.reader().read_to_end(&mut buf)?;
-        self.inner.write_all(&buf)?;
         Ok(())
     }
 }

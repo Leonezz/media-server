@@ -1,4 +1,6 @@
-use errors::ProtocolControlMessageRWError;
+use std::io;
+
+use crate::chunk::errors::{ChunkMessageError, ChunkMessageResult};
 
 pub mod consts;
 pub mod errors;
@@ -51,6 +53,36 @@ pub struct WindowAckSize {
 
 #[repr(u8)]
 #[derive(Debug)]
+pub enum ProtocolControlMessageType {
+    SetChunkSize = 1,
+    Abort = 2,
+    Acknowledgement = 3,
+    WindowAckSize = 5,
+    SetPeerBandwidth = 6,
+}
+
+impl Into<u8> for ProtocolControlMessageType {
+    fn into(self) -> u8 {
+        self as u8
+    }
+}
+
+impl TryFrom<u8> for ProtocolControlMessageType {
+    type Error = ChunkMessageError;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(ProtocolControlMessageType::SetChunkSize),
+            2 => Ok(ProtocolControlMessageType::Abort),
+            3 => Ok(ProtocolControlMessageType::Acknowledgement),
+            5 => Ok(ProtocolControlMessageType::WindowAckSize),
+            6 => Ok(ProtocolControlMessageType::SetPeerBandwidth),
+            _ => Err(ChunkMessageError::UnknownMessageType(value)),
+        }
+    }
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy)]
 enum SetPeerBandWidthLimitType {
     // The peer SHOULD limit its output bandwidth to the indicated window size.
     Hard = 0,
@@ -63,13 +95,13 @@ enum SetPeerBandWidthLimitType {
 }
 
 impl TryFrom<u8> for SetPeerBandWidthLimitType {
-    type Error = ProtocolControlMessageRWError;
+    type Error = ChunkMessageError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(SetPeerBandWidthLimitType::Hard),
             1 => Ok(SetPeerBandWidthLimitType::Soft),
             2 => Ok(SetPeerBandWidthLimitType::Dynamic),
-            _ => Err(ProtocolControlMessageRWError::InvalidMessage(format!(
+            _ => Err(ChunkMessageError::InvalidMessage(format!(
                 "invalid set peer bandwidth message, the limit type is unknown: {}",
                 value
             ))),
@@ -98,4 +130,23 @@ pub enum ProtocolControlMessage {
     Ack(Acknowledgement),
     WindowAckSize(WindowAckSize),
     SetPeerBandwidth(SetPeerBandwidth),
+}
+
+impl ProtocolControlMessage {
+    pub fn read_from<R>(
+        inner: R,
+        message_type: ProtocolControlMessageType,
+    ) -> ChunkMessageResult<ProtocolControlMessage>
+    where
+        R: io::Read,
+    {
+        reader::Reader::new(inner).read(message_type)
+    }
+
+    pub fn write_to<W>(&self, inner: W) -> ChunkMessageResult<()>
+    where
+        W: io::Write,
+    {
+        writer::Writer::new(inner).write(self)
+    }
 }

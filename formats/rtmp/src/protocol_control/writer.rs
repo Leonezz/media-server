@@ -1,8 +1,8 @@
+use crate::chunk::errors::{ChunkMessageError, ChunkMessageResult};
+
 use super::{
-    AbortMessage, Acknowledgement, ProtocolControlMessage, SetChunkSize,
-    SetPeerBandwidth, WindowAckSize,
-    consts::MAX_CHUNK_SIZE,
-    errors::{ProtocolControlMessageRWError, ProtocolControlMessageRWResult},
+    AbortMessage, Acknowledgement, ProtocolControlMessage, SetChunkSize, SetPeerBandwidth,
+    WindowAckSize, consts::MAX_CHUNK_SIZE,
 };
 use byteorder::{BigEndian, WriteBytesExt};
 use std::io;
@@ -19,7 +19,7 @@ where
         Self { inner }
     }
 
-    pub fn write(&mut self, message: ProtocolControlMessage) -> ProtocolControlMessageRWResult<()> {
+    pub fn write(&mut self, message: &ProtocolControlMessage) -> ChunkMessageResult<()> {
         match message {
             ProtocolControlMessage::SetChunkSize(m) => self.write_set_chunk_size_message(m),
             ProtocolControlMessage::Abort(m) => self.write_abort_message(m),
@@ -29,12 +29,9 @@ where
         }
     }
 
-    fn write_set_chunk_size_message(
-        &mut self,
-        message: SetChunkSize,
-    ) -> ProtocolControlMessageRWResult<()> {
+    fn write_set_chunk_size_message(&mut self, message: &SetChunkSize) -> ChunkMessageResult<()> {
         if (message.chunk_size as i32) < 0 {
-            return Err(ProtocolControlMessageRWError::InvalidMessage(format!(
+            return Err(ChunkMessageError::InvalidMessage(format!(
                 "invalid set chunk size message, the first bit of chunk size is not 0"
             )));
         }
@@ -44,31 +41,28 @@ where
         Ok(())
     }
 
-    fn write_abort_message(&mut self, message: AbortMessage) -> ProtocolControlMessageRWResult<()> {
+    fn write_abort_message(&mut self, message: &AbortMessage) -> ChunkMessageResult<()> {
         self.inner.write_u32::<BigEndian>(message.chunk_stream_id)?;
         Ok(())
     }
 
     fn write_acknowledgement_message(
         &mut self,
-        message: Acknowledgement,
-    ) -> ProtocolControlMessageRWResult<()> {
+        message: &Acknowledgement,
+    ) -> ChunkMessageResult<()> {
         self.inner.write_u32::<BigEndian>(message.sequence_number)?;
         Ok(())
     }
 
-    fn write_window_ack_size_message(
-        &mut self,
-        message: WindowAckSize,
-    ) -> ProtocolControlMessageRWResult<()> {
+    fn write_window_ack_size_message(&mut self, message: &WindowAckSize) -> ChunkMessageResult<()> {
         self.inner.write_u32::<BigEndian>(message.size)?;
         Ok(())
     }
 
     fn write_set_peer_bandwidth_message(
         &mut self,
-        message: SetPeerBandwidth,
-    ) -> ProtocolControlMessageRWResult<()> {
+        message: &SetPeerBandwidth,
+    ) -> ChunkMessageResult<()> {
         self.inner.write_u32::<BigEndian>(message.size)?;
         self.inner.write_u8(message.limit_type as u8)?;
         Ok(())

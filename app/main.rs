@@ -28,7 +28,7 @@ async fn main() {
     loop {
         let (tcp_stream, _) = listener.accept().await.unwrap();
         tracing::debug!("got a connection");
-        let handshaker = rtmp::handshake::server::HandshakeServer::new(tcp_stream);
+        let handshaker = rtmp_formats::handshake::server::HandshakeServer::new(tcp_stream);
         let res = handshaker.handshake(false).await;
         tracing::debug!("{:?}", res);
     }

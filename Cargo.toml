@@ -1,2 +1,2 @@
 [workspace]
-members = ['formats/amf', 'formats/rtmp', 'app', 'utils']
+members = ['formats/*', "session/*", 'app', 'utils']

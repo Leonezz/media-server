@@ -1,7 +1,6 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, io};
 
-use amf::{amf0, amf3};
-use errors::CommandMessageError;
+use crate::chunk::errors::{ChunkMessageError, ChunkMessageResult};
 
 pub mod consts;
 pub mod errors;
@@ -9,7 +8,7 @@ pub mod reader;
 pub mod writer;
 
 ///! @see: 7.2.1.1. connect
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ConnectCommandRequestObject {
     app: String,
     flash_version: String,
@@ -24,19 +23,19 @@ pub struct ConnectCommandRequestObject {
 }
 
 impl TryFrom<HashMap<String, amf::Value>> for ConnectCommandRequestObject {
-    type Error = CommandMessageError;
+    type Error = ChunkMessageError;
     fn try_from(value: HashMap<String, amf::Value>) -> Result<Self, Self::Error> {
         let extract_string_field = |key: &str| match value.get(key) {
             Some(value) => match value.try_as_str() {
                 Some(v) => Ok(v.to_string()),
                 None => {
-                    return Err(CommandMessageError::UnexpectedAmfType(format!(
+                    return Err(ChunkMessageError::UnexpectedAmfType(format!(
                         "expect a string type"
                     )));
                 }
             },
             None => {
-                return Err(CommandMessageError::UnexpectedAmfType(format!(
+                return Err(ChunkMessageError::UnexpectedAmfType(format!(
                     "expect {} field",
                     key
                 )));
@@ -46,13 +45,13 @@ impl TryFrom<HashMap<String, amf::Value>> for ConnectCommandRequestObject {
             Some(value) => match value.try_as_bool() {
                 Some(v) => Ok(v),
                 None => {
-                    return Err(CommandMessageError::UnexpectedAmfType(format!(
+                    return Err(ChunkMessageError::UnexpectedAmfType(format!(
                         "expect a bool type"
                     )));
                 }
             },
             None => {
-                return Err(CommandMessageError::UnexpectedAmfType(format!(
+                return Err(ChunkMessageError::UnexpectedAmfType(format!(
                     "expect {} field",
                     key
                 )));
@@ -63,13 +62,13 @@ impl TryFrom<HashMap<String, amf::Value>> for ConnectCommandRequestObject {
             Some(value) => match value.try_as_f64() {
                 Some(v) => Ok(v),
                 None => {
-                    return Err(CommandMessageError::UnexpectedAmfType(format!(
+                    return Err(ChunkMessageError::UnexpectedAmfType(format!(
                         "expect a number type"
                     )));
                 }
             },
             None => {
-                return Err(CommandMessageError::UnexpectedAmfType(format!(
+                return Err(ChunkMessageError::UnexpectedAmfType(format!(
                     "expect {} field",
                     key
                 )));
@@ -89,7 +88,7 @@ impl TryFrom<HashMap<String, amf::Value>> for ConnectCommandRequestObject {
             object_encoding: match extract_number_field("objectEncoding")? as u8 {
                 0 => amf::Version::Amf0,
                 3 => amf::Version::Amf3,
-                v => return Err(CommandMessageError::UnknownAmfVersion(v as u8)),
+                v => return Err(ChunkMessageError::UnknownAmfVersion(v as u8)),
             },
         };
 
@@ -288,4 +287,43 @@ pub enum RtmpS2CCommandsType {
     Call,
     CreateStream,
     OnStatus,
+}
+
+impl RtmpC2SCommands {
+    pub fn read_from<R>(
+        inner: R,
+        version: amf::Version,
+    ) -> Result<RtmpC2SCommands, ChunkMessageError>
+    where
+        R: io::Read,
+    {
+        reader::Reader::new(inner, version).read_c2s_command()
+    }
+
+    pub fn write_to<W>(&self, inner: W, version: amf::Version) -> ChunkMessageResult<()>
+    where
+        W: io::Write,
+    {
+        writer::Writer::new(inner, version).write_c2s_command(&self)
+    }
+}
+
+impl RtmpS2CCommands {
+    pub fn read_from<R>(
+        inner: R,
+        command_type: RtmpS2CCommandsType,
+        version: amf::Version,
+    ) -> Result<RtmpS2CCommands, ChunkMessageError>
+    where
+        R: io::Read,
+    {
+        reader::Reader::new(inner, version).read_s2c_command(command_type)
+    }
+
+    pub fn write_to<W>(&self, inner: W, version: amf::Version) -> ChunkMessageResult<()>
+    where
+        W: io::Write,
+    {
+        writer::Writer::new(inner, version).write_s2c_command(self)
+    }
 }

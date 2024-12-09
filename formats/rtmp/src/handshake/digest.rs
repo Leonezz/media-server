@@ -1,16 +1,9 @@
-use std::vec;
-
-use hmac::{Hmac, Mac, digest};
+use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use tracing::debug;
 
-use crate::handshake::consts::RTMP_SERVER_KEY;
-
 use super::{
-    consts::{
-        RTMP_CLIENT_KEY, RTMP_CLIENT_KEY_FIRST_HALF, RTMP_HANDSHAKE_SIZE,
-        RTMP_SERVER_KEY_FIRST_HALF, SHA256_DIGEST_SIZE,
-    },
+    consts::{RTMP_CLIENT_KEY, RTMP_HANDSHAKE_SIZE, SHA256_DIGEST_SIZE},
     errors::DigestError,
 };
 
