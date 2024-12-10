@@ -22,6 +22,7 @@ struct WriteContext {
 
 type ChunkMessageWriteContext = HashMap<CSID, WriteContext>;
 
+#[derive(Debug)]
 pub struct Writer<W> {
     inner: W,
     context: ChunkMessageWriteContext,

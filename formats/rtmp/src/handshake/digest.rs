@@ -1,6 +1,6 @@
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
-use tracing::debug;
+use tracing::{debug, instrument};
 
 use super::{
     consts::{RTMP_CLIENT_KEY, RTMP_HANDSHAKE_SIZE, SHA256_DIGEST_SIZE},
@@ -29,6 +29,7 @@ use super::{
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 /// | offset (4 bytes)  | {offset} bytes  | hash digest (32 bytes)  | {764 - 4 - offset - 32} bytes |
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+#[derive(Debug)]
 enum DigestSchema {
     Schema1,
     Schema2,
@@ -59,6 +60,7 @@ fn get_digest_index(random_bytes: &[u8; RTMP_HANDSHAKE_SIZE], schema: DigestSche
     index
 }
 
+#[instrument(skip(random_bytes))]
 fn validate_c1_digest_with_schema(
     random_bytes: &[u8; RTMP_HANDSHAKE_SIZE],
     schema: DigestSchema,
@@ -73,8 +75,8 @@ fn validate_c1_digest_with_schema(
         return Ok(digest);
     }
     debug!(
-        "recived digest: {:?}, expected digest: {:?}",
-        hash_digest, digest
+        "recived digest: {:?}, expected digest: {:?}, split at: {}",
+        hash_digest, digest, index,
     );
 
     Err(DigestError::Invalid)

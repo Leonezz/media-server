@@ -2,10 +2,10 @@ use core::time;
 use std::{
     fmt::Debug,
     io::Read,
+    pin::Pin,
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use rand_core::RngCore;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufWriter};
 use tokio_util::{
     bytes::{Buf, BytesMut},
@@ -51,8 +51,6 @@ pub trait AsyncHandshakeServer {
                     self.write_s2().await?;
                     self.flush().await?;
                     self.set_state(HandshakeServerState::S0S1S2Sent);
-
-                    break;
                 }
                 HandshakeServerState::S0S1S2Sent => {
                     self.read_c2().await?;
@@ -67,7 +65,7 @@ pub trait AsyncHandshakeServer {
 
 #[derive(Debug)]
 struct SimpleHandshakeServer<T: AsyncRead + AsyncWrite> {
-    io: T,
+    io: Pin<Box<T>>,
     c1_bytes: BytesMut,
     c1_timestamp: u32,
     state: HandshakeServerState,
@@ -75,11 +73,11 @@ struct SimpleHandshakeServer<T: AsyncRead + AsyncWrite> {
 
 impl<T> SimpleHandshakeServer<T>
 where
-    T: AsyncRead + AsyncWrite + Unpin,
+    T: AsyncRead + AsyncWrite + Debug,
 {
     pub fn new(io: T) -> Self {
         Self {
-            io: io,
+            io: Box::pin(io),
             c1_bytes: BytesMut::with_capacity(1536),
             c1_timestamp: 0,
             state: HandshakeServerState::Uninitialized,
@@ -89,7 +87,7 @@ where
 
 impl<IO> AsyncHandshakeServer for SimpleHandshakeServer<IO>
 where
-    IO: AsyncRead + AsyncWrite + Unpin + Debug,
+    IO: AsyncRead + AsyncWrite + Debug,
 {
     async fn flush(&mut self) -> HandshakeResult<()> {
         BufWriter::new(&mut self.io).flush().await?;
@@ -110,8 +108,8 @@ where
     #[tracing::instrument]
     async fn read_c1(&mut self) -> HandshakeResult<()> {
         self.c1_bytes.resize(RTMP_HANDSHAKE_SIZE, 0);
-        self.io.read_exact(&mut self.c1_bytes).await?;
-        debug!("read c1");
+        let len = self.io.read_exact(&mut self.c1_bytes).await?;
+        debug!("read c1, {}", len);
         Ok(())
     }
     #[tracing::instrument]
@@ -138,8 +136,7 @@ where
     async fn write_s1(&mut self) -> HandshakeResult<()> {
         let mut bytes = BytesMut::with_capacity(RTMP_HANDSHAKE_SIZE);
         let mut random_bytes: [u8; 1528] = [0; 1528];
-        let mut random_generator = rand::thread_rng();
-        random_generator.fill_bytes(&mut random_bytes);
+        utils::system::util::random_fill(&mut random_bytes);
         C1S1PacketCodec.encode(
             C1S1Packet {
                 timestamp: SystemTime::now().duration_since(UNIX_EPOCH)?,
@@ -163,7 +160,7 @@ where
 
 #[derive(Debug)]
 struct ComplexHandshakeServer<T> {
-    io: T,
+    io: Pin<Box<T>>,
     writer_buffer: BytesMut,
     c1_digest: [u8; SHA256_DIGEST_SIZE],
     c1_timestamp: u32,
@@ -172,11 +169,11 @@ struct ComplexHandshakeServer<T> {
 
 impl<T> ComplexHandshakeServer<T>
 where
-    T: AsyncRead + AsyncWrite + Unpin,
+    T: AsyncRead + AsyncWrite + Debug,
 {
     pub fn new(io: T) -> Self {
         Self {
-            io,
+            io: Box::pin(io),
             writer_buffer: BytesMut::with_capacity(4096),
             c1_digest: [0; SHA256_DIGEST_SIZE],
             c1_timestamp: 0,
@@ -187,7 +184,7 @@ where
 
 impl<T> AsyncHandshakeServer for ComplexHandshakeServer<T>
 where
-    T: AsyncRead + AsyncWrite + Unpin + Debug,
+    T: AsyncRead + AsyncWrite + Debug,
 {
     async fn flush(&mut self) -> HandshakeResult<()> {
         self.io.write_all_buf(&mut self.writer_buffer).await?;
@@ -210,8 +207,8 @@ where
     #[tracing::instrument]
     async fn read_c1(&mut self) -> HandshakeResult<()> {
         let mut bytes = [0; RTMP_HANDSHAKE_SIZE];
-        self.io.read_exact(&mut bytes).await?;
-        debug!("read c1 digest");
+        let len = self.io.read_exact(&mut bytes).await?;
+        debug!("read c1, {}", len);
         let digest = validate_c1_digest(&bytes)?;
         if digest.len() != SHA256_DIGEST_SIZE {
             return Err(HandshakeError::DigestError(DigestError::WrongLength {
@@ -246,8 +243,8 @@ where
     async fn write_s1(&mut self) -> HandshakeResult<()> {
         let mut bytes = BytesMut::with_capacity(RTMP_HANDSHAKE_SIZE);
         let mut random_bytes: [u8; 1528] = [0; 1528];
-        let mut random_generator = rand::thread_rng();
-        random_generator.fill_bytes(&mut random_bytes);
+
+        utils::system::util::random_fill(&mut random_bytes);
         C1S1PacketCodec.encode(
             C1S1Packet {
                 timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap(),
@@ -267,8 +264,8 @@ where
     async fn write_s2(&mut self) -> HandshakeResult<()> {
         let mut bytes = BytesMut::with_capacity(RTMP_HANDSHAKE_SIZE);
         let mut random_bytes: [u8; 1528] = [0; 1528];
-        let mut random_generator = rand::thread_rng();
-        random_generator.fill_bytes(&mut random_bytes);
+
+        utils::system::util::random_fill(&mut random_bytes);
         C2S2PacketCodec.encode(
             C2S2Packet {
                 timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap(),
@@ -299,12 +296,15 @@ where
 
 impl<T> Into<SimpleHandshakeServer<T>> for ComplexHandshakeServer<T>
 where
-    T: AsyncRead + AsyncWrite + Unpin,
+    T: AsyncRead + AsyncWrite + Debug,
 {
     fn into(self) -> SimpleHandshakeServer<T> {
-        let mut res = SimpleHandshakeServer::new(self.io);
-        res.state = self.state;
-        res
+        SimpleHandshakeServer {
+            io: self.io,
+            c1_bytes: BytesMut::with_capacity(1536),
+            c1_timestamp: 0,
+            state: self.state,
+        }
     }
 }
 
@@ -315,7 +315,7 @@ pub struct HandshakeServer<T: AsyncRead + AsyncWrite> {
 
 impl<T> HandshakeServer<T>
 where
-    T: AsyncRead + AsyncWrite + Unpin + Debug,
+    T: AsyncRead + AsyncWrite + Debug,
 {
     pub fn new(io: T) -> Self {
         Self {

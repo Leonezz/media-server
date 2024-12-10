@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-tokio = "1.42.0"
-rtmp-formats = { path = "../formats/rtmp" }
-tracing = "0.1.41"
+tracing = { version = "0.1.41" }
+tokio = { version = "1.42.0", features = ["full"] }
+rtmp-server = { path = "../servers/rtmp" }
 tracing-subscriber = "0.3.19"
 tracing-tracy = "0.11.3"
 

@@ -23,6 +23,7 @@ pub struct ReadContext {
 
 type ChunkStreamReadContext = HashMap<CSID, ReadContext>;
 
+#[derive(Debug)]
 pub struct Reader<R> {
     inner: R,
     context: ChunkStreamReadContext,

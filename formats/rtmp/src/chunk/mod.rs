@@ -130,11 +130,13 @@ pub struct ChunkMessageCommonHeader {
 /// |                                                    |
 /// |<------------------- Chunk Header ----------------->|
 ///                             Chunk Format
+#[derive(Debug)]
 pub struct ChunkMessage {
-    header: ChunkMessageCommonHeader,
-    chunk_message_body: RtmpChunkMessageBody,
+    pub header: ChunkMessageCommonHeader,
+    pub chunk_message_body: RtmpChunkMessageBody,
 }
 
+#[derive(Debug)]
 pub enum RtmpChunkMessageBody {
     ProtocolControl(ProtocolControlMessage),
     RtmpUserMessage(RtmpMessage),

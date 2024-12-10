@@ -1,6 +1,6 @@
 use tokio::net::TcpListener;
 use tracing::{self, Dispatch, Level};
-use tracing_subscriber;
+use tracing_subscriber::{self, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() {
@@ -22,14 +22,7 @@ async fn main() {
 
     tracing::debug!("running");
 
-    let listener = TcpListener::bind("127.0.0.1:9999".to_string())
-        .await
-        .unwrap();
-    loop {
-        let (tcp_stream, _) = listener.accept().await.unwrap();
-        tracing::debug!("got a connection");
-        let handshaker = rtmp_formats::handshake::server::HandshakeServer::new(tcp_stream);
-        let res = handshaker.handshake(false).await;
-        tracing::debug!("{:?}", res);
-    }
+    let rtmp_server_config = rtmp_server::publish::config::RtmpPublishServerConfig { port: 9999 };
+    let mut server = rtmp_server::publish::server::RtmpPublishServer::new(&rtmp_server_config);
+    let _ = server.run().await;
 }
