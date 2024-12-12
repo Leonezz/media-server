@@ -1,4 +1,4 @@
-use std::io;
+use std::{io, time::SystemTimeError};
 
 use thiserror::Error;
 
@@ -30,6 +30,8 @@ pub enum ChunkMessageError {
     UnknownAmfVersion(u8),
     #[error("error while read or write meta data message: {0}")]
     MetaDataError(#[from] amf::errors::AmfError),
+    #[error("get system time failed: {0}, this is wired")]
+    SystemTimeError(#[from] SystemTimeError),
 }
 
 pub type ChunkMessageResult<T> = Result<T, ChunkMessageError>;

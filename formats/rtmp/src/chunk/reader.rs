@@ -56,15 +56,21 @@ where
             }
             ChunkMessageType::RtmpUserMessage(message_type) => {
                 if c2s {
-                    RtmpChunkMessageBody::RtmpUserMessage(message::RtmpMessage::read_c2s_from(
-                        bytes.reader(),
-                        amf::Version::Amf0,
-                    )?)
+                    RtmpChunkMessageBody::RtmpUserMessage(
+                        message::RtmpUserMessageBody::read_c2s_from(
+                            bytes.reader(),
+                            amf::Version::Amf0,
+                            &common_header,
+                        )?,
+                    )
                 } else {
-                    RtmpChunkMessageBody::RtmpUserMessage(message::RtmpMessage::read_s2c_from(
-                        bytes.reader(),
-                        amf::Version::Amf0,
-                    )?)
+                    RtmpChunkMessageBody::RtmpUserMessage(
+                        message::RtmpUserMessageBody::read_s2c_from(
+                            bytes.reader(),
+                            amf::Version::Amf0,
+                            &common_header,
+                        )?,
+                    )
                 }
             }
         };
@@ -139,7 +145,7 @@ where
 
     fn read_basic_header(&mut self) -> ChunkMessageResult<ChunkBasicHeader> {
         let first_byte = self.inner.read_u8()?;
-        let fmt = first_byte >> 6;
+        let fmt = first_byte >> 6 & 0b11;
         let maybe_csid = first_byte & 0b00111111;
         match maybe_csid {
             0 => {

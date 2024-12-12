@@ -1,6 +1,9 @@
-use crate::{chunk::errors::ChunkMessageResult, commands, user_control};
+use crate::{
+    chunk::{ChunkMessageCommonHeader, errors::ChunkMessageResult},
+    commands, user_control,
+};
 
-use super::{RtmpMessage, RtmpMessageHeader, RtmpMessageType, RtmpUserMessageBody};
+use super::{RtmpMessageType, RtmpUserMessageBody};
 use byteorder::{BigEndian, ReadBytesExt};
 use std::io;
 use tokio_util::bytes::{Buf, BytesMut};
@@ -18,16 +21,16 @@ where
         Self { inner }
     }
 
-    pub fn read_c2s(&mut self, version: amf::Version) -> ChunkMessageResult<RtmpMessage> {
-        let message_header = self.read_message_header()?;
-        let mut payload = BytesMut::with_capacity(message_header.payload_length as usize);
-        payload.resize(message_header.payload_length as usize, 0);
+    pub fn read_c2s(
+        &mut self,
+        version: amf::Version,
+        header: &ChunkMessageCommonHeader,
+    ) -> ChunkMessageResult<RtmpUserMessageBody> {
+        let mut payload = BytesMut::with_capacity(header.message_length as usize);
+        payload.resize(header.message_length as usize, 0);
         self.inner.read_exact(&mut payload)?;
 
-        let message = match message_header.message_type {
-            RtmpMessageType::UserControl => RtmpUserMessageBody::UserControl(
-                user_control::UserControlEvent::read_from(payload.reader())?,
-            ),
+        let message = match header.message_type_id.try_into()? {
             RtmpMessageType::AMF0Data | RtmpMessageType::AMF3Data => {
                 RtmpUserMessageBody::MetaData(amf::Value::read_from(payload.reader(), version)?)
             }
@@ -45,25 +48,22 @@ where
             }
         };
 
-        Ok(RtmpMessage {
-            header: message_header,
-            message,
-        })
+        Ok(message)
     }
 
     //TODO - S2C ?
 
-    fn read_message_header(&mut self) -> ChunkMessageResult<RtmpMessageHeader> {
-        let message_type = self.inner.read_u8()?;
-        let message_type: RtmpMessageType = message_type.try_into()?;
-        let payload_length = self.inner.read_u24::<BigEndian>()?;
-        let timestamp = self.inner.read_u32::<BigEndian>()?;
-        let stream_id = self.inner.read_u24::<BigEndian>()?;
-        Ok(RtmpMessageHeader {
-            message_type,
-            payload_length,
-            timestamp,
-            stream_id,
-        })
-    }
+    // fn read_message_header(&mut self) -> ChunkMessageResult<RtmpMessageHeader> {
+    //     let message_type = self.inner.read_u8()?;
+    //     let message_type: RtmpMessageType = message_type.try_into()?;
+    //     let payload_length = self.inner.read_u24::<BigEndian>()?;
+    //     let timestamp = self.inner.read_u32::<BigEndian>()?;
+    //     let stream_id = self.inner.read_u24::<BigEndian>()?;
+    //     Ok(RtmpMessageHeader {
+    //         message_type,
+    //         payload_length,
+    //         timestamp,
+    //         stream_id,
+    //     })
+    // }
 }

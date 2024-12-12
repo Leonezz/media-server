@@ -15,7 +15,7 @@ pub mod writer;
 ///         Payload for the "Set Chunk Size" protocol message
 #[derive(Debug)]
 pub struct SetChunkSize {
-    chunk_size: u32, // 31 bits, in [1, 0xFFFFFF]
+    pub chunk_size: u32, // 31 bits, in [1, 0xFFFFFF]
 }
 
 ///! @see: 5.4.2. Abort Message (2)
@@ -26,7 +26,7 @@ pub struct SetChunkSize {
 ///         Payload for the "Abort Message" protocol message
 #[derive(Debug)]
 pub struct AbortMessage {
-    chunk_stream_id: u32,
+    pub chunk_stream_id: u32,
 }
 
 ///! @see: 5.4.3. Acknowledgement (3)
@@ -37,7 +37,7 @@ pub struct AbortMessage {
 ///        Payload for the "Acknowledgement" protocol message
 #[derive(Debug)]
 pub struct Acknowledgement {
-    sequence_number: u32,
+    pub sequence_number: u32,
 }
 
 ///! @see: 5.4.4. Window Acknowledgement Size (5)
@@ -48,7 +48,7 @@ pub struct Acknowledgement {
 ///  Payload for the "Window Acknowledgement Size" protocol message
 #[derive(Debug)]
 pub struct WindowAckSize {
-    size: u32,
+    pub size: u32,
 }
 
 #[repr(u8)]
@@ -83,7 +83,7 @@ impl TryFrom<u8> for ProtocolControlMessageType {
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy)]
-enum SetPeerBandWidthLimitType {
+pub enum SetPeerBandWidthLimitType {
     // The peer SHOULD limit its output bandwidth to the indicated window size.
     Hard = 0,
     // The peer SHOULD limit its output bandwidth to the the window indicated in this message
@@ -119,8 +119,8 @@ impl TryFrom<u8> for SetPeerBandWidthLimitType {
 ///       Payload for the "Set Peer Bandwidth" protocol message
 #[derive(Debug)]
 pub struct SetPeerBandwidth {
-    size: u32,
-    limit_type: SetPeerBandWidthLimitType,
+    pub size: u32,
+    pub limit_type: SetPeerBandWidthLimitType,
 }
 
 #[derive(Debug)]

@@ -3,7 +3,10 @@ use std::io;
 use tokio_util::bytes::BytesMut;
 
 use crate::{
-    chunk::errors::{ChunkMessageError, ChunkMessageResult},
+    chunk::{
+        ChunkMessageCommonHeader,
+        errors::{ChunkMessageError, ChunkMessageResult},
+    },
     commands::{RtmpC2SCommands, RtmpS2CCommands},
     user_control::UserControlEvent,
 };
@@ -29,23 +32,23 @@ pub mod writer;
 /// |                   (3 bytes)                   |
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ///
-#[derive(Debug)]
-pub struct RtmpMessageHeader {
-    message_type: RtmpMessageType, // 1 byte, should be the same as message_type_id in chunk message header ?
-    payload_length: u32,           // 3 bytes
-    timestamp: u32,                // 4 bytes
-    stream_id: u32,                // 3 bytes
-}
+///! turns out this header is not used is chunk stream
+// #[derive(Debug)]
+// pub struct RtmpMessageHeader {
+//     pub message_type: RtmpMessageType, // 1 byte, should be the same as message_type_id in chunk message header ?
+//     pub payload_length: u32,           // 3 bytes
+//     pub timestamp: u32,                // 4 bytes
+//     pub stream_id: u32,                // 3 bytes
+// }
 
-#[derive(Debug)]
-pub struct RtmpMessage {
-    header: RtmpMessageHeader,
-    message: RtmpUserMessageBody,
-}
+// #[derive(Debug)]
+// pub struct RtmpMessage {
+//     pub header: RtmpMessageHeader,
+//     pub message: RtmpUserMessageBody,
+// }
 
 #[derive(Debug)]
 pub enum RtmpUserMessageBody {
-    UserControl(UserControlEvent),
     C2SCommand(RtmpC2SCommands),
     S2Command(RtmpS2CCommands),
     MetaData(amf::Value),
@@ -58,7 +61,6 @@ pub enum RtmpUserMessageBody {
 #[repr(u8)]
 #[derive(Debug, Clone, Copy)]
 pub enum RtmpMessageType {
-    UserControl = 4,
     AMF3Command = 17,
     AMF0Command = 20,
     AMF3Data = 15,
@@ -80,7 +82,6 @@ impl TryFrom<u8> for RtmpMessageType {
     type Error = ChunkMessageError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            4 => Ok(RtmpMessageType::UserControl),
             17 => Ok(RtmpMessageType::AMF3Command),
             20 => Ok(RtmpMessageType::AMF0Command),
             15 => Ok(RtmpMessageType::AMF3Data),
@@ -95,15 +96,23 @@ impl TryFrom<u8> for RtmpMessageType {
     }
 }
 
-impl RtmpMessage {
-    pub fn read_c2s_from<R>(inner: R, version: amf::Version) -> ChunkMessageResult<RtmpMessage>
+impl RtmpUserMessageBody {
+    pub fn read_c2s_from<R>(
+        inner: R,
+        version: amf::Version,
+        header: &ChunkMessageCommonHeader,
+    ) -> ChunkMessageResult<RtmpUserMessageBody>
     where
         R: io::Read,
     {
-        reader::Reader::new(inner).read_c2s(version)
+        reader::Reader::new(inner).read_c2s(version, header)
     }
 
-    pub fn read_s2c_from<R>(inner: R, version: amf::Version) -> ChunkMessageResult<RtmpMessage>
+    pub fn read_s2c_from<R>(
+        inner: R,
+        version: amf::Version,
+        header: &ChunkMessageCommonHeader,
+    ) -> ChunkMessageResult<RtmpUserMessageBody>
     where
         R: io::Read,
     {

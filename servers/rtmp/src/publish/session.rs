@@ -1,4 +1,9 @@
-use std::{borrow::BorrowMut, fmt::Debug, pin::Pin};
+use std::{
+    borrow::BorrowMut,
+    fmt::{Debug, Write},
+    pin::Pin,
+    sync::Arc,
+};
 
 use rtmp_formats::{
     chunk::{self, ChunkMessage},
@@ -44,6 +49,14 @@ impl RtmpPublishSession {
         handshake::server::HandshakeServer::new(self.io.borrow_mut())
             .handshake(false)
             .await?;
+
+        let mut write_buffer = BytesMut::with_capacity(4096);
+        let b: &mut BytesMut = write_buffer.borrow_mut();
+        let mut chunk_writer = chunk::writer::Writer::new(b.writer());
+        chunk_writer.write_set_chunk_size(4096)?;
+        info!("bytes wrote: {}", write_buffer.len());
+        self.io.write_all(&write_buffer).await?;
+        info!("bytes wrote: {}", write_buffer.len());
         let mut read_buffer = [0 as u8; 4096];
         loop {
             let len = self.io.read(&mut read_buffer).await?;

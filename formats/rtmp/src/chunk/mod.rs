@@ -2,8 +2,9 @@ use errors::{ChunkMessageError, ChunkMessageResult};
 use tokio_util::bytes::BytesMut;
 
 use crate::{
-    message::{RtmpMessage, RtmpMessageType},
+    message::{RtmpMessageType, RtmpUserMessageBody},
     protocol_control::{ProtocolControlMessage, ProtocolControlMessageType},
+    user_control::UserControlEvent,
 };
 
 pub mod consts;
@@ -116,11 +117,11 @@ pub enum ChunkMessageHeader {
 
 #[derive(Debug)]
 pub struct ChunkMessageCommonHeader {
-    basic_header: ChunkBasicHeader,
-    timestamp: u32,
-    message_length: u32,
-    message_type_id: u8,
-    message_stream_id: u32,
+    pub basic_header: ChunkBasicHeader,
+    pub timestamp: u32,
+    pub message_length: u32,
+    pub message_type_id: u8,
+    pub message_stream_id: u32,
 }
 
 ///! @see: 5.3.1. Chunk Format
@@ -139,7 +140,8 @@ pub struct ChunkMessage {
 #[derive(Debug)]
 pub enum RtmpChunkMessageBody {
     ProtocolControl(ProtocolControlMessage),
-    RtmpUserMessage(RtmpMessage),
+    UserControl(UserControlEvent),
+    RtmpUserMessage(RtmpUserMessageBody),
 }
 
 #[repr(u8)]
