@@ -1,5 +1,8 @@
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
-use std::{collections::HashMap, io};
+use std::{
+    collections::HashMap,
+    io::{self, Cursor, Read},
+};
 use tokio_util::bytes::{Buf, BytesMut};
 
 use crate::{message, protocol_control};
@@ -24,27 +27,35 @@ pub struct ReadContext {
 type ChunkStreamReadContext = HashMap<CSID, ReadContext>;
 
 #[derive(Debug)]
-pub struct Reader<R> {
-    inner: R,
+pub struct Reader {
     context: ChunkStreamReadContext,
 }
 
-impl<R> Reader<R>
-where
-    R: io::Read,
-{
-    pub fn new(inner: R) -> Self {
+impl Reader {
+    pub fn new() -> Self {
         Self {
-            inner,
             context: HashMap::new(),
         }
     }
-    pub fn read(&mut self, c2s: bool) -> ChunkMessageResult<ChunkMessage> {
-        let common_header = self.read_to_common_header()?;
+    pub fn read(
+        &mut self,
+        reader: &mut Cursor<&[u8]>,
+        c2s: bool,
+    ) -> ChunkMessageResult<Option<ChunkMessage>> {
+        let common_header = self.read_to_common_header(reader)?;
+        if common_header.is_none() {
+            return Ok(None);
+        }
+        let common_header = common_header.expect("this cannot be none");
+
         let message_length = common_header.message_length as usize;
+
+        if reader.remaining() < message_length {
+            return Ok(None);
+        }
         let mut bytes = BytesMut::with_capacity(message_length);
         bytes.resize(message_length, 0);
-        self.inner.read_exact(&mut bytes)?;
+        reader.read_exact(&mut bytes)?;
         let message_body = match common_header.message_type_id.try_into()? {
             ChunkMessageType::ProtocolControl(message_type) => {
                 RtmpChunkMessageBody::ProtocolControl(
@@ -74,16 +85,30 @@ where
                 }
             }
         };
-        Ok(ChunkMessage {
+        Ok(Some(ChunkMessage {
             header: common_header,
             chunk_message_body: message_body,
-        })
+        }))
     }
 
-    fn read_to_common_header(&mut self) -> ChunkMessageResult<ChunkMessageCommonHeader> {
-        let basic_header = self.read_basic_header()?;
+    fn read_to_common_header(
+        &mut self,
+        reader: &mut Cursor<&[u8]>,
+    ) -> ChunkMessageResult<Option<ChunkMessageCommonHeader>> {
+        let basic_header = self.read_basic_header(reader)?;
+        if basic_header.is_none() {
+            return Ok(None);
+        }
+        let basic_header = basic_header.expect("this cannot be none");
+
         let fmt = basic_header.fmt;
-        let message_header = self.read_message_header(fmt)?;
+
+        let message_header = self.read_message_header(reader, fmt)?;
+        if message_header.is_none() {
+            return Ok(None);
+        }
+        let message_header = message_header.expect("this cannot be none");
+
         let csid = basic_header.chunk_stream_id.clone();
         if !self.context.contains_key(&csid) {
             match message_header {
@@ -125,7 +150,10 @@ where
             ChunkMessageHeader::Type3(_) => {
                 //TODO - better check this out
                 if context.extended_timestamp_enabled {
-                    let timestamp_delta = self.inner.read_u32::<BigEndian>()?;
+                    if reader.remaining() < 4 {
+                        return Ok(None);
+                    }
+                    let timestamp_delta = reader.read_u32::<BigEndian>()?;
                     context.timestamp_delta = timestamp_delta;
                     context.timestamp += timestamp_delta;
                 } else {
@@ -134,87 +162,136 @@ where
             }
         }
 
-        Ok(ChunkMessageCommonHeader {
+        Ok(Some(ChunkMessageCommonHeader {
             basic_header,
             timestamp: context.timestamp,
             message_length: context.message_length,
             message_type_id: context.message_type_id,
             message_stream_id: context.message_stream_id,
-        })
+        }))
     }
 
-    fn read_basic_header(&mut self) -> ChunkMessageResult<ChunkBasicHeader> {
-        let first_byte = self.inner.read_u8()?;
+    fn read_basic_header(
+        &mut self,
+        reader: &mut Cursor<&[u8]>,
+    ) -> ChunkMessageResult<Option<ChunkBasicHeader>> {
+        if !reader.has_remaining() {
+            return Ok(None);
+        }
+        let first_byte = reader.read_u8()?;
         let fmt = first_byte >> 6 & 0b11;
         let maybe_csid = first_byte & 0b00111111;
         match maybe_csid {
             0 => {
-                let csid = self.inner.read_u8()?;
-                return Ok(ChunkBasicHeader {
+                if !reader.has_remaining() {
+                    return Ok(None);
+                }
+                let csid = reader.read_u8()?;
+                return Ok(Some(ChunkBasicHeader {
                     header_type: super::ChunkBasicHeaderType::Type2,
                     fmt,
                     chunk_stream_id: csid as CSID + 64,
-                });
+                }));
             }
             1 => {
-                let csid = self.inner.read_u16::<BigEndian>()?;
-                return Ok(ChunkBasicHeader {
+                if reader.remaining() < 2 {
+                    return Ok(None);
+                }
+                let csid = reader.read_u16::<BigEndian>()?;
+                return Ok(Some(ChunkBasicHeader {
                     header_type: super::ChunkBasicHeaderType::Type3,
                     fmt,
                     chunk_stream_id: csid as CSID + 64,
-                });
+                }));
             }
             csid => {
-                return Ok(ChunkBasicHeader {
+                return Ok(Some(ChunkBasicHeader {
                     header_type: super::ChunkBasicHeaderType::Type1,
                     fmt,
                     chunk_stream_id: csid as CSID,
-                });
+                }));
             }
         }
     }
 
-    fn read_message_header(&mut self, fmt: u8) -> ChunkMessageResult<ChunkMessageHeader> {
+    fn read_message_header(
+        &mut self,
+        reader: &mut Cursor<&[u8]>,
+        fmt: u8,
+    ) -> ChunkMessageResult<Option<ChunkMessageHeader>> {
         match fmt {
-            0 => Ok(ChunkMessageHeader::Type0(self.read_message_header_type0()?)),
-            1 => Ok(ChunkMessageHeader::Type1(self.read_message_header_type1()?)),
-            2 => Ok(ChunkMessageHeader::Type2(self.read_message_header_type2()?)),
-            3 => Ok(ChunkMessageHeader::Type3(ChunkMessageHeaderType3 {})),
+            0 => {
+                if reader.remaining() < 11 {
+                    return Ok(None);
+                } else {
+                    return Ok(Some(ChunkMessageHeader::Type0(
+                        self.read_message_header_type0(reader)?,
+                    )));
+                }
+            }
+            1 => {
+                if reader.remaining() < 7 {
+                    return Ok(None);
+                } else {
+                    return Ok(Some(ChunkMessageHeader::Type1(
+                        self.read_message_header_type1(reader)?,
+                    )));
+                }
+            }
+            2 => {
+                if reader.remaining() < 3 {
+                    return Ok(None);
+                } else {
+                    return Ok(Some(ChunkMessageHeader::Type2(
+                        self.read_message_header_type2(reader)?,
+                    )));
+                }
+            }
+            3 => Ok(Some(ChunkMessageHeader::Type3(ChunkMessageHeaderType3 {}))),
             _ => Err(super::errors::ChunkMessageError::UnexpectedFmt(fmt)),
         }
     }
 
-    fn read_message_header_type0(&mut self) -> ChunkMessageResult<ChunkMessageHeaderType0> {
+    fn read_message_header_type0(
+        &mut self,
+        reader: &mut Cursor<&[u8]>,
+    ) -> ChunkMessageResult<ChunkMessageHeaderType0> {
         let mut header0 = ChunkMessageHeaderType0 {
-            timestamp: self.inner.read_u24::<BigEndian>()?,
-            message_length: self.inner.read_u24::<BigEndian>()?,
-            message_type_id: self.inner.read_u8()?,
-            message_stream_id: self.inner.read_u32::<LittleEndian>()?,
+            timestamp: reader.read_u24::<BigEndian>()?,
+            message_length: reader.read_u24::<BigEndian>()?,
+            message_type_id: reader.read_u8()?,
+            message_stream_id: reader.read_u32::<LittleEndian>()?,
         };
         if header0.timestamp >= MAX_TIMESTAMP {
-            header0.timestamp = self.inner.read_u32::<BigEndian>()?;
+            header0.timestamp = reader.read_u32::<BigEndian>()?;
         }
         Ok(header0)
     }
 
-    fn read_message_header_type1(&mut self) -> ChunkMessageResult<ChunkMessageHeaderType1> {
+    fn read_message_header_type1(
+        &mut self,
+        reader: &mut Cursor<&[u8]>,
+    ) -> ChunkMessageResult<ChunkMessageHeaderType1> {
         let mut header1 = ChunkMessageHeaderType1 {
-            timestamp_delta: self.inner.read_u24::<BigEndian>()?,
-            message_length: self.inner.read_u24::<BigEndian>()?,
-            message_type_id: self.inner.read_u8()?,
+            timestamp_delta: reader.read_u24::<BigEndian>()?,
+            message_length: reader.read_u24::<BigEndian>()?,
+            message_type_id: reader.read_u8()?,
         };
         if header1.timestamp_delta >= MAX_TIMESTAMP {
-            header1.timestamp_delta = self.inner.read_u32::<BigEndian>()?;
+            header1.timestamp_delta = reader.read_u32::<BigEndian>()?;
         }
         Ok(header1)
     }
 
-    fn read_message_header_type2(&mut self) -> ChunkMessageResult<ChunkMessageHeaderType2> {
+    fn read_message_header_type2(
+        &mut self,
+        reader: &mut Cursor<&[u8]>,
+    ) -> ChunkMessageResult<ChunkMessageHeaderType2> {
         let mut header2 = ChunkMessageHeaderType2 {
-            timestamp_delta: self.inner.read_u24::<BigEndian>()?,
+            timestamp_delta: reader.read_u24::<BigEndian>()?,
         };
         if header2.timestamp_delta >= MAX_TIMESTAMP {
-            header2.timestamp_delta = self.inner.read_u32::<BigEndian>()?;
+            header2.timestamp_delta = reader.read_u32::<BigEndian>()?;
         }
         Ok(header2)
     }

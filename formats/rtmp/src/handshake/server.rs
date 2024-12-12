@@ -90,7 +90,7 @@ where
     IO: AsyncRead + AsyncWrite + Debug,
 {
     async fn flush(&mut self) -> HandshakeResult<()> {
-        BufWriter::new(&mut self.io).flush().await?;
+        self.io.flush().await?;
         Ok(())
     }
     fn state(&self) -> HandshakeServerState {
@@ -128,7 +128,7 @@ where
             },
             &mut bytes,
         )?;
-        self.io.write_all_buf(&mut bytes).await?;
+        self.io.write_all(&bytes[..]).await?;
         debug!("s0 bytes sent");
         Ok(())
     }
@@ -145,14 +145,14 @@ where
             },
             &mut bytes,
         )?;
-
-        self.io.write_all_buf(&mut bytes).await?;
+        debug!("bytes: {:?}", bytes);
+        self.io.write(&bytes[..]).await?;
         debug!("s1 bytes sent");
         Ok(())
     }
     #[tracing::instrument]
     async fn write_s2(&mut self) -> HandshakeResult<()> {
-        self.io.write_all_buf(&mut self.c1_bytes).await?;
+        self.io.write(&self.c1_bytes[..]).await?;
         debug!("s2 bytes sent");
         Ok(())
     }
@@ -187,7 +187,7 @@ where
     T: AsyncRead + AsyncWrite + Debug,
 {
     async fn flush(&mut self) -> HandshakeResult<()> {
-        self.io.write_all_buf(&mut self.writer_buffer).await?;
+        self.io.write(&self.writer_buffer[..]).await?;
         self.io.flush().await?;
         self.writer_buffer.clear();
         Ok(())

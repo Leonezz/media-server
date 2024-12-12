@@ -1,12 +1,12 @@
 use byteorder::{BigEndian, LittleEndian, WriteBytesExt};
+
 use std::{
-    borrow::BorrowMut,
     collections::HashMap,
     fmt::Debug,
-    io::{self},
+    io::{self, Write},
 };
+use tokio::{io::BufWriter, net::TcpStream};
 use tokio_util::bytes::{BufMut, BytesMut};
-use tracing::instrument;
 use utils::system::util::get_timestamp_ms;
 
 use crate::{
@@ -49,32 +49,34 @@ struct WriteContext {
 type ChunkMessageWriteContext = HashMap<CSID, WriteContext>;
 
 #[derive(Debug)]
-pub struct Writer<W> {
-    inner: W,
+pub struct Writer {
+    inner: Vec<u8>,
     context: ChunkMessageWriteContext,
 }
 
-impl<W> Writer<W>
-where
-    W: io::Write + Debug,
-{
-    pub fn new(inner: W) -> Self {
+impl Writer {
+    pub fn new() -> Self {
         Self {
-            inner,
+            inner: Vec::with_capacity(4096),
             context: ChunkMessageWriteContext::new(),
         }
     }
 
+    pub async fn write_to(&mut self, writer: &mut BufWriter<TcpStream>) -> ChunkMessageResult<()> {
+        use tokio::io::AsyncWriteExt;
+        writer.write_all(&self.inner).await?;
+        self.inner.clear();
+        Ok(())
+    }
+
     pub fn write(&mut self, mut value: ChunkMessage) -> ChunkMessageResult<()> {
         // self.transparent_write(basic_header, message_header, value.chunk_data)?;
-        let bytes = BytesMut::with_capacity(4096);
+        let mut bytes = Vec::with_capacity(4096);
         match value.chunk_message_body {
-            RtmpChunkMessageBody::ProtocolControl(message) => {
-                message.write_to(bytes.clone().writer())
-            }
-            RtmpChunkMessageBody::UserControl(message) => message.write_to(bytes.clone().writer()),
+            RtmpChunkMessageBody::ProtocolControl(message) => message.write_to(&mut bytes),
+            RtmpChunkMessageBody::UserControl(message) => message.write_to(&mut bytes),
             RtmpChunkMessageBody::RtmpUserMessage(message) => {
-                message.write_c2s_to(bytes.clone().writer(), amf::Version::Amf0)
+                message.write_c2s_to(&mut bytes, amf::Version::Amf0)
             }
         }?;
 
@@ -82,6 +84,8 @@ where
         let (basic_header, message_header) = self.justify_message_type(&value.header);
         self.write_basic_header(&basic_header)?;
         self.write_message_header(&message_header, basic_header.chunk_stream_id)?;
+
+        self.inner.reserve(bytes.len());
         self.inner.write_all(&bytes)?;
 
         Ok(())
@@ -570,6 +574,7 @@ where
     }
 
     fn write_basic_header(&mut self, header: &ChunkBasicHeader) -> ChunkMessageResult<()> {
+        self.inner.reserve(20);
         match header.header_type {
             ChunkBasicHeaderType::Type1 => {
                 let first_byte = (header.fmt << 6) + header.chunk_stream_id as u8;
@@ -595,6 +600,7 @@ where
         header: &ChunkMessageHeader,
         csid: CSID,
     ) -> ChunkMessageResult<()> {
+        self.inner.reserve(20);
         match header {
             ChunkMessageHeader::Type0(header) => {
                 let extended_timestamp_enabled = header.timestamp >= MAX_TIMESTAMP;

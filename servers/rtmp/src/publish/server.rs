@@ -16,7 +16,8 @@ impl RtmpPublishServer {
     pub async fn run(&mut self) -> RtmpPublishServerResult<()> {
         let listener = tokio::net::TcpListener::bind(("0.0.0.0", self.config.port)).await?;
         loop {
-            let (tcp_stream, _) = listener.accept().await?;
+            let (tcp_stream, addr) = listener.accept().await?;
+            tracing::info!("{}", addr);
             let mut session = RtmpPublishSession::new(tcp_stream);
             tokio::spawn(async move {
                 match session.run().await {

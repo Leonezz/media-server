@@ -65,7 +65,9 @@ impl Encoder<C1S1Packet> for C1S1PacketCodec {
         dst: &mut tokio_util::bytes::BytesMut,
     ) -> Result<(), Self::Error> {
         dst.reserve(RTMP_HANDSHAKE_SIZE);
-        Writer::new(dst.writer()).write_c1s1(item)?;
+        let mut bytes: Vec<u8> = Vec::with_capacity(RTMP_HANDSHAKE_SIZE);
+        Writer::new(&mut bytes).write_c1s1(item)?;
+        dst.extend_from_slice(&bytes);
         Ok(())
     }
 }
