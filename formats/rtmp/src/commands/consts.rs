@@ -55,3 +55,5 @@ pub mod video_codecs {
 pub mod function_flags {
     pub const SUPPORT_VID_CLIENT_SEEK: u8 = 1; // Indicates that the client can perform frame-accurate seeks
 }
+
+pub const RESPONSE_STREAM_ID: u8 = 1;

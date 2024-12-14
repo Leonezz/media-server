@@ -101,7 +101,7 @@ pub struct Amf3Trait {
 }
 
 impl Value {
-    pub fn read_from<R>(reader: R) -> AmfResult<Self>
+    pub fn read_from<R>(reader: R) -> AmfResult<Option<Self>>
     where
         R: io::Read,
     {
@@ -194,4 +194,16 @@ where
     bool: From<T>,
 {
     Value::Boolean(From::from(t))
+}
+/// Makes an anonymous `Object` value.
+pub fn object<I, K>(entries: I) -> Value
+where
+    I: Iterator<Item = (K, Value)>,
+    String: From<K>,
+{
+    Value::Object {
+        name: None,
+        sealed_fields_count: 0,
+        entries: entries.map(|(k, v)| (From::from(k), v)).collect(),
+    }
 }

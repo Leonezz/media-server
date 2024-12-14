@@ -1,12 +1,14 @@
 use crate::{
-    chunk::{ChunkMessageCommonHeader, errors::ChunkMessageResult},
-    commands, user_control,
+    chunk::{
+        ChunkMessageCommonHeader,
+        errors::{ChunkMessageError, ChunkMessageResult},
+    },
+    commands,
 };
 
 use super::{RtmpMessageType, RtmpUserMessageBody};
-use byteorder::{BigEndian, ReadBytesExt};
-use std::io;
-use tokio_util::bytes::{Buf, BytesMut};
+use std::io::{self, Cursor};
+use tokio_util::bytes::BytesMut;
 
 #[derive(Debug)]
 pub struct Reader<R> {
@@ -30,16 +32,27 @@ where
         payload.resize(header.message_length as usize, 0);
         self.inner.read_exact(&mut payload)?;
 
+        let payload_reader = Cursor::new(&payload);
+
         let message = match header.message_type_id.try_into()? {
             RtmpMessageType::AMF0Data | RtmpMessageType::AMF3Data => {
-                RtmpUserMessageBody::MetaData(amf::Value::read_from(payload.reader(), version)?)
+                let data = amf::Value::read_from(payload_reader, version)?;
+                match data {
+                    None => {
+                        return Err(ChunkMessageError::Io(io::Error::new(
+                            io::ErrorKind::UnexpectedEof,
+                            "unexpected eof",
+                        )));
+                    }
+                    Some(d) => RtmpUserMessageBody::MetaData(d),
+                }
             }
             RtmpMessageType::Audio => RtmpUserMessageBody::Audio { payload },
             RtmpMessageType::Video => RtmpUserMessageBody::Video { payload },
             RtmpMessageType::Aggregate => RtmpUserMessageBody::Aggregate { payload },
             RtmpMessageType::AMF0Command | RtmpMessageType::AMF3Command => {
                 RtmpUserMessageBody::C2SCommand(commands::RtmpC2SCommands::read_from(
-                    payload.reader(),
+                    payload_reader,
                     version,
                 )?)
             }

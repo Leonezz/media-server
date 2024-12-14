@@ -14,6 +14,8 @@ pub enum AmfError {
     Unsupported { marker: u8 },
     #[error("unknown marker: {marker}")]
     Unknown { marker: u8 },
+    #[error("unknown version: {version}")]
+    UnknownVersion { version: f64 },
     #[error("index of reference out of range, index: {index}")]
     OutOfRangeReference { index: usize },
     #[error("circular reference not supported, index: {index}")]

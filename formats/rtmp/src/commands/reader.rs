@@ -11,7 +11,12 @@ use super::{
     RtmpS2CCommandsType, SeekCommand, consts::c2s_command_names,
 };
 use amf::{Value as AmfValue, amf0::Value as Amf0Value, amf3::Value as Amf3Value};
-use std::{collections::HashMap, io};
+use std::{
+    backtrace::Backtrace,
+    collections::HashMap,
+    io::{self},
+};
+use tokio_util::either::Either;
 
 #[derive(Debug)]
 pub struct Reader<R> {
@@ -81,12 +86,18 @@ where
 
     fn read_c2s_connect_command(&mut self) -> ChunkMessageResult<ConnectCommandRequest> {
         let transaction_id = self.read_amf_number()? as u8;
-        assert!(transaction_id == 1, "connect transaction_id should be 1");
+        if transaction_id != 1 {
+            tracing::warn!(
+                "connect transaction_id should be 1, got {} instead",
+                transaction_id
+            );
+        }
         let command_object_map = self.read_amf_object()?;
         if command_object_map.is_none() {
-            return Err(ChunkMessageError::UnexpectedAmfType(
-                "expect a key-value pair type".to_string(),
-            ));
+            return Err(ChunkMessageError::UnexpectedAmfType {
+                amf_type: "expect a key-value pair type".to_string(),
+                backtrace: Backtrace::capture(),
+            });
         }
         let command_object_map = command_object_map.expect("there must be some value");
         let command_object: ConnectCommandRequestObject = command_object_map.try_into()?;
@@ -110,33 +121,24 @@ where
         }
 
         let transaction_id = self.read_amf_number()? as u8;
-        assert!(
-            transaction_id == 1,
-            "connect response transaction_id should be 1"
-        );
-        let properties = self.read_amf_object()?;
-        let information = self.read_amf_remaining_any()?.unwrap_or(Vec::new());
-        let mut information_map = HashMap::new();
-        for v in information {
-            let pairs = v.try_into_pairs();
-            match pairs {
-                Ok(pairs) => {
-                    for (k, v) in pairs {
-                        information_map.insert(k, v);
-                    }
-                }
-                _ => {
-                    return Err(ChunkMessageError::UnexpectedAmfType(
-                        "expect key-value pairs".to_string(),
-                    ));
-                }
-            }
+        if transaction_id != 1 {
+            tracing::warn!(
+                "connect response transaction_id should be 1, got {} instead",
+                transaction_id
+            );
         }
+
+        let properties = self.read_amf_object()?;
+        let information = self.read_amf_any()?;
+
         Ok(ConnectCommandResponse {
             success: command_name == s2c_command_names::RESULT,
             transaction_id,
             properties,
-            information: information_map,
+            information: match information {
+                None => None,
+                Some(value) => Some(Either::Left(value)),
+            },
         })
     }
 
@@ -147,12 +149,15 @@ where
         let transaction_id = self.read_amf_number()?;
         let command_object = self.read_amf_object()?;
 
-        let optional_arguments = self.read_amf_object()?;
+        let optional_arguments = self.read_amf_any()?;
         Ok(CallCommandRequest {
             procedure_name,
             transaction_id,
             command_object,
-            optional_arguments,
+            optional_arguments: match optional_arguments {
+                None => None,
+                Some(v) => Some(Either::Left(v)),
+            },
         })
     }
 
@@ -213,42 +218,53 @@ where
         }
 
         let transaction_id = self.read_amf_number()?;
-        assert!(
-            transaction_id == 0 as f64,
-            "onStatus transaction_id should be 0"
-        );
+        if transaction_id as u8 != 0 {
+            tracing::warn!(
+                "onStatus transaction_id should be 0, got {} instead",
+                transaction_id
+            );
+        }
+
         self.read_amf_null()?;
 
         let info_object = self.read_amf_object()?;
         match &info_object {
             None => {
-                return Err(ChunkMessageError::UnexpectedAmfType(
-                    "expect key-value pair type, got a null".to_string(),
-                ));
+                return Err(ChunkMessageError::UnexpectedAmfType {
+                    amf_type: "expect key-value pair type, got a null".to_string(),
+                    backtrace: Backtrace::capture(),
+                });
             }
             Some(map) => {
                 let level = map.get("level");
                 match level {
                     None => {
-                        return Err(ChunkMessageError::UnexpectedAmfType(
-                            "expect a level field".to_string(),
-                        ));
+                        return Err(ChunkMessageError::UnexpectedAmfType {
+                            amf_type: "expect a level field".to_string(),
+                            backtrace: Backtrace::capture(),
+                        });
                     }
                     Some(value) => {
                         let str = value.try_as_str();
                         match str {
                             None => {
-                                return Err(ChunkMessageError::UnexpectedAmfType(format!(
-                                    "expect level field to be string, got a {:?}",
-                                    value
-                                )));
+                                return Err(ChunkMessageError::UnexpectedAmfType {
+                                    amf_type: format!(
+                                        "expect level field to be string, got a {:?}",
+                                        value
+                                    ),
+                                    backtrace: Backtrace::capture(),
+                                });
                             }
                             Some(str) => {
                                 if str != "warning" && str != "status" && str != "error" {
-                                    return Err(ChunkMessageError::UnexpectedAmfType(format!(
-                                        "expect level field value to be warning, status or error. got: {}",
-                                        str
-                                    )));
+                                    return Err(ChunkMessageError::UnexpectedAmfType {
+                                        amf_type: format!(
+                                            "expect level field value to be warning, status or error. got: {}",
+                                            str
+                                        ),
+                                        backtrace: Backtrace::capture(),
+                                    });
                                 }
                             }
                         }
@@ -256,17 +272,19 @@ where
                 };
                 match map.get("code") {
                     None => {
-                        return Err(ChunkMessageError::UnexpectedAmfType(
-                            "expect a code field".to_string(),
-                        ));
+                        return Err(ChunkMessageError::UnexpectedAmfType {
+                            amf_type: "expect a code field".to_string(),
+                            backtrace: Backtrace::capture(),
+                        });
                     }
                     _ => {}
                 };
                 match map.get("description") {
                     None => {
-                        return Err(ChunkMessageError::UnexpectedAmfType(
-                            "expect a description field".to_string(),
-                        ));
+                        return Err(ChunkMessageError::UnexpectedAmfType {
+                            amf_type: "expect a description field".to_string(),
+                            backtrace: Backtrace::capture(),
+                        });
                     }
                     _ => {}
                 };
@@ -281,7 +299,12 @@ where
 
     fn read_c2s_play_command(&mut self) -> ChunkMessageResult<PlayCommand> {
         let transaction_id = self.read_amf_number()? as u8;
-        assert!(transaction_id == 0, "play transaction_id should be 0");
+        if transaction_id != 0 {
+            tracing::warn!(
+                "play transaction_id should be 0, got {} instead",
+                transaction_id
+            );
+        }
         self.read_amf_null()?;
         let stream_name = self.read_amf_string()?;
         let start = self.read_amf_number()? as i64;
@@ -299,7 +322,12 @@ where
 
     fn read_c2s_play2_command(&mut self) -> ChunkMessageResult<Play2Command> {
         let transaction_id = self.read_amf_number()? as u8;
-        assert!(transaction_id == 0, "play2 transaction_id should be 0");
+        if transaction_id != 0 {
+            tracing::warn!(
+                "play2 transaction_id should be 0, got {} instead",
+                transaction_id
+            );
+        }
         self.read_amf_null()?;
         // TODO parameters should be a NetStreamPlayOptions object
         Ok(Play2Command {
@@ -311,10 +339,12 @@ where
 
     fn read_c2s_delete_stream_command(&mut self) -> ChunkMessageResult<DeleteStreamCommand> {
         let transaction_id = self.read_amf_number()? as u8;
-        assert!(
-            transaction_id == 0,
-            "deleteStream transaction_id should be 0"
-        );
+        if transaction_id != 0 {
+            tracing::warn!(
+                "deleteStream transaction_id should be 0, got {} instead",
+                transaction_id
+            );
+        }
         self.read_amf_null()?;
         let stream_id = self.read_amf_number()?;
         Ok(DeleteStreamCommand {
@@ -326,10 +356,14 @@ where
 
     fn read_c2s_receive_audio_command(&mut self) -> ChunkMessageResult<ReceiveAudioCommand> {
         let transaction_id = self.read_amf_number()? as u8;
-        assert!(
-            transaction_id == 0,
-            "receiveAudio transaction_id should be 0"
-        );
+
+        if transaction_id != 0 {
+            tracing::warn!(
+                "receiveAudio transaction_id should be 0, got {} instead",
+                transaction_id
+            );
+        }
+
         self.read_amf_null()?;
         let bool_flag = self.read_amf_bool()?;
         Ok(ReceiveAudioCommand {
@@ -341,10 +375,14 @@ where
 
     fn read_c2s_receive_video_command(&mut self) -> ChunkMessageResult<ReceiveVideoCommand> {
         let transaction_id = self.read_amf_number()? as u8;
-        assert!(
-            transaction_id == 0,
-            "receiveVideo transaction_id should be 0"
-        );
+
+        if transaction_id != 0 {
+            tracing::warn!(
+                "receiveVideo transaction_id should be 0, got {} instead",
+                transaction_id
+            );
+        }
+
         self.read_amf_null()?;
         let bool_flag = self.read_amf_bool()?;
         Ok(ReceiveVideoCommand {
@@ -356,15 +394,25 @@ where
 
     fn read_c2s_publish_command(&mut self) -> ChunkMessageResult<PublishCommand> {
         let transaction_id = self.read_amf_number()? as u8;
-        assert!(transaction_id == 0, "publish transaction_id should be 0");
+
+        if transaction_id != 0 {
+            tracing::warn!(
+                "publish transaction_id should be 0, got {} instead",
+                transaction_id
+            );
+        }
+
         self.read_amf_null()?;
         let publishing_name = self.read_amf_string()?;
         let publishing_type = self.read_amf_string()?;
-        if publishing_type != "live" || publishing_type != "record" || publishing_type != "append" {
-            return Err(ChunkMessageError::UnexpectedAmfType(format!(
-                "expect publish type to be live, record or append, got {}",
-                publishing_type
-            )));
+        if publishing_type != "live" && publishing_type != "record" && publishing_type != "append" {
+            return Err(ChunkMessageError::UnexpectedAmfType {
+                amf_type: format!(
+                    "expect publish type to be live, record or append, got {}",
+                    publishing_type
+                ),
+                backtrace: Backtrace::capture(),
+            });
         }
 
         Ok(PublishCommand {
@@ -403,55 +451,83 @@ where
 
     fn read_amf_null(&mut self) -> ChunkMessageResult<()> {
         match AmfValue::read_from(self.inner.by_ref(), self.amf_version)? {
-            AmfValue::AMF0Value(Amf0Value::Null) | AmfValue::AMF3Value(Amf3Value::Null) => Ok(()),
-            value => Err(ChunkMessageError::UnexpectedAmfType(format!(
-                "expect a null type, got a: {:?}",
-                value
+            Some(AmfValue::AMF0Value(Amf0Value::Null) | AmfValue::AMF3Value(Amf3Value::Null)) => {
+                Ok(())
+            }
+            None => Err(ChunkMessageError::Io(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "unexpected eof",
             ))),
+            value => Err(ChunkMessageError::UnexpectedAmfType {
+                amf_type: format!("expect a null type, got a: {:?}", value),
+                backtrace: Backtrace::capture(),
+            }),
         }
     }
 
     fn read_amf_string(&mut self) -> ChunkMessageResult<String> {
-        match amf::Value::read_from(self.inner.by_ref(), self.amf_version)?.try_as_str() {
+        let amf_str = amf::Value::read_from(self.inner.by_ref(), self.amf_version)?;
+        if amf_str.is_none() {
+            return Err(ChunkMessageError::Io(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "unexpected eof",
+            )));
+        }
+        match amf_str.expect("this cannot be none").try_as_str() {
             Some(v) => Ok(v.to_string()),
             None => {
-                return Err(ChunkMessageError::UnexpectedAmfType(format!(
-                    "expect string type",
-                )));
+                return Err(ChunkMessageError::UnexpectedAmfType {
+                    amf_type: format!("expect string type",),
+                    backtrace: Backtrace::capture(),
+                });
             }
         }
     }
 
     fn read_amf_number(&mut self) -> ChunkMessageResult<f64> {
-        match AmfValue::read_from(self.inner.by_ref(), self.amf_version)?.try_as_f64() {
+        let amf_f64 = AmfValue::read_from(self.inner.by_ref(), self.amf_version)?;
+        if amf_f64.is_none() {
+            return Err(ChunkMessageError::Io(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "unexpected eof",
+            )));
+        }
+        match amf_f64.expect("this cannot be none").try_as_f64() {
             Some(v) => Ok(v),
             None => {
-                return Err(ChunkMessageError::UnexpectedAmfType(format!(
-                    "expect a number type"
-                )));
+                return Err(ChunkMessageError::UnexpectedAmfType {
+                    amf_type: format!("expect a number type"),
+                    backtrace: Backtrace::capture(),
+                });
             }
         }
     }
 
     fn read_amf_bool(&mut self) -> ChunkMessageResult<bool> {
-        match AmfValue::read_from(self.inner.by_ref(), self.amf_version)?.try_as_bool() {
+        let amf_bool = AmfValue::read_from(self.inner.by_ref(), self.amf_version)?;
+        match amf_bool.expect("this cannot be none").try_as_bool() {
             Some(v) => Ok(v),
             None => {
-                return Err(ChunkMessageError::UnexpectedAmfType(format!(
-                    "expect a bool type"
-                )));
+                return Err(ChunkMessageError::UnexpectedAmfType {
+                    amf_type: format!("expect a bool type, got None instead",),
+                    backtrace: Backtrace::capture(),
+                });
             }
         }
     }
 
     fn read_amf_object(&mut self) -> ChunkMessageResult<Option<HashMap<String, AmfValue>>> {
         match AmfValue::read_from(self.inner.by_ref(), self.amf_version)? {
-            AmfValue::AMF0Value(Amf0Value::Null) | AmfValue::AMF3Value(Amf3Value::Null) => Ok(None),
-            value => match value.try_into_pairs() {
-                Err(_) => {
-                    return Err(ChunkMessageError::UnexpectedAmfType(
-                        "expect key-value pair type".to_string(),
-                    ));
+            Some(AmfValue::AMF0Value(Amf0Value::Null) | AmfValue::AMF3Value(Amf3Value::Null)) => {
+                Ok(None)
+            }
+            None => Ok(None),
+            Some(value) => match value.try_into_pairs() {
+                Err(v) => {
+                    return Err(ChunkMessageError::UnexpectedAmfType {
+                        amf_type: format!("expect key-value pair type, but got {:?} instead", v),
+                        backtrace: Backtrace::capture(),
+                    });
                 }
                 Ok(pairs) => {
                     let mut map = HashMap::new();
@@ -464,10 +540,9 @@ where
         }
     }
 
-    fn read_amf_remaining_any(&mut self) -> ChunkMessageResult<Option<Vec<AmfValue>>> {
-        match AmfValue::read_all(self.inner.by_ref(), self.amf_version) {
-            Ok(value) if value.len() > 0 => Ok(Some(value)),
-            Ok(_) => Ok(None),
+    fn read_amf_any(&mut self) -> ChunkMessageResult<Option<AmfValue>> {
+        match AmfValue::read_from(self.inner.by_ref(), self.amf_version) {
+            Ok(value) => Ok(value),
             _ => Ok(None),
         }
     }

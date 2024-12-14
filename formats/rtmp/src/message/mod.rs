@@ -1,4 +1,8 @@
-use std::io;
+use std::{
+    backtrace::Backtrace,
+    fmt::{Debug, Pointer},
+    io,
+};
 
 use tokio_util::bytes::BytesMut;
 
@@ -8,7 +12,6 @@ use crate::{
         errors::{ChunkMessageError, ChunkMessageResult},
     },
     commands::{RtmpC2SCommands, RtmpS2CCommands},
-    user_control::UserControlEvent,
 };
 
 ///! difference between rtmp message and rtmp chunk stream message:
@@ -47,7 +50,6 @@ pub mod writer;
 //     pub message: RtmpUserMessageBody,
 // }
 
-#[derive(Debug)]
 pub enum RtmpUserMessageBody {
     C2SCommand(RtmpC2SCommands),
     S2Command(RtmpS2CCommands),
@@ -56,6 +58,26 @@ pub enum RtmpUserMessageBody {
     Audio { payload: BytesMut },
     Video { payload: BytesMut },
     Aggregate { payload: BytesMut },
+}
+
+impl Debug for RtmpUserMessageBody {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::C2SCommand(command) => f.write_str(format!("C2SCommand: {:?}", command).as_str()),
+            Self::S2Command(command) => f.write_str(format!("S2CCommand: {:?}", command).as_str()),
+            Self::MetaData(meta) => f.write_str(format!("Meta: {:?}", meta).as_str()),
+            Self::SharedObject() => f.write_str("shared object"),
+            Self::Aggregate { payload } => {
+                f.write_str(format!("Aggregate, length: {}", payload.len()).as_str())
+            }
+            Self::Audio { payload } => {
+                f.write_str(format!("Audio, length: {}", payload.len()).as_str())
+            }
+            Self::Video { payload } => {
+                f.write_str(format!("Video, length: {}", payload.len()).as_str())
+            }
+        }
+    }
 }
 
 #[repr(u8)]
@@ -91,7 +113,10 @@ impl TryFrom<u8> for RtmpMessageType {
             8 => Ok(RtmpMessageType::Audio),
             9 => Ok(RtmpMessageType::Video),
             22 => Ok(RtmpMessageType::Aggregate),
-            _ => Err(ChunkMessageError::UnknownMessageType(value)),
+            _ => Err(ChunkMessageError::UnknownMessageType {
+                type_id: value,
+                backtrace: Backtrace::capture(),
+            }),
         }
     }
 }
@@ -123,6 +148,6 @@ impl RtmpUserMessageBody {
     where
         W: io::Write,
     {
-        writer::Writer::new(inner).write(self)
+        writer::Writer::new(inner).write(self, version)
     }
 }

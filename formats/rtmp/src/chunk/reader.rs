@@ -1,11 +1,17 @@
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
 use std::{
+    borrow::Borrow,
+    cmp::min,
     collections::HashMap,
-    io::{self, Cursor, Read},
+    io::{Cursor, Read},
 };
 use tokio_util::bytes::{Buf, BytesMut};
 
-use crate::{message, protocol_control};
+use crate::{
+    chunk::errors::ChunkMessageError,
+    message::{self, RtmpMessageType},
+    protocol_control,
+};
 
 use super::{
     CSID, ChunkBasicHeader, ChunkMessage, ChunkMessageCommonHeader, ChunkMessageHeader,
@@ -15,13 +21,21 @@ use super::{
 };
 
 #[derive(Debug, Default)]
+pub struct ChunkPayload {
+    pub payload: BytesMut,
+    pub total_length: usize,
+    pub remaining_length: usize,
+}
+
+#[derive(Debug, Default)]
 pub struct ReadContext {
-    timestamp: u32,
-    timestamp_delta: u32,
+    timestamp: u64,
+    timestamp_delta: u64,
     extended_timestamp_enabled: bool,
     message_length: u32,
     message_stream_id: u32,
     message_type_id: u8,
+    pub incomplete_chunk: Option<ChunkPayload>,
 }
 
 type ChunkStreamReadContext = HashMap<CSID, ReadContext>;
@@ -29,13 +43,20 @@ type ChunkStreamReadContext = HashMap<CSID, ReadContext>;
 #[derive(Debug)]
 pub struct Reader {
     context: ChunkStreamReadContext,
+    chunk_size: usize,
 }
 
 impl Reader {
     pub fn new() -> Self {
         Self {
             context: HashMap::new(),
+            chunk_size: 128,
         }
+    }
+    pub fn set_chunk_size(&mut self, size: usize) -> usize {
+        let old_size = self.chunk_size;
+        self.chunk_size = size;
+        old_size
     }
     pub fn read(
         &mut self,
@@ -48,21 +69,23 @@ impl Reader {
         }
         let common_header = common_header.expect("this cannot be none");
 
-        let message_length = common_header.message_length as usize;
-
-        if reader.remaining() < message_length {
+        let bytes = self.read_chunk_body(reader, common_header.basic_header.chunk_stream_id)?;
+        if bytes.is_none() {
             return Ok(None);
+        } else {
+            // reset incomplete chunk after a full read
+            self.context
+                .get_mut(&common_header.basic_header.chunk_stream_id)
+                .expect("this cannot be none")
+                .incomplete_chunk = None
         }
-        let mut bytes = BytesMut::with_capacity(message_length);
-        bytes.resize(message_length, 0);
-        reader.read_exact(&mut bytes)?;
+
+        let bytes = bytes.expect("this cannot be none");
+
         let message_body = match common_header.message_type_id.try_into()? {
             ChunkMessageType::ProtocolControl(message_type) => {
                 RtmpChunkMessageBody::ProtocolControl(
-                    protocol_control::ProtocolControlMessage::read_from(
-                        bytes.reader(),
-                        message_type,
-                    )?,
+                    protocol_control::ProtocolControlMessage::read_from(&bytes[..], message_type)?,
                 )
             }
             ChunkMessageType::RtmpUserMessage(message_type) => {
@@ -70,7 +93,12 @@ impl Reader {
                     RtmpChunkMessageBody::RtmpUserMessage(
                         message::RtmpUserMessageBody::read_c2s_from(
                             bytes.reader(),
-                            amf::Version::Amf0,
+                            match message_type {
+                                RtmpMessageType::AMF3Command
+                                | RtmpMessageType::AMF3Data
+                                | RtmpMessageType::AMF3SharedObject => amf::Version::Amf3,
+                                _ => amf::Version::Amf0,
+                            },
                             &common_header,
                         )?,
                     )
@@ -78,7 +106,12 @@ impl Reader {
                     RtmpChunkMessageBody::RtmpUserMessage(
                         message::RtmpUserMessageBody::read_s2c_from(
                             bytes.reader(),
-                            amf::Version::Amf0,
+                            match message_type {
+                                RtmpMessageType::AMF3Command
+                                | RtmpMessageType::AMF3Data
+                                | RtmpMessageType::AMF3SharedObject => amf::Version::Amf3,
+                                _ => amf::Version::Amf0,
+                            },
                             &common_header,
                         )?,
                     )
@@ -89,6 +122,47 @@ impl Reader {
             header: common_header,
             chunk_message_body: message_body,
         }))
+    }
+
+    fn read_chunk_body(
+        &mut self,
+        reader: &mut Cursor<&[u8]>,
+        csid: u32,
+    ) -> ChunkMessageResult<Option<BytesMut>> {
+        let ctx = self.context.get_mut(&csid);
+        if ctx.is_none() {
+            return Err(ChunkMessageError::NeedContext);
+        }
+
+        let ctx = ctx.expect("this cannot be none");
+
+        if ctx.incomplete_chunk.is_none() {
+            ctx.incomplete_chunk = Some(ChunkPayload {
+                payload: BytesMut::with_capacity(ctx.message_length as usize),
+                total_length: ctx.message_length as usize,
+                remaining_length: ctx.message_length as usize,
+            })
+        }
+
+        let chunk = ctx.incomplete_chunk.as_mut().expect("this cannot be none");
+
+        let bytes_need = min(self.chunk_size, chunk.remaining_length);
+        if reader.remaining() < bytes_need {
+            return Ok(None);
+        }
+
+        let mut bytes = Vec::with_capacity(bytes_need);
+        bytes.resize(bytes_need, 0);
+        reader.read_exact(&mut bytes)?;
+
+        chunk.remaining_length -= bytes_need;
+        chunk.payload.extend_from_slice(&bytes);
+
+        if chunk.remaining_length == 0 {
+            return Ok(Some(chunk.payload.clone()));
+        }
+
+        Err(ChunkMessageError::IncompleteChunk)
     }
 
     fn read_to_common_header(
@@ -103,24 +177,20 @@ impl Reader {
 
         let fmt = basic_header.fmt;
 
+        let csid = basic_header.chunk_stream_id.clone();
+        if !self.context.contains_key(&csid) {
+            if fmt != 0 {
+                tracing::error!("new chunk must start with a type 0 message header");
+                return Err(ChunkMessageError::NeedContext);
+            }
+            self.context.insert(csid, ReadContext::default());
+        }
+
         let message_header = self.read_message_header(reader, fmt)?;
         if message_header.is_none() {
             return Ok(None);
         }
         let message_header = message_header.expect("this cannot be none");
-
-        let csid = basic_header.chunk_stream_id.clone();
-        if !self.context.contains_key(&csid) {
-            match message_header {
-                ChunkMessageHeader::Type0(_) => {
-                    let res = self.context.insert(csid, ReadContext::default());
-                    if res.is_none() {
-                        return Err(super::errors::ChunkMessageError::AddContextFailed);
-                    }
-                }
-                _ => return Err(super::errors::ChunkMessageError::NeedContext),
-            }
-        }
 
         let context = self
             .context
@@ -130,7 +200,7 @@ impl Reader {
             ChunkMessageHeader::Type0(header0) => {
                 context.message_length = header0.message_length;
                 context.message_type_id = header0.message_type_id;
-                context.timestamp = header0.timestamp;
+                context.timestamp = header0.timestamp as u64;
                 context.extended_timestamp_enabled = header0.timestamp >= MAX_TIMESTAMP;
                 context.message_stream_id = header0.message_stream_id;
                 context.timestamp_delta = 0;
@@ -138,13 +208,13 @@ impl Reader {
             ChunkMessageHeader::Type1(header1) => {
                 context.message_length = header1.message_length;
                 context.message_type_id = header1.message_type_id;
-                context.timestamp_delta = header1.timestamp_delta;
-                context.timestamp += header1.timestamp_delta;
+                context.timestamp_delta = header1.timestamp_delta as u64;
+                context.timestamp += header1.timestamp_delta as u64;
                 context.extended_timestamp_enabled = header1.timestamp_delta >= MAX_TIMESTAMP;
             }
             ChunkMessageHeader::Type2(header2) => {
-                context.timestamp_delta = header2.timestamp_delta;
-                context.timestamp += header2.timestamp_delta;
+                context.timestamp_delta = header2.timestamp_delta as u64;
+                context.timestamp += header2.timestamp_delta as u64;
                 context.extended_timestamp_enabled = header2.timestamp_delta >= MAX_TIMESTAMP;
             }
             ChunkMessageHeader::Type3(_) => {
@@ -154,8 +224,8 @@ impl Reader {
                         return Ok(None);
                     }
                     let timestamp_delta = reader.read_u32::<BigEndian>()?;
-                    context.timestamp_delta = timestamp_delta;
-                    context.timestamp += timestamp_delta;
+                    context.timestamp_delta = timestamp_delta as u64;
+                    context.timestamp += timestamp_delta as u64;
                 } else {
                     context.timestamp += context.timestamp_delta;
                 }
@@ -164,7 +234,7 @@ impl Reader {
 
         Ok(Some(ChunkMessageCommonHeader {
             basic_header,
-            timestamp: context.timestamp,
+            timestamp: context.timestamp as u32,
             message_length: context.message_length,
             message_type_id: context.message_type_id,
             message_stream_id: context.message_stream_id,
@@ -179,8 +249,8 @@ impl Reader {
             return Ok(None);
         }
         let first_byte = reader.read_u8()?;
-        let fmt = first_byte >> 6 & 0b11;
-        let maybe_csid = first_byte & 0b00111111;
+        let fmt = (first_byte >> 6) & 0b11;
+        let maybe_csid = (first_byte & 0b00111111) as u32;
         match maybe_csid {
             0 => {
                 if !reader.has_remaining() {
@@ -197,18 +267,20 @@ impl Reader {
                 if reader.remaining() < 2 {
                     return Ok(None);
                 }
-                let csid = reader.read_u16::<BigEndian>()?;
+                let mut csid = 64;
+                csid += reader.read_u8()? as u32;
+                csid += reader.read_u8()? as u32 * 256;
                 return Ok(Some(ChunkBasicHeader {
                     header_type: super::ChunkBasicHeaderType::Type3,
                     fmt,
-                    chunk_stream_id: csid as CSID + 64,
+                    chunk_stream_id: csid,
                 }));
             }
             csid => {
                 return Ok(Some(ChunkBasicHeader {
                     header_type: super::ChunkBasicHeaderType::Type1,
                     fmt,
-                    chunk_stream_id: csid as CSID,
+                    chunk_stream_id: csid,
                 }));
             }
         }

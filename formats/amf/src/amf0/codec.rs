@@ -13,7 +13,7 @@ impl Decoder for Amf0ValueCodec {
     type Item = Value;
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         let bytes_reader = src.reader();
-        Ok(Some(Reader::new(bytes_reader).read()?))
+        Reader::new(bytes_reader).read()
     }
 }
 

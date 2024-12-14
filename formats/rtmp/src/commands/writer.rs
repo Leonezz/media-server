@@ -1,5 +1,6 @@
 use amf::{self, Value as AmfValue};
 use std::{collections::HashMap, io};
+use tokio_util::either::Either;
 
 use crate::chunk::errors::ChunkMessageResult;
 
@@ -71,7 +72,12 @@ where
         self.write_amf_str(command_name)?;
         self.write_amf_number(1)?;
         self.write_amf_object_or_null(command.properties.clone())?;
-        self.write_amf_object_or_null(Some(command.information.clone()))?;
+        if command.information.is_some() {
+            match command.information.clone().expect("this cannot be none") {
+                Either::Left(any) => any.write_to(&mut self.inner)?,
+                Either::Right(object) => self.write_amf_object_or_null(Some(object))?,
+            }
+        }
         Ok(())
     }
 
@@ -79,7 +85,16 @@ where
         self.write_amf_str(&command.procedure_name)?;
         self.write_amf_number(command.transaction_id)?;
         self.write_amf_object_or_null(command.command_object.clone())?;
-        self.write_amf_object_or_null(command.optional_arguments.clone())?;
+        if command.optional_arguments.is_some() {
+            match command
+                .optional_arguments
+                .clone()
+                .expect("this cannot be none")
+            {
+                Either::Left(any) => any.write_to(&mut self.inner)?,
+                Either::Right(object) => self.write_amf_object_or_null(Some(object))?,
+            }
+        }
         Ok(())
     }
 

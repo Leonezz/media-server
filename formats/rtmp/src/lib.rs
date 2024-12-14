@@ -1,3 +1,4 @@
+#![feature(error_generic_member_access)]
 pub mod chunk;
 pub mod commands;
 pub mod handshake;

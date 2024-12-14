@@ -1,4 +1,6 @@
-use std::{collections::HashMap, io};
+use std::{backtrace::Backtrace, collections::HashMap, fmt::format, io};
+
+use tokio_util::either::Either;
 
 use crate::chunk::errors::{ChunkMessageError, ChunkMessageResult};
 
@@ -10,16 +12,16 @@ pub mod writer;
 ///! @see: 7.2.1.1. connect
 #[derive(Debug, Clone)]
 pub struct ConnectCommandRequestObject {
-    app: String,
-    flash_version: String,
-    swf_url: String,
-    tc_url: String,
-    fpad: bool,
-    audio_codecs: u16,
-    video_codecs: u16,
-    video_function: u16,
-    page_url: String,
-    object_encoding: amf::Version,
+    pub app: String,
+    pub flash_version: String,
+    pub swf_url: String,
+    pub tc_url: String,
+    pub fpad: bool,
+    pub audio_codecs: u16,
+    pub video_codecs: u16,
+    pub video_function: u16,
+    pub page_url: String,
+    pub object_encoding: amf::Version,
 }
 
 impl TryFrom<HashMap<String, amf::Value>> for ConnectCommandRequestObject {
@@ -29,32 +31,34 @@ impl TryFrom<HashMap<String, amf::Value>> for ConnectCommandRequestObject {
             Some(value) => match value.try_as_str() {
                 Some(v) => Ok(v.to_string()),
                 None => {
-                    return Err(ChunkMessageError::UnexpectedAmfType(format!(
-                        "expect a string type"
-                    )));
+                    return Err(ChunkMessageError::UnexpectedAmfType {
+                        amf_type: format!("expect a string type"),
+                        backtrace: Backtrace::capture(),
+                    });
                 }
             },
             None => {
-                return Err(ChunkMessageError::UnexpectedAmfType(format!(
-                    "expect {} field",
-                    key
-                )));
+                return Err(ChunkMessageError::UnexpectedAmfType {
+                    amf_type: format!("expect {} field", key),
+                    backtrace: Backtrace::capture(),
+                });
             }
         };
         let extract_bool_field = |key: &str| match value.get(key) {
             Some(value) => match value.try_as_bool() {
                 Some(v) => Ok(v),
                 None => {
-                    return Err(ChunkMessageError::UnexpectedAmfType(format!(
-                        "expect a bool type"
-                    )));
+                    return Err(ChunkMessageError::UnexpectedAmfType {
+                        amf_type: format!("expect a bool type"),
+                        backtrace: Backtrace::capture(),
+                    });
                 }
             },
             None => {
-                return Err(ChunkMessageError::UnexpectedAmfType(format!(
-                    "expect {} field",
-                    key
-                )));
+                return Err(ChunkMessageError::UnexpectedAmfType {
+                    amf_type: format!("expect {} field", key),
+                    backtrace: Backtrace::capture(),
+                });
             }
         };
 
@@ -62,30 +66,34 @@ impl TryFrom<HashMap<String, amf::Value>> for ConnectCommandRequestObject {
             Some(value) => match value.try_as_f64() {
                 Some(v) => Ok(v),
                 None => {
-                    return Err(ChunkMessageError::UnexpectedAmfType(format!(
-                        "expect a number type"
-                    )));
+                    return Err(ChunkMessageError::UnexpectedAmfType {
+                        amf_type: format!("expect a number type"),
+                        backtrace: Backtrace::capture(),
+                    });
                 }
             },
             None => {
-                return Err(ChunkMessageError::UnexpectedAmfType(format!(
-                    "expect {} field",
-                    key
-                )));
+                return Err(ChunkMessageError::UnexpectedAmfType {
+                    amf_type: format!("expect {} field", key),
+                    backtrace: Backtrace::capture(),
+                });
             }
         };
 
         let command_object = ConnectCommandRequestObject {
-            app: extract_string_field("app")?,
-            flash_version: extract_string_field("flashver")?,
-            swf_url: extract_string_field("swfUrl")?,
-            tc_url: extract_string_field("tcUrl")?,
-            fpad: extract_bool_field("fpad")?,
-            audio_codecs: extract_number_field("audioCodecs")? as u16,
-            video_codecs: extract_number_field("videoCodecs")? as u16,
-            video_function: extract_number_field("videoFunction")? as u16,
-            page_url: extract_string_field("pageUrl")?,
-            object_encoding: match extract_number_field("objectEncoding")? as u8 {
+            app: extract_string_field("app").unwrap_or("default".into()),
+            flash_version: extract_string_field("flashver").unwrap_or("default".into()),
+            swf_url: extract_string_field("swfUrl").unwrap_or("default".into()),
+            tc_url: extract_string_field("tcUrl").unwrap_or("default".into()),
+            fpad: extract_bool_field("fpad").unwrap_or(false),
+            audio_codecs: extract_number_field("audioCodecs").unwrap_or(0.into()) as u16,
+            video_codecs: extract_number_field("videoCodecs").unwrap_or(0.into()) as u16,
+            video_function: extract_number_field("videoFunction").unwrap_or(0.into()) as u16,
+            page_url: extract_string_field("pageUrl").unwrap_or("default".into()),
+            object_encoding: match extract_number_field("objectEncoding")
+                .unwrap_or((amf::Version::Amf0 as u8).into())
+                as u8
+            {
                 0 => amf::Version::Amf0,
                 3 => amf::Version::Amf3,
                 v => return Err(ChunkMessageError::UnknownAmfVersion(v as u8)),
@@ -134,27 +142,27 @@ impl Into<HashMap<String, amf::Value>> for ConnectCommandRequestObject {
 
 #[derive(Debug)]
 pub struct ConnectCommandRequest {
-    command_name: String, // "connect"
-    transaction_id: u8,   // always 1
-    command_object: ConnectCommandRequestObject,
-    optional_user_arguments: Option<HashMap<String, amf::Value>>,
+    pub command_name: String, // "connect"
+    pub transaction_id: u8,   // always 1
+    pub command_object: ConnectCommandRequestObject,
+    pub optional_user_arguments: Option<HashMap<String, amf::Value>>,
 }
 
 #[derive(Debug)]
 pub struct ConnectCommandResponse {
     // command_name: String, // "_result" or "_error"
-    success: bool,
-    transaction_id: u8, // always 1
-    properties: Option<HashMap<String, amf::Value>>,
-    information: HashMap<String, amf::Value>,
+    pub success: bool,
+    pub transaction_id: u8, // always 1
+    pub properties: Option<HashMap<String, amf::Value>>,
+    pub information: Option<Either<amf::Value, HashMap<String, amf::Value>>>,
 }
 
 #[derive(Debug)]
 pub struct CallCommandRequest {
-    procedure_name: String,
-    transaction_id: f64,
-    command_object: Option<HashMap<String, amf::Value>>,
-    optional_arguments: Option<HashMap<String, amf::Value>>,
+    pub procedure_name: String,
+    pub transaction_id: f64,
+    pub command_object: Option<HashMap<String, amf::Value>>,
+    pub optional_arguments: Option<Either<amf::Value, HashMap<String, amf::Value>>>,
 }
 
 #[derive(Debug)]
@@ -167,26 +175,26 @@ pub struct CallCommandResponse {
 
 #[derive(Debug)]
 pub struct CreateStreamCommandRequest {
-    command_name: String, // "createStream"
-    transaction_id: f64,
-    command_object: Option<HashMap<String, amf::Value>>,
+    pub command_name: String, // "createStream"
+    pub transaction_id: f64,
+    pub command_object: Option<HashMap<String, amf::Value>>,
 }
 
 #[derive(Debug)]
 pub struct CreateStreamCommandResponse {
     // command_name: String, // "_result" or "_error"
-    success: bool,
-    transaction_id: f64,
-    command_object: Option<HashMap<String, amf::Value>>,
-    stream_id: f64,
+    pub success: bool,
+    pub transaction_id: f64,
+    pub command_object: Option<HashMap<String, amf::Value>>,
+    pub stream_id: f64,
 }
 
 #[derive(Debug)]
 pub struct OnStatusCommand {
-    command_name: String, // "onStatus"
-    transaction_id: u8,   // 0
+    pub command_name: String, // "onStatus"
+    pub transaction_id: u8,   // 0
     // command_object is null
-    info_object: HashMap<String, amf::Value>, // at least: level, code, description
+    pub info_object: HashMap<String, amf::Value>, // at least: level, code, description
 }
 
 #[derive(Debug)]

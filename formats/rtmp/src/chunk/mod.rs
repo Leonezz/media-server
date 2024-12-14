@@ -1,5 +1,6 @@
+use std::backtrace::Backtrace;
+
 use errors::{ChunkMessageError, ChunkMessageResult};
-use tokio_util::bytes::BytesMut;
 
 use crate::{
     message::{RtmpMessageType, RtmpUserMessageBody},
@@ -162,6 +163,9 @@ impl TryFrom<u8> for ChunkMessageType {
             return Ok(ChunkMessageType::RtmpUserMessage(v));
         }
 
-        Err(ChunkMessageError::UnknownMessageType(value))
+        Err(ChunkMessageError::UnknownMessageType {
+            type_id: value,
+            backtrace: Backtrace::capture(),
+        })
     }
 }

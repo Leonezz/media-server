@@ -1,4 +1,4 @@
-use std::io;
+use std::{backtrace::Backtrace, io};
 
 use crate::chunk::errors::{ChunkMessageError, ChunkMessageResult};
 
@@ -76,7 +76,10 @@ impl TryFrom<u8> for ProtocolControlMessageType {
             3 => Ok(ProtocolControlMessageType::Acknowledgement),
             5 => Ok(ProtocolControlMessageType::WindowAckSize),
             6 => Ok(ProtocolControlMessageType::SetPeerBandwidth),
-            _ => Err(ChunkMessageError::UnknownMessageType(value)),
+            _ => Err(ChunkMessageError::UnknownMessageType {
+                type_id: value,
+                backtrace: Backtrace::capture(),
+            }),
         }
     }
 }

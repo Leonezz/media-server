@@ -2,7 +2,6 @@ use std::io;
 
 use super::RtmpUserMessageBody;
 use crate::chunk::errors::{ChunkMessageError, ChunkMessageResult};
-use byteorder::{BigEndian, WriteBytesExt};
 
 #[derive(Debug)]
 pub struct Writer<W> {
@@ -17,13 +16,17 @@ where
         Self { inner }
     }
 
-    pub fn write(&mut self, message: &RtmpUserMessageBody) -> ChunkMessageResult<()> {
+    pub fn write(
+        &mut self,
+        message: &RtmpUserMessageBody,
+        version: amf::Version,
+    ) -> ChunkMessageResult<()> {
         match message {
             RtmpUserMessageBody::C2SCommand(command) => {
-                command.write_to(self.inner.by_ref(), amf::Version::Amf0)
+                command.write_to(self.inner.by_ref(), version)
             }
             RtmpUserMessageBody::S2Command(command) => {
-                command.write_to(self.inner.by_ref(), amf::Version::Amf0)
+                command.write_to(self.inner.by_ref(), version)
             }
             RtmpUserMessageBody::MetaData(data) => data
                 .write_to(self.inner.by_ref())

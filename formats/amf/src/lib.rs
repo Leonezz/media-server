@@ -24,20 +24,27 @@ impl From<amf3::Value> for Value {
     }
 }
 
+#[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Version {
-    Amf0,
-    Amf3,
+    Amf0 = 0,
+    Amf3 = 3,
 }
 
 impl Value {
-    pub fn read_from<R>(reader: R, version: Version) -> AmfResult<Self>
+    pub fn read_from<R>(reader: R, version: Version) -> AmfResult<Option<Self>>
     where
         R: io::Read,
     {
         match version {
-            Version::Amf0 => amf0::Value::read_from(reader).map(Value::AMF0Value),
-            Version::Amf3 => amf3::Value::read_from(reader).map(Value::AMF3Value),
+            Version::Amf0 => amf0::Value::read_from(reader).map(|v| match v {
+                None => None,
+                Some(v) => Some(Value::AMF0Value(v)),
+            }),
+            Version::Amf3 => amf3::Value::read_from(reader).map(|v| match v {
+                None => None,
+                Some(v) => Some(Value::AMF3Value(v)),
+            }),
         }
     }
 

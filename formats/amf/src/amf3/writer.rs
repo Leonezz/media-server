@@ -477,7 +477,10 @@ mod tests {
 
         let mut buf: Vec<u8> = Vec::new();
         amf3::Writer::new(&mut buf).write(&value).unwrap();
-        assert_eq!(amf3::Reader::new(&mut &buf[..]).read().unwrap(), value);
+        assert_eq!(
+            amf3::Reader::new(&mut &buf[..]).read().unwrap().unwrap(),
+            value
+        );
     }
 
     #[test]
@@ -594,7 +597,10 @@ mod tests {
         };
         let buf = encode!(value);
 
-        assert_eq!(amf3::Reader::new(&mut &buf[..]).read().unwrap(), value);
+        assert_eq!(
+            amf3::Reader::new(&mut &buf[..]).read().unwrap().unwrap(),
+            value
+        );
     }
 
     #[test]
@@ -620,7 +626,10 @@ mod tests {
             ],
         };
         let buf = encode!(value);
-        assert_eq!(amf3::Reader::new(&mut &buf[..]).read().unwrap(), value);
+        assert_eq!(
+            amf3::Reader::new(&mut &buf[..]).read().unwrap().unwrap(),
+            value
+        );
 
         assert_eq!(
             encode!(Value::Dictionary {

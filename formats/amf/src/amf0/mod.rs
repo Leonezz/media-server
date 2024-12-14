@@ -73,7 +73,7 @@ pub enum Value {
 }
 
 impl Value {
-    pub fn read_from<R>(reader: R) -> AmfResult<Self>
+    pub fn read_from<R>(reader: R) -> AmfResult<Option<Self>>
     where
         R: io::Read,
     {

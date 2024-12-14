@@ -45,9 +45,13 @@ where
             },
         }
     }
-    pub fn read(&mut self) -> AmfResult<Value> {
-        let marker = self.inner.read_u8()?;
-        match marker {
+    pub fn read(&mut self) -> AmfResult<Option<Value>> {
+        let marker = self.inner.read_u8();
+        if marker.is_err() {
+            return Ok(None);
+        }
+        let marker = marker.expect("this cannot be err");
+        let value = match marker {
             amf0_marker::NUMBER => self.read_number(),
             amf0_marker::BOOLEAN => self.read_boolean(),
             amf0_marker::STRING => self.read_string(),
@@ -67,12 +71,16 @@ where
             amf0_marker::TYPED_OBJECT => self.read_typed_object(),
             amf0_marker::AVMPLUS_OBJECT => self.read_avm_plus(),
             _ => Err(AmfError::Unknown { marker }),
+        };
+        match value {
+            Ok(v) => Ok(Some(v)),
+            Err(err) => Err(err),
         }
     }
 
     pub fn read_all(&mut self) -> AmfResult<Vec<Value>> {
         let mut result = Vec::new();
-        while let Ok(value) = self.read() {
+        while let Ok(Some(value)) = self.read() {
             result.push(value);
         }
         Ok(result)
@@ -106,10 +114,16 @@ where
             let len: u16 = self.inner.read_u16::<BigEndian>()?;
             let key = self.read_utf8_inner(len as usize)?;
             match self.read() {
-                Ok(Value::ObjectEnd) if key.is_empty() => {
+                Ok(Some(Value::ObjectEnd)) if key.is_empty() => {
                     break;
                 }
-                Ok(value) => {
+                Ok(None) => {
+                    return Err(AmfError::Io(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "unexpected eof",
+                    )));
+                }
+                Ok(Some(value)) => {
                     result.push((key, value));
                 }
                 Err(err) => {
@@ -150,7 +164,18 @@ where
     pub fn read_strict_array(&mut self) -> AmfResult<Value> {
         self.read_and_record_referenceable_inner(|this| {
             let len = this.inner.read_u32::<BigEndian>()? as usize;
-            let values = (0..len).map(|_| this.read()).collect::<AmfResult<_>>()?;
+            let values = (0..len)
+                .map(|_| match this.read() {
+                    Ok(None) => {
+                        return Err(AmfError::Io(io::Error::new(
+                            io::ErrorKind::UnexpectedEof,
+                            "expected eof",
+                        )));
+                    }
+                    Ok(Some(value)) => Ok(value),
+                    Err(err) => Err(err),
+                })
+                .collect::<AmfResult<_>>()?;
             Ok(Value::StrictArray(values))
         })
     }
@@ -187,7 +212,13 @@ where
     }
     pub fn read_avm_plus(&mut self) -> AmfResult<Value> {
         let result = amf3::Reader::new(&mut self.inner).read()?;
-        Ok(Value::AVMPlus(result))
+        match result {
+            Some(v) => Ok(Value::AVMPlus(v)),
+            None => Err(AmfError::Io(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "unexpected eof",
+            ))),
+        }
     }
     fn read_and_record_referenceable_inner<F>(&mut self, f: F) -> AmfResult<Value>
     where
@@ -235,23 +266,27 @@ mod tests {
     #[test]
     fn number() {
         assert_eq!(
-            decode!("../../test_data/amf0-number.bin").unwrap(),
+            decode!("../../test_data/amf0-number.bin").unwrap().unwrap(),
             Value::Number(3.5)
         );
         assert_ne!(
-            decode!("../../test_data/amf0-number.bin").unwrap(),
+            decode!("../../test_data/amf0-number.bin").unwrap().unwrap(),
             Value::Number(1.)
         );
         assert_ne!(
-            decode!("../../test_data/amf0-number.bin").unwrap(),
+            decode!("../../test_data/amf0-number.bin").unwrap().unwrap(),
             Value::Null
         );
         assert_eq!(
-            decode!("../../test_data/amf0-number-negative-infinity.bin").unwrap(),
+            decode!("../../test_data/amf0-number-negative-infinity.bin")
+                .unwrap()
+                .unwrap(),
             Value::Number(f64::NEG_INFINITY)
         );
         assert_eq!(
-            decode!("../../test_data/amf0-number-positive-infinity.bin").unwrap(),
+            decode!("../../test_data/amf0-number-positive-infinity.bin")
+                .unwrap()
+                .unwrap(),
             Value::Number(f64::INFINITY)
         );
 
@@ -262,21 +297,29 @@ mod tests {
             _ => false,
         };
         assert!(is_nan(
-            decode!("../../test_data/amf0-number-quiet-nan.bin").unwrap()
+            decode!("../../test_data/amf0-number-quiet-nan.bin")
+                .unwrap()
+                .unwrap()
         ));
         assert!(is_nan(
-            decode!("../../test_data/amf0-number-signaling-nan.bin").unwrap()
+            decode!("../../test_data/amf0-number-signaling-nan.bin")
+                .unwrap()
+                .unwrap()
         ));
     }
 
     #[test]
     fn boolean() {
         assert_eq!(
-            decode!("../../test_data/amf0-boolean-true.bin").unwrap(),
+            decode!("../../test_data/amf0-boolean-true.bin")
+                .unwrap()
+                .unwrap(),
             Value::Boolean(true)
         );
         assert_eq!(
-            decode!("../../test_data/amf0-boolean-false.bin").unwrap(),
+            decode!("../../test_data/amf0-boolean-false.bin")
+                .unwrap()
+                .unwrap(),
             Value::Boolean(false)
         );
 
@@ -286,11 +329,11 @@ mod tests {
     #[test]
     fn string() {
         assert_eq!(
-            decode!("../../test_data/amf0-string.bin").unwrap(),
+            decode!("../../test_data/amf0-string.bin").unwrap().unwrap(),
             Value::String("this is a テスト".to_string())
         );
         assert_ne!(
-            decode!("../../test_data/amf0-string.bin").unwrap(),
+            decode!("../../test_data/amf0-string.bin").unwrap().unwrap(),
             Value::String("random utf8 字".to_string())
         );
         assert_eof!("../../test_data/amf0-strict-array-partial.bin");
@@ -299,7 +342,9 @@ mod tests {
     #[test]
     fn long_string() {
         assert_eq!(
-            decode!("../../test_data/amf0-long-string.bin").unwrap(),
+            decode!("../../test_data/amf0-long-string.bin")
+                .unwrap()
+                .unwrap(),
             Value::String(iter::repeat('a').take(0x10013).collect())
         );
 
@@ -309,7 +354,9 @@ mod tests {
     #[test]
     fn xml() {
         assert_eq!(
-            decode!("../../test_data/amf0-xml-doc.bin").unwrap(),
+            decode!("../../test_data/amf0-xml-doc.bin")
+                .unwrap()
+                .unwrap(),
             Value::XMLDocument("<parent><child prop=\"test\" /></parent>".to_string())
         );
 
@@ -327,7 +374,7 @@ mod tests {
             let err = decode!("../../test_data/amf0-object.bin");
             println!("{:?}", err);
             assert_eq!(
-                decode!("../../test_data/amf0-object.bin").unwrap(),
+                decode!("../../test_data/amf0-object.bin").unwrap().unwrap(),
                 Value::Object {
                     name: None,
                     entries: pairs
@@ -350,7 +397,7 @@ mod tests {
     #[test]
     fn null() {
         assert_eq!(
-            decode!("../../test_data/amf0-null.bin").unwrap(),
+            decode!("../../test_data/amf0-null.bin").unwrap().unwrap(),
             Value::Null
         )
     }
@@ -358,7 +405,9 @@ mod tests {
     #[test]
     fn undefined() {
         assert_eq!(
-            decode!("../../test_data/amf0-undefined.bin").unwrap(),
+            decode!("../../test_data/amf0-undefined.bin")
+                .unwrap()
+                .unwrap(),
             Value::Undefined
         )
     }
@@ -376,7 +425,9 @@ mod tests {
         let reference_pairs = vec![("0".to_string(), object.clone()), ("1".to_string(), object)];
 
         assert_eq!(
-            decode!("../../test_data/amf0-ref-test.bin").unwrap(),
+            decode!("../../test_data/amf0-ref-test.bin")
+                .unwrap()
+                .unwrap(),
             Value::Object {
                 name: None,
                 entries: reference_pairs
@@ -396,7 +447,9 @@ mod tests {
                 ("3".to_string(), Value::String("d".to_string())),
             ];
             assert_eq!(
-                decode!("../../test_data/amf0-ecma-ordinal-array.bin").unwrap(),
+                decode!("../../test_data/amf0-ecma-ordinal-array.bin")
+                    .unwrap()
+                    .unwrap(),
                 Value::ECMAArray(arr)
             );
         }
@@ -407,7 +460,7 @@ mod tests {
                 ("a".to_string(), Value::String("b".to_string())),
             ];
             assert_eq!(
-                decode!("../../test_data/amf0-hash.bin").unwrap(),
+                decode!("../../test_data/amf0-hash.bin").unwrap().unwrap(),
                 Value::ECMAArray(arr)
             );
         }
@@ -423,7 +476,9 @@ mod tests {
             Value::Number(3.0),
         ];
         assert_eq!(
-            decode!("../../test_data/amf0-strict-array.bin").unwrap(),
+            decode!("../../test_data/amf0-strict-array.bin")
+                .unwrap()
+                .unwrap(),
             Value::StrictArray(arr)
         );
 
@@ -433,14 +488,14 @@ mod tests {
     #[test]
     fn date() {
         assert_eq!(
-            decode!("../../test_data/amf0-date.bin").unwrap(),
+            decode!("../../test_data/amf0-date.bin").unwrap().unwrap(),
             Value::Date {
                 time_zone: 0,
                 millis_timestamp: time::Duration::from_millis(1_590_796_800_000)
             }
         );
         assert_eq!(
-            decode!("../../test_data/amf0-time.bin").unwrap(),
+            decode!("../../test_data/amf0-time.bin").unwrap().unwrap(),
             Value::Date {
                 time_zone: 0,
                 millis_timestamp: time::Duration::from_millis(1_045_112_400_000)
@@ -467,7 +522,9 @@ mod tests {
             ("baz".to_string(), Value::Null),
         ];
         assert_eq!(
-            decode!("../../test_data/amf0-typed-object.bin").unwrap(),
+            decode!("../../test_data/amf0-typed-object.bin")
+                .unwrap()
+                .unwrap(),
             Value::Object {
                 name: Some("org.amf.ASClass".to_string()),
                 entries: pairs
@@ -511,7 +568,9 @@ mod tests {
     #[test]
     fn avm_plus() {
         assert_eq!(
-            decode!("../../test_data/amf0-avmplus-object.bin").unwrap(),
+            decode!("../../test_data/amf0-avmplus-object.bin")
+                .unwrap()
+                .unwrap(),
             Value::AVMPlus(amf3::Value::Array {
                 assoc_entries: vec![],
                 dense_entries: (1..4).map(amf3::Value::Integer).collect()

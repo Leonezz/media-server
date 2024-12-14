@@ -1,12 +1,8 @@
 use byteorder::{BigEndian, LittleEndian, WriteBytesExt};
 
-use std::{
-    collections::HashMap,
-    fmt::Debug,
-    io::{self, Write},
-};
+use std::{collections::HashMap, io::Write};
 use tokio::{io::BufWriter, net::TcpStream};
-use tokio_util::bytes::{BufMut, BytesMut};
+use tokio_util::{bytes::BytesMut, either::Either};
 use utils::system::util::get_timestamp_ms;
 
 use crate::{
@@ -15,6 +11,7 @@ use crate::{
         CreateStreamCommandRequest, CreateStreamCommandResponse, DeleteStreamCommand,
         OnStatusCommand, PauseCommand, Play2Command, PlayCommand, PublishCommand,
         ReceiveAudioCommand, ReceiveVideoCommand, RtmpC2SCommands, RtmpS2CCommands, SeekCommand,
+        consts::s2c_command_names::ON_STATUS,
     },
     message::{RtmpMessageType, RtmpUserMessageBody},
     protocol_control::{
@@ -23,14 +20,14 @@ use crate::{
         consts::PROTOCOL_CONTROL_MESSAGE_STREAM_ID,
     },
     user_control::{
-        UserControlEvent, UserControlEventType,
+        UserControlEvent,
         consts::{USER_CONTROL_MESSAGE_STREAM_ID, USER_CONTROL_MESSAGE_TYPE},
     },
 };
 
 use super::{
     CSID, ChunkBasicHeader, ChunkBasicHeaderType, ChunkMessage, ChunkMessageCommonHeader,
-    ChunkMessageHeader, ChunkMessageType, RtmpChunkMessageBody,
+    ChunkMessageHeader, RtmpChunkMessageBody,
     consts::{MAX_TIMESTAMP, csid},
     errors::ChunkMessageResult,
 };
@@ -69,14 +66,18 @@ impl Writer {
         Ok(())
     }
 
-    pub fn write(&mut self, mut value: ChunkMessage) -> ChunkMessageResult<()> {
+    pub fn write(
+        &mut self,
+        mut value: ChunkMessage,
+        version: amf::Version,
+    ) -> ChunkMessageResult<()> {
         // self.transparent_write(basic_header, message_header, value.chunk_data)?;
         let mut bytes = Vec::with_capacity(4096);
         match value.chunk_message_body {
             RtmpChunkMessageBody::ProtocolControl(message) => message.write_to(&mut bytes),
             RtmpChunkMessageBody::UserControl(message) => message.write_to(&mut bytes),
             RtmpChunkMessageBody::RtmpUserMessage(message) => {
-                message.write_c2s_to(&mut bytes, amf::Version::Amf0)
+                message.write_c2s_to(&mut bytes, version)
             }
         }?;
 
@@ -92,61 +93,73 @@ impl Writer {
     }
 
     pub fn write_set_chunk_size(&mut self, chunk_size: u32) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: Self::make_protocol_control_common_header(
-                4,
-                ProtocolControlMessageType::SetChunkSize,
-            )?,
-            chunk_message_body: RtmpChunkMessageBody::ProtocolControl(
-                ProtocolControlMessage::SetChunkSize(SetChunkSize {
-                    chunk_size: chunk_size & 0x7FFFFFFF,
-                }),
-            ),
-        })
+        self.write(
+            ChunkMessage {
+                header: Self::make_protocol_control_common_header(
+                    4,
+                    ProtocolControlMessageType::SetChunkSize,
+                )?,
+                chunk_message_body: RtmpChunkMessageBody::ProtocolControl(
+                    ProtocolControlMessage::SetChunkSize(SetChunkSize {
+                        chunk_size: chunk_size & 0x7FFFFFFF,
+                    }),
+                ),
+            },
+            amf::Version::Amf0,
+        )
     }
 
     pub fn write_abort_message(&mut self, chunk_stream_id: u32) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: Self::make_protocol_control_common_header(
-                4,
-                ProtocolControlMessageType::Abort,
-            )?,
-            chunk_message_body: RtmpChunkMessageBody::ProtocolControl(
-                ProtocolControlMessage::Abort(AbortMessage { chunk_stream_id }),
-            ),
-        })
+        self.write(
+            ChunkMessage {
+                header: Self::make_protocol_control_common_header(
+                    4,
+                    ProtocolControlMessageType::Abort,
+                )?,
+                chunk_message_body: RtmpChunkMessageBody::ProtocolControl(
+                    ProtocolControlMessage::Abort(AbortMessage { chunk_stream_id }),
+                ),
+            },
+            amf::Version::Amf0,
+        )
     }
 
     pub fn write_acknowledgement_message(
         &mut self,
         sequence_number: u32,
     ) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: Self::make_protocol_control_common_header(
-                4,
-                ProtocolControlMessageType::Acknowledgement,
-            )?,
-            chunk_message_body: RtmpChunkMessageBody::ProtocolControl(ProtocolControlMessage::Ack(
-                Acknowledgement { sequence_number },
-            )),
-        })
+        self.write(
+            ChunkMessage {
+                header: Self::make_protocol_control_common_header(
+                    4,
+                    ProtocolControlMessageType::Acknowledgement,
+                )?,
+                chunk_message_body: RtmpChunkMessageBody::ProtocolControl(
+                    ProtocolControlMessage::Ack(Acknowledgement { sequence_number }),
+                ),
+            },
+            amf::Version::Amf0,
+        )
     }
 
     pub fn write_window_ack_size_message(
         &mut self,
         window_ack_size: u32,
     ) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: Self::make_protocol_control_common_header(
-                4,
-                ProtocolControlMessageType::WindowAckSize,
-            )?,
-            chunk_message_body: RtmpChunkMessageBody::ProtocolControl(
-                ProtocolControlMessage::WindowAckSize(WindowAckSize {
-                    size: window_ack_size,
-                }),
-            ),
-        })
+        self.write(
+            ChunkMessage {
+                header: Self::make_protocol_control_common_header(
+                    4,
+                    ProtocolControlMessageType::WindowAckSize,
+                )?,
+                chunk_message_body: RtmpChunkMessageBody::ProtocolControl(
+                    ProtocolControlMessage::WindowAckSize(WindowAckSize {
+                        size: window_ack_size,
+                    }),
+                ),
+            },
+            amf::Version::Amf0,
+        )
     }
 
     pub fn write_set_peer_bandwidth(
@@ -154,18 +167,21 @@ impl Writer {
         ack_window_size: u32,
         limit_type: SetPeerBandWidthLimitType,
     ) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: Self::make_protocol_control_common_header(
-                5,
-                ProtocolControlMessageType::SetPeerBandwidth,
-            )?,
-            chunk_message_body: RtmpChunkMessageBody::ProtocolControl(
-                ProtocolControlMessage::SetPeerBandwidth(SetPeerBandwidth {
-                    size: ack_window_size,
-                    limit_type,
-                }),
-            ),
-        })
+        self.write(
+            ChunkMessage {
+                header: Self::make_protocol_control_common_header(
+                    5,
+                    ProtocolControlMessageType::SetPeerBandwidth,
+                )?,
+                chunk_message_body: RtmpChunkMessageBody::ProtocolControl(
+                    ProtocolControlMessage::SetPeerBandwidth(SetPeerBandwidth {
+                        size: ack_window_size,
+                        limit_type,
+                    }),
+                ),
+            },
+            amf::Version::Amf0,
+        )
     }
 
     fn make_protocol_control_common_header(
@@ -182,30 +198,39 @@ impl Writer {
     }
 
     pub fn write_stream_begin(&mut self, stream_id: u32) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: Self::make_user_control_common_header(6)?,
-            chunk_message_body: RtmpChunkMessageBody::UserControl(UserControlEvent::StreamBegin {
-                stream_id,
-            }),
-        })
+        self.write(
+            ChunkMessage {
+                header: Self::make_user_control_common_header(6)?,
+                chunk_message_body: RtmpChunkMessageBody::UserControl(
+                    UserControlEvent::StreamBegin { stream_id },
+                ),
+            },
+            amf::Version::Amf0,
+        )
     }
 
     pub fn write_stream_eof(&mut self, stream_id: u32) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: Self::make_user_control_common_header(6)?,
-            chunk_message_body: RtmpChunkMessageBody::UserControl(UserControlEvent::StreamEOF {
-                stream_id,
-            }),
-        })
+        self.write(
+            ChunkMessage {
+                header: Self::make_user_control_common_header(6)?,
+                chunk_message_body: RtmpChunkMessageBody::UserControl(
+                    UserControlEvent::StreamEOF { stream_id },
+                ),
+            },
+            amf::Version::Amf0,
+        )
     }
 
     pub fn write_stream_dry(&mut self, stream_id: u32) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: Self::make_user_control_common_header(6)?,
-            chunk_message_body: RtmpChunkMessageBody::UserControl(UserControlEvent::StreamDry {
-                stream_id,
-            }),
-        })
+        self.write(
+            ChunkMessage {
+                header: Self::make_user_control_common_header(6)?,
+                chunk_message_body: RtmpChunkMessageBody::UserControl(
+                    UserControlEvent::StreamDry { stream_id },
+                ),
+            },
+            amf::Version::Amf0,
+        )
     }
 
     pub fn write_set_buffer_length(
@@ -213,42 +238,54 @@ impl Writer {
         stream_id: u32,
         buffer_length: u32,
     ) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: Self::make_user_control_common_header(10)?,
-            chunk_message_body: RtmpChunkMessageBody::UserControl(
-                UserControlEvent::SetBufferLength {
-                    stream_id,
-                    buffer_length,
-                },
-            ),
-        })
+        self.write(
+            ChunkMessage {
+                header: Self::make_user_control_common_header(10)?,
+                chunk_message_body: RtmpChunkMessageBody::UserControl(
+                    UserControlEvent::SetBufferLength {
+                        stream_id,
+                        buffer_length,
+                    },
+                ),
+            },
+            amf::Version::Amf0,
+        )
     }
 
     pub fn write_stream_ids_recorded(&mut self, stream_id: u32) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: Self::make_user_control_common_header(6)?,
-            chunk_message_body: RtmpChunkMessageBody::UserControl(
-                UserControlEvent::StreamIdsRecorded { stream_id },
-            ),
-        })
+        self.write(
+            ChunkMessage {
+                header: Self::make_user_control_common_header(6)?,
+                chunk_message_body: RtmpChunkMessageBody::UserControl(
+                    UserControlEvent::StreamIdsRecorded { stream_id },
+                ),
+            },
+            amf::Version::Amf0,
+        )
     }
 
     pub fn write_ping_request(&mut self, timestamp: u32) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: Self::make_user_control_common_header(6)?,
-            chunk_message_body: RtmpChunkMessageBody::UserControl(UserControlEvent::PingRequest {
-                timestamp,
-            }),
-        })
+        self.write(
+            ChunkMessage {
+                header: Self::make_user_control_common_header(6)?,
+                chunk_message_body: RtmpChunkMessageBody::UserControl(
+                    UserControlEvent::PingRequest { timestamp },
+                ),
+            },
+            amf::Version::Amf0,
+        )
     }
 
     pub fn write_ping_response(&mut self, timestamp: u32) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: Self::make_user_control_common_header(6)?,
-            chunk_message_body: RtmpChunkMessageBody::UserControl(UserControlEvent::PingResponse {
-                timestamp,
-            }),
-        })
+        self.write(
+            ChunkMessage {
+                header: Self::make_user_control_common_header(6)?,
+                chunk_message_body: RtmpChunkMessageBody::UserControl(
+                    UserControlEvent::PingResponse { timestamp },
+                ),
+            },
+            amf::Version::Amf0,
+        )
     }
 
     fn make_user_control_common_header(size: u32) -> ChunkMessageResult<ChunkMessageCommonHeader> {
@@ -265,156 +302,252 @@ impl Writer {
         &mut self,
         message: ConnectCommandRequest,
     ) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: Self::make_command_common_header()?,
-            chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
-                RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::Connect(message)),
-            ),
-        })
+        let version = message.command_object.object_encoding;
+        self.write(
+            ChunkMessage {
+                header: Self::make_command_common_header()?,
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                    RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::Connect(message)),
+                ),
+            },
+            version,
+        )
     }
 
     pub fn write_connect_response(
         &mut self,
-        message: ConnectCommandResponse,
+        success: bool,
+        transaction_id: f64,
+        fmsver: &str,
+        capabilities: f64,
+        code: &str,
+        level: &str,
+        description: &str,
+        encoding: amf::Version,
     ) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: Self::make_command_common_header()?,
-            chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
-                RtmpUserMessageBody::S2Command(RtmpS2CCommands::Connect(message)),
-            ),
-        })
+        let mut properties = HashMap::new();
+        properties.insert("fmsVer".into(), amf::string(fmsver, encoding));
+        properties.insert("capabilities".into(), amf::number(capabilities, encoding));
+
+        let mut information = HashMap::new();
+        information.insert("level".into(), amf::string(level, encoding));
+        information.insert("code".into(), amf::string(code, encoding));
+        information.insert("description".into(), amf::string(description, encoding));
+        information.insert(
+            "objectEncoding".into(),
+            amf::number(encoding as u8, encoding),
+        );
+        self.write(
+            ChunkMessage {
+                header: Self::make_command_common_header()?,
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                    RtmpUserMessageBody::S2Command(RtmpS2CCommands::Connect(
+                        ConnectCommandResponse {
+                            success,
+                            transaction_id: transaction_id as u8,
+                            properties: Some(properties),
+                            information: Some(Either::Right(information)),
+                        },
+                    )),
+                ),
+            },
+            encoding,
+        )
     }
 
     pub fn write_call_request(&mut self, message: CallCommandRequest) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: Self::make_command_common_header()?,
-            chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
-                RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::Call(message)),
-            ),
-        })
+        self.write(
+            ChunkMessage {
+                header: Self::make_command_common_header()?,
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                    RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::Call(message)),
+                ),
+            },
+            amf::Version::Amf0,
+        )
     }
 
     pub fn write_call_response(&mut self, message: CallCommandResponse) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: Self::make_command_common_header()?,
-            chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
-                RtmpUserMessageBody::S2Command(RtmpS2CCommands::Call(message)),
-            ),
-        })
+        self.write(
+            ChunkMessage {
+                header: Self::make_command_common_header()?,
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                    RtmpUserMessageBody::S2Command(RtmpS2CCommands::Call(message)),
+                ),
+            },
+            amf::Version::Amf0,
+        )
     }
 
     pub fn write_create_stream_request(
         &mut self,
         message: CreateStreamCommandRequest,
     ) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: Self::make_command_common_header()?,
-            chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
-                RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::CreateStream(message)),
-            ),
-        })
+        self.write(
+            ChunkMessage {
+                header: Self::make_command_common_header()?,
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                    RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::CreateStream(message)),
+                ),
+            },
+            amf::Version::Amf0,
+        )
     }
 
     pub fn write_create_stream_response(
         &mut self,
-        message: CreateStreamCommandResponse,
+        success: bool,
+        transaction_id: f64,
+        command_object: Option<HashMap<String, amf::Value>>,
+        stream_id: f64,
     ) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: Self::make_command_common_header()?,
-            chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
-                RtmpUserMessageBody::S2Command(RtmpS2CCommands::CreateStream(message)),
-            ),
-        })
+        self.write(
+            ChunkMessage {
+                header: Self::make_command_common_header()?,
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                    RtmpUserMessageBody::S2Command(RtmpS2CCommands::CreateStream(
+                        CreateStreamCommandResponse {
+                            success,
+                            transaction_id,
+                            command_object,
+                            stream_id,
+                        },
+                    )),
+                ),
+            },
+            amf::Version::Amf0,
+        )
     }
 
     pub fn write_play_request(&mut self, message: PlayCommand) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: Self::make_command_common_header()?,
-            chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
-                RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::Play(message)),
-            ),
-        })
+        self.write(
+            ChunkMessage {
+                header: Self::make_command_common_header()?,
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                    RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::Play(message)),
+                ),
+            },
+            amf::Version::Amf0,
+        )
     }
 
     pub fn write_play2_request(&mut self, message: Play2Command) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: Self::make_command_common_header()?,
-            chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
-                RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::Play2(message)),
-            ),
-        })
+        self.write(
+            ChunkMessage {
+                header: Self::make_command_common_header()?,
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                    RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::Play2(message)),
+                ),
+            },
+            amf::Version::Amf0,
+        )
     }
 
     pub fn write_delete_stream_request(
         &mut self,
         message: DeleteStreamCommand,
     ) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: Self::make_command_common_header()?,
-            chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
-                RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::DeleteStream(message)),
-            ),
-        })
+        self.write(
+            ChunkMessage {
+                header: Self::make_command_common_header()?,
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                    RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::DeleteStream(message)),
+                ),
+            },
+            amf::Version::Amf0,
+        )
     }
 
     pub fn write_receive_audio_request(
         &mut self,
         message: ReceiveAudioCommand,
     ) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: Self::make_command_common_header()?,
-            chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
-                RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::ReceiveAudio(message)),
-            ),
-        })
+        self.write(
+            ChunkMessage {
+                header: Self::make_command_common_header()?,
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                    RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::ReceiveAudio(message)),
+                ),
+            },
+            amf::Version::Amf0,
+        )
     }
 
     pub fn write_receive_video_request(
         &mut self,
         message: ReceiveVideoCommand,
     ) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: Self::make_command_common_header()?,
-            chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
-                RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::ReceiveVideo(message)),
-            ),
-        })
+        self.write(
+            ChunkMessage {
+                header: Self::make_command_common_header()?,
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                    RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::ReceiveVideo(message)),
+                ),
+            },
+            amf::Version::Amf0,
+        )
     }
 
     pub fn write_publish_request(&mut self, message: PublishCommand) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: Self::make_command_common_header()?,
-            chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
-                RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::Publish(message)),
-            ),
-        })
+        self.write(
+            ChunkMessage {
+                header: Self::make_command_common_header()?,
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                    RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::Publish(message)),
+                ),
+            },
+            amf::Version::Amf0,
+        )
     }
 
     pub fn write_seek_request(&mut self, message: SeekCommand) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: Self::make_command_common_header()?,
-            chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
-                RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::Seek(message)),
-            ),
-        })
+        self.write(
+            ChunkMessage {
+                header: Self::make_command_common_header()?,
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                    RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::Seek(message)),
+                ),
+            },
+            amf::Version::Amf0,
+        )
     }
 
     pub fn write_pause_request(&mut self, message: PauseCommand) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: Self::make_command_common_header()?,
-            chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
-                RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::Pause(message)),
-            ),
-        })
+        self.write(
+            ChunkMessage {
+                header: Self::make_command_common_header()?,
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                    RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::Pause(message)),
+                ),
+            },
+            amf::Version::Amf0,
+        )
     }
 
-    pub fn write_on_status_response(&mut self, message: OnStatusCommand) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: Self::make_command_common_header()?,
-            chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
-                RtmpUserMessageBody::S2Command(RtmpS2CCommands::OnStatus(message)),
-            ),
-        })
+    pub fn write_on_status_response(
+        &mut self,
+        level: &str,
+        code: &str,
+        description: &str,
+        encoding: amf::Version,
+    ) -> ChunkMessageResult<()> {
+        let mut info_object = HashMap::new();
+        info_object.insert("level".into(), amf::string(level, encoding));
+        info_object.insert("code".into(), amf::string(code, encoding));
+        info_object.insert("description".into(), amf::string(description, encoding));
+        self.write(
+            ChunkMessage {
+                header: Self::make_command_common_header()?,
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                    RtmpUserMessageBody::S2Command(RtmpS2CCommands::OnStatus(OnStatusCommand {
+                        command_name: ON_STATUS.into(),
+                        transaction_id: 0,
+                        info_object,
+                    })),
+                ),
+            },
+            amf::Version::Amf0,
+        )
     }
 
     fn make_command_common_header() -> ChunkMessageResult<ChunkMessageCommonHeader> {
@@ -428,51 +561,60 @@ impl Writer {
     }
 
     pub fn write_meta(&mut self, meta: amf::Value) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: ChunkMessageCommonHeader {
-                basic_header: ChunkBasicHeader::new(0, csid::NET_CONNECTION_COMMAND2.into())?,
-                timestamp: get_timestamp_ms()? as u32,
-                message_length: 0,
-                message_type_id: match meta {
-                    amf::Value::AMF0Value(_) => RtmpMessageType::AMF0Data.into(),
-                    amf::Value::AMF3Value(_) => RtmpMessageType::AMF3Data.into(),
+        self.write(
+            ChunkMessage {
+                header: ChunkMessageCommonHeader {
+                    basic_header: ChunkBasicHeader::new(0, csid::NET_CONNECTION_COMMAND2.into())?,
+                    timestamp: get_timestamp_ms()? as u32,
+                    message_length: 0,
+                    message_type_id: match meta {
+                        amf::Value::AMF0Value(_) => RtmpMessageType::AMF0Data.into(),
+                        amf::Value::AMF3Value(_) => RtmpMessageType::AMF3Data.into(),
+                    },
+                    message_stream_id: 0,
                 },
-                message_stream_id: 0,
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                    RtmpUserMessageBody::MetaData(meta),
+                ),
             },
-            chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
-                RtmpUserMessageBody::MetaData(meta),
-            ),
-        })
+            amf::Version::Amf0,
+        )
     }
 
     pub fn write_audio(&mut self, message: BytesMut) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: ChunkMessageCommonHeader {
-                basic_header: ChunkBasicHeader::new(0, csid::AUDIO.into())?,
-                timestamp: get_timestamp_ms()? as u32,
-                message_length: 0,
-                message_type_id: RtmpMessageType::Audio.into(),
-                message_stream_id: 0,
+        self.write(
+            ChunkMessage {
+                header: ChunkMessageCommonHeader {
+                    basic_header: ChunkBasicHeader::new(0, csid::AUDIO.into())?,
+                    timestamp: get_timestamp_ms()? as u32,
+                    message_length: 0,
+                    message_type_id: RtmpMessageType::Audio.into(),
+                    message_stream_id: 0,
+                },
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                    RtmpUserMessageBody::Audio { payload: message },
+                ),
             },
-            chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(RtmpUserMessageBody::Audio {
-                payload: message,
-            }),
-        })
+            amf::Version::Amf0,
+        )
     }
 
     pub fn write_video(&mut self, message: BytesMut) -> ChunkMessageResult<()> {
-        self.write(ChunkMessage {
-            header: ChunkMessageCommonHeader {
-                basic_header: ChunkBasicHeader::new(0, csid::VIDEO.into())?,
-                timestamp: get_timestamp_ms()? as u32,
-                message_length: 0,
-                message_type_id: RtmpMessageType::Video.into(),
-                message_stream_id: 0,
+        self.write(
+            ChunkMessage {
+                header: ChunkMessageCommonHeader {
+                    basic_header: ChunkBasicHeader::new(0, csid::VIDEO.into())?,
+                    timestamp: get_timestamp_ms()? as u32,
+                    message_length: 0,
+                    message_type_id: RtmpMessageType::Video.into(),
+                    message_stream_id: 0,
+                },
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                    RtmpUserMessageBody::Video { payload: message },
+                ),
             },
-            chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(RtmpUserMessageBody::Video {
-                payload: message,
-            }),
-        })
+            amf::Version::Amf0,
+        )
     }
 
     fn justify_message_type(
