@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use tokio_util::bytes::BytesMut;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -34,9 +36,13 @@ pub struct AudioMeta {
     codec: AudioCodec,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AggregateMeta {}
+
 #[derive(Debug, Clone)]
 pub enum FrameData {
     Video { meta: VideoMeta, data: BytesMut },
     Audio { meta: AudioMeta, data: BytesMut },
+    Aggregate { meta: AggregateMeta, data: BytesMut },
     Meta { timestamp: u32, data: BytesMut },
 }

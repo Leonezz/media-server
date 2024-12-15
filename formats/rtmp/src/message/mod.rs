@@ -1,8 +1,4 @@
-use std::{
-    backtrace::Backtrace,
-    fmt::{Debug, Pointer},
-    io,
-};
+use std::{backtrace::Backtrace, fmt::Debug, io};
 
 use tokio_util::bytes::BytesMut;
 

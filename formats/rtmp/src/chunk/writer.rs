@@ -11,7 +11,10 @@ use crate::{
         CreateStreamCommandRequest, CreateStreamCommandResponse, DeleteStreamCommand,
         OnStatusCommand, PauseCommand, Play2Command, PlayCommand, PublishCommand,
         ReceiveAudioCommand, ReceiveVideoCommand, RtmpC2SCommands, RtmpS2CCommands, SeekCommand,
-        consts::s2c_command_names::ON_STATUS,
+        consts::{
+            c2s_command_names,
+            s2c_command_names::{self, ON_STATUS},
+        },
     },
     message::{RtmpMessageType, RtmpUserMessageBody},
     protocol_control::{
@@ -49,6 +52,7 @@ type ChunkMessageWriteContext = HashMap<CSID, WriteContext>;
 pub struct Writer {
     inner: Vec<u8>,
     context: ChunkMessageWriteContext,
+    bytes_written: usize,
 }
 
 impl Writer {
@@ -56,7 +60,13 @@ impl Writer {
         Self {
             inner: Vec::with_capacity(4096),
             context: ChunkMessageWriteContext::new(),
+            bytes_written: 0,
         }
+    }
+
+    #[inline]
+    pub fn get_bytes_written(&self) -> usize {
+        self.bytes_written
     }
 
     pub async fn write_to(&mut self, writer: &mut BufWriter<TcpStream>) -> ChunkMessageResult<()> {
@@ -88,6 +98,8 @@ impl Writer {
 
         self.inner.reserve(bytes.len());
         self.inner.write_all(&bytes)?;
+
+        self.bytes_written += bytes.len();
 
         Ok(())
     }
@@ -194,6 +206,7 @@ impl Writer {
             message_length: size,
             message_type_id: message_type.into(),
             message_stream_id: PROTOCOL_CONTROL_MESSAGE_STREAM_ID.into(),
+            extended_timestamp_enabled: false,
         })
     }
 
@@ -295,6 +308,7 @@ impl Writer {
             message_length: size,
             message_type_id: USER_CONTROL_MESSAGE_TYPE,
             message_stream_id: USER_CONTROL_MESSAGE_STREAM_ID.into(),
+            extended_timestamp_enabled: false,
         })
     }
 
@@ -367,12 +381,27 @@ impl Writer {
         )
     }
 
-    pub fn write_call_response(&mut self, message: CallCommandResponse) -> ChunkMessageResult<()> {
+    pub fn write_call_response(
+        &mut self,
+        success: bool,
+        transaction_id: f64,
+        command_object: Option<HashMap<String, amf::Value>>,
+        response: Option<HashMap<String, amf::Value>>,
+    ) -> ChunkMessageResult<()> {
         self.write(
             ChunkMessage {
                 header: Self::make_command_common_header()?,
                 chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
-                    RtmpUserMessageBody::S2Command(RtmpS2CCommands::Call(message)),
+                    RtmpUserMessageBody::S2Command(RtmpS2CCommands::Call(CallCommandResponse {
+                        command_name: if success {
+                            s2c_command_names::RESULT.to_string()
+                        } else {
+                            s2c_command_names::ERROR.to_string()
+                        },
+                        transaction_id,
+                        command_object,
+                        response,
+                    })),
                 ),
             },
             amf::Version::Amf0,
@@ -551,27 +580,31 @@ impl Writer {
     }
 
     fn make_command_common_header() -> ChunkMessageResult<ChunkMessageCommonHeader> {
+        let timestamp = get_timestamp_ms()? as u32;
         Ok(ChunkMessageCommonHeader {
             basic_header: ChunkBasicHeader::new(0, csid::NET_CONNECTION_COMMAND.into())?,
-            timestamp: get_timestamp_ms()? as u32,
+            timestamp: timestamp,
             message_length: 0, //NOTE - length will be justified later
             message_type_id: RtmpMessageType::AMF0Command.into(),
             message_stream_id: 0, //TODO - check this out
+            extended_timestamp_enabled: timestamp >= MAX_TIMESTAMP,
         })
     }
 
     pub fn write_meta(&mut self, meta: amf::Value) -> ChunkMessageResult<()> {
+        let timestamp = get_timestamp_ms()? as u32;
         self.write(
             ChunkMessage {
                 header: ChunkMessageCommonHeader {
                     basic_header: ChunkBasicHeader::new(0, csid::NET_CONNECTION_COMMAND2.into())?,
-                    timestamp: get_timestamp_ms()? as u32,
+                    timestamp: timestamp,
                     message_length: 0,
                     message_type_id: match meta {
                         amf::Value::AMF0Value(_) => RtmpMessageType::AMF0Data.into(),
                         amf::Value::AMF3Value(_) => RtmpMessageType::AMF3Data.into(),
                     },
                     message_stream_id: 0,
+                    extended_timestamp_enabled: timestamp >= MAX_TIMESTAMP,
                 },
                 chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
                     RtmpUserMessageBody::MetaData(meta),
@@ -582,14 +615,16 @@ impl Writer {
     }
 
     pub fn write_audio(&mut self, message: BytesMut) -> ChunkMessageResult<()> {
+        let timestamp = get_timestamp_ms()? as u32;
         self.write(
             ChunkMessage {
                 header: ChunkMessageCommonHeader {
                     basic_header: ChunkBasicHeader::new(0, csid::AUDIO.into())?,
-                    timestamp: get_timestamp_ms()? as u32,
+                    timestamp: timestamp,
                     message_length: 0,
                     message_type_id: RtmpMessageType::Audio.into(),
                     message_stream_id: 0,
+                    extended_timestamp_enabled: timestamp >= MAX_TIMESTAMP,
                 },
                 chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
                     RtmpUserMessageBody::Audio { payload: message },
@@ -600,14 +635,16 @@ impl Writer {
     }
 
     pub fn write_video(&mut self, message: BytesMut) -> ChunkMessageResult<()> {
+        let timestamp = get_timestamp_ms()? as u32;
         self.write(
             ChunkMessage {
                 header: ChunkMessageCommonHeader {
                     basic_header: ChunkBasicHeader::new(0, csid::VIDEO.into())?,
-                    timestamp: get_timestamp_ms()? as u32,
+                    timestamp: timestamp,
                     message_length: 0,
                     message_type_id: RtmpMessageType::Video.into(),
                     message_stream_id: 0,
+                    extended_timestamp_enabled: timestamp >= MAX_TIMESTAMP,
                 },
                 chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
                     RtmpUserMessageBody::Video { payload: message },

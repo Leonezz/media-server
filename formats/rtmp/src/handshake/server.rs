@@ -2,11 +2,10 @@ use core::time;
 use std::{
     fmt::Debug,
     io::Read,
-    pin::Pin,
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufWriter};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio_util::{
     bytes::{Buf, BytesMut},
     codec::Encoder,

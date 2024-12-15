@@ -1,4 +1,4 @@
-use std::{backtrace::Backtrace, collections::HashMap, fmt::format, io};
+use std::{backtrace::Backtrace, collections::HashMap, io};
 
 use tokio_util::either::Either;
 
@@ -167,10 +167,10 @@ pub struct CallCommandRequest {
 
 #[derive(Debug)]
 pub struct CallCommandResponse {
-    command_name: String,
-    transaction_id: f64,
-    command_object: Option<HashMap<String, amf::Value>>,
-    response: Option<HashMap<String, amf::Value>>,
+    pub command_name: String,
+    pub transaction_id: f64,
+    pub command_object: Option<HashMap<String, amf::Value>>,
+    pub response: Option<HashMap<String, amf::Value>>,
 }
 
 #[derive(Debug)]
@@ -245,8 +245,8 @@ pub struct PublishCommand {
     command_name: String, // "publish"
     transaction_id: u8,   // 0
     // command_object is null
-    publishing_name: String, // stream name
-    publishing_type: String, // "live", "record", "append"
+    pub publishing_name: String, // stream name
+    pub publishing_type: String, // "live", "record", "append"
 }
 
 #[derive(Debug)]

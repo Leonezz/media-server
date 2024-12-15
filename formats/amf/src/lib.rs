@@ -1,6 +1,6 @@
 use std::{collections::HashMap, io};
 
-use errors::{AmfError, AmfResult};
+use errors::AmfResult;
 
 pub mod amf0;
 pub mod amf3;
@@ -25,8 +25,9 @@ impl From<amf3::Value> for Value {
 }
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Version {
+    #[default]
     Amf0 = 0,
     Amf3 = 3,
 }

@@ -123,6 +123,7 @@ pub struct ChunkMessageCommonHeader {
     pub message_length: u32,
     pub message_type_id: u8,
     pub message_stream_id: u32,
+    pub extended_timestamp_enabled: bool,
 }
 
 ///! @see: 5.3.1. Chunk Format

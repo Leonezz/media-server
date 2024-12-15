@@ -1,6 +1,5 @@
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
 use std::{
-    borrow::Borrow,
     cmp::min,
     collections::HashMap,
     io::{Cursor, Read},
@@ -14,8 +13,8 @@ use crate::{
 };
 
 use super::{
-    CSID, ChunkBasicHeader, ChunkMessage, ChunkMessageCommonHeader, ChunkMessageHeader,
-    ChunkMessageHeaderType0, ChunkMessageHeaderType1, ChunkMessageHeaderType2,
+    CSID, ChunkBasicHeader, ChunkBasicHeaderType, ChunkMessage, ChunkMessageCommonHeader,
+    ChunkMessageHeader, ChunkMessageHeaderType0, ChunkMessageHeaderType1, ChunkMessageHeaderType2,
     ChunkMessageHeaderType3, ChunkMessageType, RtmpChunkMessageBody, consts::MAX_TIMESTAMP,
     errors::ChunkMessageResult,
 };
@@ -44,6 +43,7 @@ type ChunkStreamReadContext = HashMap<CSID, ReadContext>;
 pub struct Reader {
     context: ChunkStreamReadContext,
     chunk_size: usize,
+    bytes_received: u32,
 }
 
 impl Reader {
@@ -51,12 +51,25 @@ impl Reader {
         Self {
             context: HashMap::new(),
             chunk_size: 128,
+            bytes_received: 0,
         }
     }
+
+    #[inline]
+    pub fn get_bytes_read(&self) -> u32 {
+        self.bytes_received
+    }
+
     pub fn set_chunk_size(&mut self, size: usize) -> usize {
         let old_size = self.chunk_size;
         self.chunk_size = size;
         old_size
+    }
+    pub fn abort_chunk_message(&mut self, csid: u32) {
+        match self.context.get_mut(&csid) {
+            None => {}
+            Some(ctx) => ctx.incomplete_chunk = None,
+        }
     }
     pub fn read(
         &mut self,
@@ -81,6 +94,27 @@ impl Reader {
         }
 
         let bytes = bytes.expect("this cannot be none");
+
+        let mut bytes_read = match common_header.basic_header.header_type {
+            ChunkBasicHeaderType::Type1 => 1,
+            ChunkBasicHeaderType::Type2 => 2,
+            ChunkBasicHeaderType::Type3 => 3,
+        };
+        bytes_read += match common_header.basic_header.fmt {
+            0 => 11,
+            1 => 7,
+            2 => 3,
+            _ => 0,
+        };
+        if common_header.extended_timestamp_enabled {
+            bytes_read += 4;
+        }
+
+        if self.bytes_received + bytes_read > 0xF000_0000 {
+            self.bytes_received = bytes_read;
+        } else {
+            self.bytes_received += bytes_read;
+        }
 
         let message_body = match common_header.message_type_id.try_into()? {
             ChunkMessageType::ProtocolControl(message_type) => {
@@ -118,6 +152,7 @@ impl Reader {
                 }
             }
         };
+
         Ok(Some(ChunkMessage {
             header: common_header,
             chunk_message_body: message_body,
@@ -238,6 +273,7 @@ impl Reader {
             message_length: context.message_length,
             message_type_id: context.message_type_id,
             message_stream_id: context.message_stream_id,
+            extended_timestamp_enabled: context.extended_timestamp_enabled,
         }))
     }
 
@@ -248,7 +284,9 @@ impl Reader {
         if !reader.has_remaining() {
             return Ok(None);
         }
+
         let first_byte = reader.read_u8()?;
+
         let fmt = (first_byte >> 6) & 0b11;
         let maybe_csid = (first_byte & 0b00111111) as u32;
         match maybe_csid {
@@ -257,6 +295,7 @@ impl Reader {
                     return Ok(None);
                 }
                 let csid = reader.read_u8()?;
+
                 return Ok(Some(ChunkBasicHeader {
                     header_type: super::ChunkBasicHeaderType::Type2,
                     fmt,
@@ -270,6 +309,7 @@ impl Reader {
                 let mut csid = 64;
                 csid += reader.read_u8()? as u32;
                 csid += reader.read_u8()? as u32 * 256;
+
                 return Ok(Some(ChunkBasicHeader {
                     header_type: super::ChunkBasicHeaderType::Type3,
                     fmt,

@@ -1,2 +1,2 @@
 [workspace]
-members = ['formats/*', "servers/*", 'app', 'utils', "livestream"]
+members = ['formats/*', "servers/*", 'app', 'utils', "streamcenter"]

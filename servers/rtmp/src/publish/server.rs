@@ -22,7 +22,7 @@ impl RtmpPublishServer {
             tokio::spawn(async move {
                 match session.run().await {
                     Ok(()) => {
-                        tracing::info!("successfully closed");
+                        tracing::info!("session successfully closed");
                     }
                     Err(err) => {
                         tracing::error!("{:?}", err);

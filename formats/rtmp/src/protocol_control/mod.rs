@@ -85,7 +85,7 @@ impl TryFrom<u8> for ProtocolControlMessageType {
 }
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SetPeerBandWidthLimitType {
     // The peer SHOULD limit its output bandwidth to the indicated window size.
     Hard = 0,
