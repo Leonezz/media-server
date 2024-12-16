@@ -308,15 +308,15 @@ where
         self.read_amf_null()?;
         let stream_name = self.read_amf_string()?;
         let start = self.read_amf_number()? as i64;
-        let duration = self.read_amf_number()? as i64;
-        let reset = self.read_amf_bool()?;
+        let duration = self.read_amf_optional_number()?;
+        let reset = self.read_amf_optional_bool()?;
         Ok(PlayCommand {
             command_name: c2s_command_names::PLAY.to_string(),
             transaction_id,
             stream_name,
             start,
-            duration,
-            reset,
+            duration: duration.unwrap_or(-1.0) as i64,
+            reset: reset.unwrap_or(false),
         })
     }
 
@@ -503,6 +503,22 @@ where
         }
     }
 
+    fn read_amf_optional_number(&mut self) -> ChunkMessageResult<Option<f64>> {
+        match AmfValue::read_from(self.inner.by_ref(), self.amf_version) {
+            Err(err) => return Err(err.into()),
+            Ok(v) => match v {
+                None => Ok(None),
+                Some(v) => match v.try_as_f64() {
+                    None => Err(ChunkMessageError::UnexpectedAmfType {
+                        amf_type: "unknown".to_string(),
+                        backtrace: Backtrace::capture(),
+                    }),
+                    Some(v) => Ok(Some(v)),
+                },
+            },
+        }
+    }
+
     fn read_amf_bool(&mut self) -> ChunkMessageResult<bool> {
         let amf_bool = AmfValue::read_from(self.inner.by_ref(), self.amf_version)?;
         match amf_bool.expect("this cannot be none").try_as_bool() {
@@ -513,6 +529,22 @@ where
                     backtrace: Backtrace::capture(),
                 });
             }
+        }
+    }
+
+    fn read_amf_optional_bool(&mut self) -> ChunkMessageResult<Option<bool>> {
+        match AmfValue::read_from(self.inner.by_ref(), self.amf_version) {
+            Err(err) => Err(err.into()),
+            Ok(v) => match v {
+                None => Ok(None),
+                Some(v) => match v.try_as_bool() {
+                    None => Err(ChunkMessageError::UnexpectedAmfType {
+                        amf_type: "unknown".to_string(),
+                        backtrace: Backtrace::capture(),
+                    }),
+                    Some(v) => Ok(Some(v)),
+                },
+            },
         }
     }
 

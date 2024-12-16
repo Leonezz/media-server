@@ -52,6 +52,14 @@ impl ChunkBasicHeader {
             chunk_stream_id: csid,
         })
     }
+
+    pub fn get_header_length(&self) -> usize {
+        match self.header_type {
+            ChunkBasicHeaderType::Type1 => 1,
+            ChunkBasicHeaderType::Type2 => 2,
+            ChunkBasicHeaderType::Type3 => 3,
+        }
+    }
 }
 
 ///! @see: 5.3.1.2. Chunk Message Header
@@ -114,6 +122,17 @@ pub enum ChunkMessageHeader {
     Type1(ChunkMessageHeaderType1),
     Type2(ChunkMessageHeaderType2),
     Type3(ChunkMessageHeaderType3),
+}
+
+impl ChunkMessageHeader {
+    pub fn get_header_length(&self) -> usize {
+        match self {
+            ChunkMessageHeader::Type0(_) => 11,
+            ChunkMessageHeader::Type1(_) => 7,
+            ChunkMessageHeader::Type2(_) => 3,
+            ChunkMessageHeader::Type3(_) => 0,
+        }
+    }
 }
 
 #[derive(Debug)]

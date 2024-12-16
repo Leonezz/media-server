@@ -1,3 +1,5 @@
+use crate::publish::config::RtmpSessionConfig;
+
 use super::{
     config::RtmpPublishServerConfig, errors::RtmpPublishServerResult, session::RtmpPublishSession,
 };
@@ -18,7 +20,9 @@ impl RtmpPublishServer {
         loop {
             let (tcp_stream, addr) = listener.accept().await?;
             tracing::info!("{}", addr);
-            let mut session = RtmpPublishSession::new(tcp_stream);
+            let mut session = RtmpPublishSession::new(tcp_stream, RtmpSessionConfig {
+                chunk_size: self.config.chunk_size,
+            });
             tokio::spawn(async move {
                 match session.run().await {
                     Ok(()) => {

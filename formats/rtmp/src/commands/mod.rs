@@ -202,10 +202,10 @@ pub struct PlayCommand {
     command_name: String, // "play"
     transaction_id: u8,   // 0
     // command_object is null
-    stream_name: String,
-    start: i64,    // default to -2
-    duration: i64, // default to -1
-    reset: bool,
+    pub stream_name: String,
+    pub start: i64,    // default to -2
+    pub duration: i64, // default to -1
+    pub reset: bool,
 }
 
 #[derive(Debug)]
@@ -229,7 +229,7 @@ pub struct ReceiveAudioCommand {
     command_name: String, // "receiveAudio"
     transaction_id: u8,   // 0
     // command_object is null
-    bool_flag: bool,
+    pub bool_flag: bool,
 }
 
 #[derive(Debug)]
@@ -237,7 +237,7 @@ pub struct ReceiveVideoCommand {
     command_name: String, // "receiveVideo"
     transaction_id: u8,   // 0
     // command_object is null
-    bool_flag: bool,
+    pub bool_flag: bool,
 }
 
 #[derive(Debug)]

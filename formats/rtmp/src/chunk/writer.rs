@@ -1,8 +1,16 @@
 use byteorder::{BigEndian, LittleEndian, WriteBytesExt};
 
-use std::{collections::HashMap, io::Write};
+use std::{
+    cmp::min,
+    collections::HashMap,
+    io::{Cursor, Read, Write},
+    u32,
+};
 use tokio::{io::BufWriter, net::TcpStream};
-use tokio_util::{bytes::BytesMut, either::Either};
+use tokio_util::{
+    bytes::{Buf, BytesMut},
+    either::Either,
+};
 use utils::system::util::get_timestamp_ms;
 
 use crate::{
@@ -52,6 +60,7 @@ type ChunkMessageWriteContext = HashMap<CSID, WriteContext>;
 pub struct Writer {
     inner: Vec<u8>,
     context: ChunkMessageWriteContext,
+    chunk_size: Option<u32>,
     bytes_written: usize,
 }
 
@@ -60,6 +69,7 @@ impl Writer {
         Self {
             inner: Vec::with_capacity(4096),
             context: ChunkMessageWriteContext::new(),
+            chunk_size: None,
             bytes_written: 0,
         }
     }
@@ -93,18 +103,54 @@ impl Writer {
 
         value.header.message_length = bytes.len() as u32;
         let (basic_header, message_header) = self.justify_message_type(&value.header);
-        self.write_basic_header(&basic_header)?;
-        self.write_message_header(&message_header, basic_header.chunk_stream_id)?;
 
-        self.inner.reserve(bytes.len());
-        self.inner.write_all(&bytes)?;
+        match self.chunk_size {
+            None => {
+                self.write_basic_header(&basic_header)?;
+                self.write_message_header(&message_header, basic_header.chunk_stream_id)?;
 
-        self.bytes_written += bytes.len();
+                self.inner.reserve(bytes.len());
+                self.inner.write_all(&bytes)?;
 
+                self.bytes_written += bytes.len()
+                    + basic_header.get_header_length()
+                    + message_header.get_header_length();
+            }
+            Some(len) => {
+                self.write_basic_header(&basic_header)?;
+                self.write_message_header(&message_header, basic_header.chunk_stream_id)?;
+
+                let mut cursor_buf = Cursor::new(bytes);
+                let mut tmp_buf = Vec::new();
+
+                let bytes_to_write = min(cursor_buf.remaining(), len as usize);
+                tmp_buf.resize(bytes_to_write, 0);
+                cursor_buf.read_exact(&mut tmp_buf)?;
+
+                self.inner.reserve(bytes_to_write);
+                self.inner.write_all(&tmp_buf)?;
+
+                self.bytes_written += bytes_to_write
+                    + basic_header.get_header_length()
+                    + message_header.get_header_length();
+
+                while cursor_buf.has_remaining() {
+                    let bytes_to_write = min(cursor_buf.remaining(), len as usize);
+                    tmp_buf.resize(bytes_to_write, 0);
+                    cursor_buf.read_exact(&mut tmp_buf)?;
+
+                    self.write_basic_header(&basic_header)?;
+                    self.inner.reserve(bytes_to_write);
+                    self.inner.write_all(&tmp_buf)?;
+                    self.bytes_written += bytes_to_write + basic_header.get_header_length();
+                }
+            }
+        }
         Ok(())
     }
 
     pub fn write_set_chunk_size(&mut self, chunk_size: u32) -> ChunkMessageResult<()> {
+        self.chunk_size = Some(chunk_size);
         self.write(
             ChunkMessage {
                 header: Self::make_protocol_control_common_header(

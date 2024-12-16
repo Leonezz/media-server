@@ -7,7 +7,10 @@ use std::{
     time::SystemTime,
 };
 
-use ::stream_center::frame_info::{AggregateMeta, AudioMeta, FrameData, VideoMeta};
+use ::stream_center::{
+    frame_info::{AggregateMeta, AudioMeta, FrameData, VideoMeta},
+    stream_source::StreamType,
+};
 use rtmp_formats::{
     chunk::{self, ChunkMessage, RtmpChunkMessageBody, errors::ChunkMessageError},
     commands::{
@@ -21,6 +24,7 @@ use rtmp_formats::{
         AbortMessage, Acknowledgement, ProtocolControlMessage, SetChunkSize,
         SetPeerBandWidthLimitType, SetPeerBandwidth, WindowAckSize,
     },
+    user_control::UserControlEvent,
 };
 use stream_center::stream_center;
 use tokio::{
@@ -38,6 +42,7 @@ use tracing::instrument;
 use crate::publish::errors::RtmpPublishServerError;
 
 use super::{
+    config::RtmpSessionConfig,
     consts::{response_code, response_level},
     errors::RtmpPublishServerResult,
 };
@@ -46,6 +51,10 @@ use super::{
 enum SessionRuntime {
     Play {
         stream_data_consumer: broadcast::Receiver<FrameData>,
+        stream_type: StreamType,
+        receive_audio: bool,
+        receive_video: bool,
+        buffer_length: Option<u32>,
     },
     Publish {
         stream_data_producer: mpsc::Sender<FrameData>,
@@ -67,7 +76,7 @@ struct StreamProperties {
     page_url: String,
     amf_version: amf::Version,
 
-    stream_type: String,
+    stream_type: StreamType,
 
     stream_context: HashMap<String, serde_json::Value>,
 }
@@ -88,10 +97,12 @@ pub struct RtmpPublishSession {
 
     acknowledged_sequence_number: Option<u32>,
     total_wrote_bytes: usize,
+
+    config: RtmpSessionConfig,
 }
 
 impl RtmpPublishSession {
-    pub fn new(io: TcpStream) -> Self {
+    pub fn new(io: TcpStream, config: RtmpSessionConfig) -> Self {
         Self {
             read_buffer: BytesMut::with_capacity(4096),
             stream: BufWriter::new(io),
@@ -105,6 +116,8 @@ impl RtmpPublishSession {
             ack_window_size_write: None,
             acknowledged_sequence_number: None,
             total_wrote_bytes: 0,
+
+            config,
         }
     }
 
@@ -127,7 +140,9 @@ impl RtmpPublishSession {
             match self.ack_window_size_read {
                 None => {}
                 Some(size) => {
-                    self.ack_window_size(size as u32).await?;
+                    if self.chunk_reader.get_bytes_read() >= size {
+                        self.ack_window_size(size as u32).await?;
+                    }
                 }
             }
 
@@ -194,12 +209,9 @@ impl RtmpPublishSession {
                 } => {
                     let stream_name = self.stream_properties.stream_name.clone();
                     let app = self.stream_properties.app.clone();
-                    let stream_type = self.stream_properties.stream_type.clone();
                     tokio::task::spawn_blocking(move || {
                         Handle::current().block_on(async move {
-                            if let Err(err) =
-                                stream_center::unpublish(&stream_name, &app, &stream_type).await
-                            {
+                            if let Err(err) = stream_center::unpublish(&stream_name, &app).await {
                                 tracing::error!("failed to unpublish stream: {}", err);
                             }
                         })
@@ -246,6 +258,7 @@ impl RtmpPublishSession {
                     }
                     err => {
                         tracing::error!("{:?}", err);
+                        panic!();
                     }
                 },
             }
@@ -260,7 +273,7 @@ impl RtmpPublishSession {
                 self.process_protocol_control_message(request).await?
             }
             RtmpChunkMessageBody::UserControl(control) => {
-                todo!()
+                self.process_user_control_event(control).await?
             }
             RtmpChunkMessageBody::RtmpUserMessage(message) => {
                 self.process_user_message(message).await?
@@ -279,11 +292,11 @@ impl RtmpPublishSession {
             RtmpUserMessageBody::Aggregate { payload } => self.process_aggregate(payload).await?,
             RtmpUserMessageBody::Audio { payload } => self.process_audio(payload).await?,
             RtmpUserMessageBody::Video { payload } => self.process_video(payload).await?,
-            RtmpUserMessageBody::S2Command(_) => {
-                // ignore this
+            RtmpUserMessageBody::S2Command(command) => {
+                tracing::error!("got unexpected s2c command: {:?}", command);
             }
             RtmpUserMessageBody::SharedObject() => {
-                // ignore this
+                tracing::warn!("ignore shared object command");
             }
         };
         Ok(())
@@ -388,7 +401,7 @@ impl RtmpPublishSession {
                 self.process_delete_stream_command(request).await?
             }
             RtmpC2SCommands::Pause(request) => self.process_pause_request(request)?,
-            RtmpC2SCommands::Play(request) => self.process_play_request(request)?,
+            RtmpC2SCommands::Play(request) => self.process_play_request(request).await?,
             RtmpC2SCommands::Play2(request) => self.process_play2_request(request)?,
             RtmpC2SCommands::Publish(request) => {
                 self.process_publish_command(request).await?;
@@ -419,7 +432,7 @@ impl RtmpPublishSession {
             request.transaction_id.into(),
             super::consts::FMSVER,
             super::consts::FMS_CAPABILITIES,
-            super::consts::response_code::CONNECT_SUCCESS,
+            super::consts::response_code::NET_CONNECTION_CONNECT_SUCCESS,
             super::consts::response_level::STATUS,
             "Connection Succeeded.",
             amf::Version::Amf0,
@@ -455,11 +468,12 @@ impl RtmpPublishSession {
         &mut self,
         request: PublishCommand,
     ) -> RtmpPublishServerResult<()> {
-        self.publish_to_stream_center(&request.publishing_name, &request.publishing_type)?;
+        let stream_type: StreamType = request.publishing_type.try_into()?;
+        self.publish_to_stream_center(&request.publishing_name, stream_type)?;
 
         self.chunk_writer.write_on_status_response(
             response_level::STATUS,
-            response_code::PUBLISH_START_SUCCESS,
+            response_code::NET_STREAM_PUBLISH_START_SUCCESS,
             "publish start",
             self.stream_properties.amf_version,
         )?;
@@ -477,7 +491,6 @@ impl RtmpPublishSession {
         let _ = stream_center::unpublish(
             &self.stream_properties.stream_name,
             &self.stream_properties.app,
-            &self.stream_properties.stream_type,
         )
         .await;
         self.runtime_handle = SessionRuntime::PublishStop {
@@ -486,7 +499,7 @@ impl RtmpPublishSession {
 
         self.chunk_writer.write_on_status_response(
             response_level::STATUS,
-            response_code::DELETE_SUCCESS,
+            response_code::NET_STREAM_DELETE_SUCCESS,
             "delete stream success",
             self.stream_properties.amf_version,
         )?;
@@ -619,7 +632,7 @@ impl RtmpPublishSession {
     fn publish_to_stream_center(
         &mut self,
         stream_name: &str,
-        stream_type: &str,
+        stream_type: StreamType,
     ) -> RtmpPublishServerResult<()> {
         match self.runtime_handle {
             SessionRuntime::Publish {
@@ -629,17 +642,17 @@ impl RtmpPublishSession {
             _ => {}
         };
 
-        if stream_name.is_empty() || stream_type.is_empty() {
+        if stream_name.is_empty() {
             return Err(RtmpPublishServerError::InvalidStreamParam);
         }
 
         self.stream_properties.stream_name = stream_name.to_string();
-        self.stream_properties.stream_type = stream_type.to_string();
+        self.stream_properties.stream_type = stream_type;
 
         let sender = stream_center::publish(
             &self.stream_properties.stream_name,
             &self.stream_properties.app,
-            &self.stream_properties.stream_type,
+            self.stream_properties.stream_type,
             self.stream_properties.stream_context.clone(),
         )?;
 
@@ -650,6 +663,7 @@ impl RtmpPublishSession {
         Ok(())
     }
 
+    #[instrument]
     async fn process_call_request(
         &mut self,
         request: CallCommandRequest,
@@ -681,7 +695,6 @@ impl RtmpPublishSession {
                             let res = stream_center::unpublish(
                                 &self.stream_properties.stream_name,
                                 &self.stream_properties.app,
-                                &self.stream_properties.stream_type,
                             )
                             .await;
                             self.runtime_handle = SessionRuntime::PublishStop {
@@ -689,7 +702,7 @@ impl RtmpPublishSession {
                             };
                             res.map_err(|err| err.into())
                         } else {
-                            self.publish_to_stream_center(stream_name, "live")
+                            self.publish_to_stream_center(stream_name, StreamType::default())
                         };
 
                         self.chunk_writer.write_call_response(
@@ -714,29 +727,155 @@ impl RtmpPublishSession {
         Ok(())
     }
 
-    fn process_play_request(&mut self, request: PlayCommand) -> RtmpPublishServerResult<()> {
-        todo!()
+    #[instrument]
+    async fn process_play_request(&mut self, request: PlayCommand) -> RtmpPublishServerResult<()> {
+        tracing::info!("got play request: {:?}", request);
+        let stream_name = request.stream_name;
+        let start = request.start; // this might by useful
+        let duration = request.duration; // this might by useful
+        let reset = request.reset; // this should be ignored
+
+        let subscribe_res =
+            stream_center::subscribe(&stream_name, &self.stream_properties.app).await;
+
+        self.chunk_writer
+            .write_set_chunk_size(self.config.chunk_size)?;
+        if self.stream_properties.stream_type == StreamType::Record {
+            self.chunk_writer.write_stream_ids_recorded(0)?; // I bet the stream_id is useless
+        }
+
+        self.chunk_writer.write_stream_begin(0)?;
+        match subscribe_res {
+            Err(err) => {
+                tracing::error!("subscribe stream failed: {:?}", err);
+                self.chunk_writer.write_on_status_response(
+                    response_level::ERROR,
+                    response_code::NET_STREAM_PLAY_NOT_FOUND,
+                    "stream not found",
+                    self.stream_properties.amf_version,
+                )?;
+            }
+            Ok((receiver, stream_type)) => {
+                self.runtime_handle = SessionRuntime::Play {
+                    stream_data_consumer: receiver,
+                    stream_type,
+                    receive_audio: true,
+                    receive_video: true,
+                    buffer_length: None,
+                };
+                if reset {
+                    self.chunk_writer.write_on_status_response(
+                        response_level::STATUS,
+                        response_code::NET_STREAM_PLAY_RESET,
+                        "reset stream",
+                        self.stream_properties.amf_version,
+                    )?;
+                }
+                self.chunk_writer.write_on_status_response(
+                    response_level::STATUS,
+                    response_code::NET_STREAM_PLAY_START,
+                    "play start",
+                    self.stream_properties.amf_version,
+                )?;
+            }
+        }
+
+        self.flush_chunk().await?;
+        Ok(())
     }
 
     fn process_play2_request(&mut self, request: Play2Command) -> RtmpPublishServerResult<()> {
         todo!()
     }
 
+    #[instrument]
     fn process_receive_audio_request(
         &mut self,
         request: ReceiveAudioCommand,
     ) -> RtmpPublishServerResult<()> {
-        todo!()
+        match &mut self.runtime_handle {
+            SessionRuntime::Play {
+                stream_data_consumer: _,
+                stream_type: _,
+                receive_audio,
+                receive_video: _,
+                buffer_length: _,
+            } => *receive_audio = request.bool_flag,
+            _ => {
+                tracing::warn!(
+                    "got unexpected receive_audio request while not in play session: {:?}, ignore.",
+                    request
+                );
+            }
+        };
+        Ok(())
     }
 
+    #[instrument]
     fn process_receive_video_request(
         &mut self,
         request: ReceiveVideoCommand,
     ) -> RtmpPublishServerResult<()> {
-        todo!()
+        match &mut self.runtime_handle {
+            SessionRuntime::Play {
+                stream_data_consumer: _,
+                stream_type: _,
+                receive_audio: _,
+                receive_video,
+                buffer_length: _,
+            } => {
+                *receive_video = request.bool_flag;
+            }
+            _ => {
+                tracing::warn!(
+                    "got unexpected receive_video request while not in play session: {:?}, ignore.",
+                    request
+                );
+            }
+        };
+        Ok(())
     }
 
     fn process_seek_request(&mut self, request: SeekCommand) -> RtmpPublishServerResult<()> {
         todo!()
+    }
+
+    #[instrument]
+    async fn process_user_control_event(
+        &mut self,
+        request: UserControlEvent,
+    ) -> RtmpPublishServerResult<()> {
+        match request {
+            UserControlEvent::SetBufferLength {
+                stream_id: _,
+                buffer_length: len,
+            } => match &mut self.runtime_handle {
+                SessionRuntime::Play {
+                    stream_data_consumer: _,
+                    stream_type: _,
+                    receive_audio: _,
+                    receive_video: _,
+                    buffer_length,
+                } => *buffer_length = Some(len),
+                _ => {
+                    tracing::warn!(
+                        "got unexpected set_buffer_length event while not in a play session, event: {:?}, ignore",
+                        request
+                    );
+                }
+            },
+            UserControlEvent::PingRequest { timestamp } => {
+                tracing::trace!("got a ping request: {}", timestamp);
+                self.chunk_writer.write_ping_response(timestamp)?;
+                self.flush_chunk().await?;
+            }
+            UserControlEvent::PingResponse { timestamp } => {
+                tracing::trace!("got a ping response: {}", timestamp);
+            }
+            _ => {
+                tracing::warn!("got unexpected user control event: {:?}, ignore", request);
+            }
+        };
+        Ok(())
     }
 }

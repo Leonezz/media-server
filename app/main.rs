@@ -22,7 +22,10 @@ async fn main() {
 
     tracing::debug!("running");
 
-    let rtmp_server_config = rtmp_server::publish::config::RtmpPublishServerConfig { port: 9999 };
+    let rtmp_server_config = rtmp_server::publish::config::RtmpPublishServerConfig {
+        port: 9999,
+        chunk_size: 60000,
+    };
     let mut server = rtmp_server::publish::server::RtmpPublishServer::new(&rtmp_server_config);
     let _ = server.run().await;
 }

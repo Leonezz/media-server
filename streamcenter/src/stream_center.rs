@@ -12,19 +12,21 @@ use crate::{
     errors::{StreamCenterError, StreamCenterResult},
     frame_info::FrameData,
     signal::StreamSignal,
-    stream_source::StreamSource,
-    util::concat_stream_id,
+    stream_source::{StreamIdentifier, StreamSource, StreamType},
 };
 
 #[derive(Debug)]
 struct StreamSourceHandles {
     signal_sender: mpsc::Sender<StreamSignal>,
     subscribe_sender: broadcast::Sender<FrameData>,
+
+    stream_identifier: StreamIdentifier,
+    stream_type: StreamType,
 }
 
 #[derive(Debug)]
 struct StreamCenter {
-    streams: DashMap<String, StreamSourceHandles>,
+    streams: DashMap<StreamIdentifier, StreamSourceHandles>,
 }
 
 lazy_static! {
@@ -37,14 +39,15 @@ lazy_static! {
 pub fn publish(
     stream_name: &str,
     app: &str,
-    stream_type: &str,
+    stream_type: StreamType,
     context: HashMap<String, serde_json::Value>,
 ) -> StreamCenterResult<Sender<FrameData>> {
-    let stream_id = concat_stream_id(stream_name, app);
-    if STREAM_CENTER
-        .streams
-        .contains_key(stream_id.clone().as_str())
-    {
+    let stream_id = StreamIdentifier {
+        app: app.to_string(),
+        stream_name: stream_name.to_string(),
+    };
+
+    if STREAM_CENTER.streams.contains_key(&stream_id) {
         return Err(StreamCenterError::DuplicateStream(stream_id));
     }
 
@@ -66,6 +69,9 @@ pub fn publish(
         .insert(stream_id.clone().into(), StreamSourceHandles {
             signal_sender: signal_tx,
             subscribe_sender,
+
+            stream_identifier: stream_id,
+            stream_type,
         });
 
     tracing::info!(
@@ -80,9 +86,12 @@ pub fn publish(
 }
 
 #[instrument]
-pub async fn unpublish(stream_name: &str, app: &str, stream_type: &str) -> StreamCenterResult<()> {
-    let stream_id = concat_stream_id(stream_name, app);
-    match STREAM_CENTER.streams.get_mut(stream_id.as_str()) {
+pub async fn unpublish(stream_name: &str, app: &str) -> StreamCenterResult<()> {
+    let stream_id = StreamIdentifier {
+        stream_name: stream_name.to_string(),
+        app: app.to_string(),
+    };
+    match STREAM_CENTER.streams.get_mut(&stream_id) {
         None => return Err(StreamCenterError::StreamNotFound(stream_id)),
         Some(handles) => handles
             .signal_sender
@@ -93,15 +102,19 @@ pub async fn unpublish(stream_name: &str, app: &str, stream_type: &str) -> Strea
             })?,
     };
 
-    STREAM_CENTER.streams.remove(stream_id.as_str());
+    let removed = STREAM_CENTER.streams.remove(&stream_id);
 
-    tracing::info!(
-        "unpublish stream success, stream_name: {}, app: {}, stream_type: {}. total stream count: {}",
-        stream_name,
-        app,
-        stream_type,
-        STREAM_CENTER.streams.len()
-    );
+    if removed.is_some() {
+        let removed = removed.expect("this cannot be none");
+        tracing::info!(
+            "unpublish stream success, stream_name: {}, app: {}, stream_type: {}. total stream count: {}",
+            removed.0.stream_name,
+            removed.0.app,
+            removed.1.stream_type,
+            STREAM_CENTER.streams.len()
+        );
+    }
+
     Ok(())
 }
 
@@ -109,15 +122,17 @@ pub async fn unpublish(stream_name: &str, app: &str, stream_type: &str) -> Strea
 pub async fn subscribe(
     stream_name: &str,
     app: &str,
-    stream_type: &str,
-) -> StreamCenterResult<broadcast::Receiver<FrameData>> {
-    let stream_id = concat_stream_id(stream_name, app);
-    if !STREAM_CENTER.streams.contains_key(stream_id.as_str()) {
+) -> StreamCenterResult<(broadcast::Receiver<FrameData>, StreamType)> {
+    let stream_id = StreamIdentifier {
+        stream_name: stream_name.to_string(),
+        app: app.to_string(),
+    };
+    if !STREAM_CENTER.streams.contains_key(&stream_id) {
         return Err(StreamCenterError::StreamNotFound(stream_id));
     }
 
-    match STREAM_CENTER.streams.get(stream_id.as_str()) {
+    match STREAM_CENTER.streams.get(&stream_id) {
         None => return Err(StreamCenterError::StreamNotFound(stream_id)),
-        Some(handles) => return Ok(handles.subscribe_sender.subscribe()),
+        Some(handles) => return Ok((handles.subscribe_sender.subscribe(), handles.stream_type)),
     }
 }
