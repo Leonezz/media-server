@@ -736,7 +736,7 @@ impl RtmpPublishSession {
         let reset = request.reset; // this should be ignored
 
         let subscribe_res =
-            stream_center::subscribe(&stream_name, &self.stream_properties.app).await;
+            stream_center::subscribe(&stream_name, &self.stream_properties.app);
 
         self.chunk_writer
             .write_set_chunk_size(self.config.chunk_size)?;

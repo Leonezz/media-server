@@ -119,7 +119,7 @@ pub async fn unpublish(stream_name: &str, app: &str) -> StreamCenterResult<()> {
 }
 
 #[instrument]
-pub async fn subscribe(
+pub fn subscribe(
     stream_name: &str,
     app: &str,
 ) -> StreamCenterResult<(broadcast::Receiver<FrameData>, StreamType)> {
