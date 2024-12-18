@@ -686,7 +686,7 @@ impl Writer {
             ChunkMessage {
                 header: ChunkMessageCommonHeader {
                     basic_header: ChunkBasicHeader::new(0, csid::VIDEO.into())?,
-                    timestamp: timestamp,
+                    timestamp,
                     message_length: 0,
                     message_type_id: RtmpMessageType::Video.into(),
                     message_stream_id: 0,

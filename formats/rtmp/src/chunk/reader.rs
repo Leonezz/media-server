@@ -9,7 +9,7 @@ use tokio_util::bytes::{Buf, BytesMut};
 use crate::{
     chunk::errors::ChunkMessageError,
     message::{self, RtmpMessageType},
-    protocol_control,
+    protocol_control, user_control,
 };
 
 use super::{
@@ -122,6 +122,9 @@ impl Reader {
                     protocol_control::ProtocolControlMessage::read_from(&bytes[..], message_type)?,
                 )
             }
+            ChunkMessageType::UserControl => RtmpChunkMessageBody::UserControl(
+                user_control::UserControlEvent::read_from(&bytes[..])?,
+            ),
             ChunkMessageType::RtmpUserMessage(message_type) => {
                 if c2s {
                     RtmpChunkMessageBody::RtmpUserMessage(
@@ -211,17 +214,21 @@ impl Reader {
         let basic_header = basic_header.expect("this cannot be none");
 
         let fmt = basic_header.fmt;
+        let message_header = self.read_message_header(reader, fmt)?;
 
         let csid = basic_header.chunk_stream_id.clone();
         if !self.context.contains_key(&csid) {
             if fmt != 0 {
-                tracing::error!("new chunk must start with a type 0 message header");
-                return Err(ChunkMessageError::NeedContext);
+                tracing::error!(
+                    "new chunk must start with a type 0 message header, {:?}, {:?}",
+                    basic_header,
+                    message_header
+                );
+                // return Err(ChunkMessageError::NeedContext);
             }
             self.context.insert(csid, ReadContext::default());
         }
 
-        let message_header = self.read_message_header(reader, fmt)?;
         if message_header.is_none() {
             return Ok(None);
         }

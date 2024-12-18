@@ -1,6 +1,7 @@
 use core::time;
 use std::{
     backtrace::Backtrace,
+    borrow::BorrowMut,
     cmp::min,
     collections::HashMap,
     io::{self, Cursor},
@@ -8,8 +9,10 @@ use std::{
 };
 
 use ::stream_center::{
+    events::StreamCenterEvent,
     frame_info::{AggregateMeta, AudioMeta, FrameData, VideoMeta},
-    stream_source::StreamType,
+    stream_center::StreamCenter,
+    stream_source::{StreamIdentifier, StreamType},
 };
 use rtmp_formats::{
     chunk::{self, ChunkMessage, RtmpChunkMessageBody, errors::ChunkMessageError},
@@ -31,13 +34,17 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, BufWriter},
     net::TcpStream,
     runtime::Handle,
-    sync::{broadcast, mpsc},
+    sync::{
+        broadcast::{self, error::RecvError},
+        mpsc,
+    },
 };
 use tokio_util::{
     bytes::{Buf, BytesMut},
     either::Either,
 };
-use tracing::instrument;
+use tracing::{Instrument, instrument};
+use uuid::Uuid;
 
 use crate::publish::errors::RtmpPublishServerError;
 
@@ -50,8 +57,9 @@ use super::{
 #[derive(Debug)]
 enum SessionRuntime {
     Play {
-        stream_data_consumer: broadcast::Receiver<FrameData>,
+        stream_data_consumer: mpsc::Receiver<FrameData>,
         stream_type: StreamType,
+        play_id: Uuid,
         receive_audio: bool,
         receive_video: bool,
         buffer_length: Option<u32>,
@@ -99,10 +107,16 @@ pub struct RtmpPublishSession {
     total_wrote_bytes: usize,
 
     config: RtmpSessionConfig,
+
+    stream_center_event_sender: mpsc::UnboundedSender<StreamCenterEvent>,
 }
 
 impl RtmpPublishSession {
-    pub fn new(io: TcpStream, config: RtmpSessionConfig) -> Self {
+    pub fn new(
+        io: TcpStream,
+        stream_center_event_sender: mpsc::UnboundedSender<StreamCenterEvent>,
+        config: RtmpSessionConfig,
+    ) -> Self {
         Self {
             read_buffer: BytesMut::with_capacity(4096),
             stream: BufWriter::new(io),
@@ -118,6 +132,8 @@ impl RtmpPublishSession {
             total_wrote_bytes: 0,
 
             config,
+
+            stream_center_event_sender,
         }
     }
 
@@ -201,27 +217,53 @@ impl RtmpPublishSession {
             .await?;
         self.chunk_writer.write_set_chunk_size(4096)?;
 
-        scope_guard::scope_guard!(|| {
-            match self.runtime_handle {
-                SessionRuntime::Publish {
-                    stream_data_producer: _,
-                    no_data_since: _,
-                } => {
-                    let stream_name = self.stream_properties.stream_name.clone();
-                    let app = self.stream_properties.app.clone();
-                    tokio::task::spawn_blocking(move || {
-                        Handle::current().block_on(async move {
-                            if let Err(err) = stream_center::unpublish(&stream_name, &app).await {
-                                tracing::error!("failed to unpublish stream: {}", err);
-                            }
-                        })
-                    });
-                }
-                _ => {}
-            }
-        });
+        // scope_guard::scope_guard!(|| {
+        //     match self.runtime_handle {
+        //         SessionRuntime::Publish {
+        //             stream_data_producer: _,
+        //             no_data_since: _,
+        //         } => {
+        //             let stream_name = self.stream_properties.stream_name.clone();
+        //             let app = self.stream_properties.app.clone();
+        //             tokio::task::spawn_blocking(move || {
+        //                 Handle::current().block_on(async move {
+        //                     if let Err(err) = stream_center::unpublish(&stream_name, &app).await {
+        //                         tracing::error!("failed to unpublish stream: {}", err);
+        //                     }
+        //                 })
+        //             });
+        //         }
+        //         _ => {}
+        //     }
+        // });
 
         loop {
+            let play_id = match &self.runtime_handle {
+                SessionRuntime::Play {
+                    stream_data_consumer: _,
+                    stream_type: _,
+                    play_id,
+                    receive_audio: _,
+                    receive_video: _,
+                    buffer_length: _,
+                } => Some(play_id.clone()),
+                _ => None,
+            };
+            if let Some(play_id) = play_id {
+                let res = self.playing().await;
+                if res.is_err() {
+                    let unsubscribe_result = self
+                        .unsubscribe_from_stream_center(
+                            play_id.clone(),
+                            &self.stream_properties.stream_name.clone(),
+                            &self.stream_properties.app.clone(),
+                        )
+                        .await;
+                }
+
+                self.runtime_handle = SessionRuntime::PlayStop;
+            }
+
             match self.read_chunk().await {
                 Ok(maybe_chunk) => match maybe_chunk {
                     Some(message) => {
@@ -248,7 +290,13 @@ impl RtmpPublishSession {
                 Err(err) => match err {
                     RtmpPublishServerError::ChunkMessageReadFailed(
                         ChunkMessageError::UnknownMessageType { type_id, backtrace },
-                    ) => {}
+                    ) => {
+                        tracing::error!(
+                            "got unknown message: type_id: {}, backtrace: {}",
+                            type_id,
+                            backtrace
+                        );
+                    }
                     RtmpPublishServerError::Io(io_err) => {
                         if io_err.kind() == io::ErrorKind::ConnectionReset {
                             tracing::info!("connect reset by peer");
@@ -262,6 +310,42 @@ impl RtmpPublishSession {
                     }
                 },
             }
+        }
+    }
+
+    async fn playing(&mut self) -> RtmpPublishServerResult<()> {
+        loop {
+            match &mut self.runtime_handle {
+                SessionRuntime::Play {
+                    stream_data_consumer,
+                    play_id: _,
+                    stream_type,
+                    receive_audio,
+                    receive_video,
+                    buffer_length,
+                } => match stream_data_consumer.recv().await {
+                    None => {
+                        tracing::error!("channel closed while trying to play");
+                        return Err(RtmpPublishServerError::StreamIsGone);
+                    }
+                    Some(res) => match res {
+                        FrameData::Video { meta: _, data } => {
+                            self.chunk_writer.write_video(data)?;
+                        }
+                        FrameData::Audio { meta: _, data } => {
+                            self.chunk_writer.write_audio(data)?
+                        }
+                        FrameData::Aggregate { meta: _, data } => {
+                            tracing::info!("got an aggregate, ignore for now");
+                        }
+                        FrameData::Meta { timestamp: _, data } => {
+                            self.chunk_writer.write_meta(data)?;
+                        }
+                    },
+                },
+                _ => {}
+            }
+            self.flush_chunk().await?;
         }
     }
 
@@ -306,22 +390,28 @@ impl RtmpPublishSession {
         let _ = match &mut self.runtime_handle {
             SessionRuntime::Publish {
                 stream_data_producer,
-                no_data_since: _,
-            } => stream_data_producer
-                .send(FrameData::Audio {
-                    meta: AudioMeta::default(),
-                    data: audio,
-                })
-                .await
-                .map_err(|err| RtmpPublishServerError::ChannelSendFailed {
-                    backtrace: Backtrace::capture(),
-                }),
+                no_data_since,
+            } => {
+                *no_data_since = None;
+                stream_data_producer
+                    .send(FrameData::Audio {
+                        meta: AudioMeta::default(),
+                        data: audio,
+                    })
+                    .await
+                    .map_err(|err| {
+                        tracing::error!("send audio data to stream center failed: {:?}", err);
+                        RtmpPublishServerError::ChannelSendFailed {
+                            backtrace: Backtrace::capture(),
+                        }
+                    })?;
+                tracing::info!("send audio");
+            }
             _ => {
                 tracing::error!(
                     "got audio data while stream not published, length: {}",
                     audio.len()
                 );
-                Ok(())
             }
         };
         Ok(())
@@ -331,32 +421,61 @@ impl RtmpPublishSession {
         let _ = match &mut self.runtime_handle {
             SessionRuntime::Publish {
                 stream_data_producer,
-                no_data_since: _,
-            } => stream_data_producer
-                .send(FrameData::Video {
-                    meta: VideoMeta::default(),
-                    data: video,
-                })
-                .await
-                .map_err(|err| {
-                    tracing::error!("send video to stream center failed: {:?}", err);
-                    RtmpPublishServerError::ChannelSendFailed {
-                        backtrace: Backtrace::capture(),
-                    }
-                }),
+                no_data_since,
+            } => {
+                *no_data_since = None;
+
+                stream_data_producer
+                    .send(FrameData::Video {
+                        meta: VideoMeta::default(),
+                        data: video,
+                    })
+                    .await
+                    .map_err(|err| {
+                        tracing::error!("send video to stream center failed: {:?}", err);
+                        RtmpPublishServerError::ChannelSendFailed {
+                            backtrace: Backtrace::capture(),
+                        }
+                    })?;
+            }
             _ => {
                 tracing::error!(
                     "got video data while stream not published, length: {}",
                     video.len()
                 );
-                Ok(())
             }
         };
         Ok(())
     }
 
     async fn process_meta(&mut self, meta: amf::Value) -> RtmpPublishServerResult<()> {
-        //TODO -
+        let _ = match &mut self.runtime_handle {
+            SessionRuntime::Publish {
+                stream_data_producer,
+                no_data_since,
+            } => {
+                *no_data_since = None;
+
+                stream_data_producer
+                    .send(FrameData::Meta {
+                        timestamp: 0,
+                        data: meta,
+                    })
+                    .await
+                    .map_err(|err| {
+                        tracing::error!("send meta to stream center failed: {:?}", err);
+                        RtmpPublishServerError::ChannelSendFailed {
+                            backtrace: Backtrace::capture(),
+                        }
+                    })?;
+            }
+            _ => {
+                tracing::error!(
+                    "got meta data while stream not published, value: {:?}",
+                    meta
+                );
+            }
+        };
         Ok(())
     }
 
@@ -364,22 +483,25 @@ impl RtmpPublishSession {
         let _ = match &mut self.runtime_handle {
             SessionRuntime::Publish {
                 stream_data_producer,
-                no_data_since: _,
-            } => stream_data_producer
-                .send(FrameData::Aggregate {
-                    meta: AggregateMeta::default(),
-                    data: aggregate,
-                })
-                .await
-                .map_err(|err| RtmpPublishServerError::ChannelSendFailed {
-                    backtrace: Backtrace::capture(),
-                }),
+                no_data_since,
+            } => {
+                *no_data_since = None;
+
+                stream_data_producer
+                    .send(FrameData::Aggregate {
+                        meta: AggregateMeta::default(),
+                        data: aggregate,
+                    })
+                    .await
+                    .map_err(|err| RtmpPublishServerError::ChannelSendFailed {
+                        backtrace: Backtrace::capture(),
+                    })?;
+            }
             _ => {
                 tracing::error!(
                     "got aggregate data while stream not published, length: {}",
                     aggregate.len()
                 );
-                Ok(())
             }
         };
         Ok(())
@@ -417,7 +539,6 @@ impl RtmpPublishSession {
         Ok(())
     }
 
-    #[instrument]
     async fn process_connect_command(
         &mut self,
         request: ConnectCommandRequest,
@@ -448,7 +569,6 @@ impl RtmpPublishSession {
         Ok(())
     }
 
-    #[instrument]
     async fn process_create_stream_command(
         &mut self,
         request: CreateStreamCommandRequest,
@@ -463,13 +583,13 @@ impl RtmpPublishSession {
         Ok(())
     }
 
-    #[instrument]
     async fn process_publish_command(
         &mut self,
         request: PublishCommand,
     ) -> RtmpPublishServerResult<()> {
         let stream_type: StreamType = request.publishing_type.try_into()?;
-        self.publish_to_stream_center(&request.publishing_name, stream_type)?;
+        self.publish_to_stream_center(&request.publishing_name, stream_type)
+            .await?;
 
         self.chunk_writer.write_on_status_response(
             response_level::STATUS,
@@ -483,16 +603,70 @@ impl RtmpPublishSession {
         Ok(())
     }
 
-    #[instrument]
+    async fn unpublish_from_stream_center(
+        &mut self,
+        stream_name: &str,
+        app: &str,
+    ) -> RtmpPublishServerResult<()> {
+        let (tx, mut rx) = mpsc::channel(1);
+        self.stream_center_event_sender
+            .send(StreamCenterEvent::Unpublish {
+                stream_id: StreamIdentifier {
+                    stream_name: stream_name.to_string(),
+                    app: app.to_string(),
+                },
+                result_sender: tx,
+            })
+            .map_err(|err| {
+                tracing::error!(
+                    "send unpublish event to stream center failed, {:?}. stream_name: {}, app: {}",
+                    err,
+                    stream_name,
+                    app
+                );
+                return RtmpPublishServerError::ChannelSendFailed {
+                    backtrace: Backtrace::capture(),
+                };
+            })?;
+
+        match rx.recv().await {
+            None => {
+                tracing::error!("channel closed while trying to receive unpublish result");
+                return Err(RtmpPublishServerError::ChannelSendFailed {
+                    backtrace: Backtrace::capture(),
+                });
+            }
+            Some(Err(err)) => {
+                tracing::error!(
+                    "stream unpublish from stream center failed, {:?}. stream_name: {}, app: {}",
+                    err,
+                    stream_name,
+                    app
+                );
+            }
+            Some(Ok(())) => {
+                tracing::info!(
+                    "unpublish from stream center success, stream_name: {}, app: {}",
+                    stream_name,
+                    app
+                );
+            }
+        }
+
+        Ok(())
+    }
+
     async fn process_delete_stream_command(
         &mut self,
         request: DeleteStreamCommand,
     ) -> RtmpPublishServerResult<()> {
-        let _ = stream_center::unpublish(
-            &self.stream_properties.stream_name,
-            &self.stream_properties.app,
-        )
-        .await;
+        let _ = self
+            .unpublish_from_stream_center(
+                &self.stream_properties.stream_name.clone(),
+                &self.stream_properties.app.clone(),
+            )
+            .await;
+
         self.runtime_handle = SessionRuntime::PublishStop {
             stop_time: SystemTime::now(),
         };
@@ -510,16 +684,15 @@ impl RtmpPublishSession {
         Ok(())
     }
 
-    #[instrument]
     async fn process_protocol_control_message(
         &mut self,
         request: ProtocolControlMessage,
     ) -> RtmpPublishServerResult<()> {
         match request {
             ProtocolControlMessage::SetChunkSize(request) => {
-                self.process_set_chunk_size_request(request).await?
+                self.process_set_chunk_size_request(request);
             }
-            ProtocolControlMessage::Abort(request) => self.process_abort_chunk_request(request)?,
+            ProtocolControlMessage::Abort(request) => self.process_abort_chunk_request(request),
             ProtocolControlMessage::Ack(request) => {
                 self.process_acknowledge_request(request);
             }
@@ -527,17 +700,13 @@ impl RtmpPublishSession {
                 self.process_set_peer_bandwidth_request(request).await?;
             }
             ProtocolControlMessage::WindowAckSize(request) => {
-                self.process_window_ack_size_request(request)?
+                self.process_window_ack_size_request(request);
             }
         }
         Ok(())
     }
 
-    #[instrument]
-    async fn process_set_chunk_size_request(
-        &mut self,
-        request: SetChunkSize,
-    ) -> RtmpPublishServerResult<()> {
+    fn process_set_chunk_size_request(&mut self, request: SetChunkSize) {
         let chunk_size = request.chunk_size;
         let old_size = self.chunk_reader.set_chunk_size(chunk_size as usize);
         tracing::trace!(
@@ -545,31 +714,19 @@ impl RtmpPublishSession {
             old_size,
             chunk_size
         );
-        Ok(())
     }
 
-    #[instrument]
-    fn process_abort_chunk_request(
-        &mut self,
-        request: AbortMessage,
-    ) -> RtmpPublishServerResult<()> {
+    fn process_abort_chunk_request(&mut self, request: AbortMessage) {
         tracing::info!("got abort request: {:?}", request);
         self.chunk_reader
             .abort_chunk_message(request.chunk_stream_id);
-        Ok(())
     }
 
-    #[instrument]
-    fn process_window_ack_size_request(
-        &mut self,
-        request: WindowAckSize,
-    ) -> RtmpPublishServerResult<()> {
+    fn process_window_ack_size_request(&mut self, request: WindowAckSize) {
         tracing::info!("got window_ack_size request: {:?}", request);
         self.ack_window_size_read = Some(request.size);
-        Ok(())
     }
 
-    #[instrument]
     async fn ack_window_size(&mut self, size: u32) -> RtmpPublishServerResult<()> {
         tracing::info!("do ack: {}", size);
         self.chunk_writer.write_acknowledgement_message(size)?;
@@ -577,7 +734,6 @@ impl RtmpPublishSession {
         Ok(())
     }
 
-    #[instrument]
     async fn process_set_peer_bandwidth_request(
         &mut self,
         request: SetPeerBandwidth,
@@ -623,13 +779,12 @@ impl RtmpPublishSession {
         Ok(())
     }
 
-    #[instrument]
     fn process_acknowledge_request(&mut self, request: Acknowledgement) {
         tracing::info!("got acknowledge request: {:?}", request);
         self.acknowledged_sequence_number = Some(request.sequence_number);
     }
 
-    fn publish_to_stream_center(
+    async fn publish_to_stream_center(
         &mut self,
         stream_name: &str,
         stream_type: StreamType,
@@ -649,21 +804,62 @@ impl RtmpPublishSession {
         self.stream_properties.stream_name = stream_name.to_string();
         self.stream_properties.stream_type = stream_type;
 
-        let sender = stream_center::publish(
-            &self.stream_properties.stream_name,
-            &self.stream_properties.app,
-            self.stream_properties.stream_type,
-            self.stream_properties.stream_context.clone(),
-        )?;
+        let (tx, mut rx) = mpsc::channel(1);
+        self.stream_center_event_sender
+            .send(StreamCenterEvent::Publish {
+                stream_type: self.stream_properties.stream_type,
+                stream_id: StreamIdentifier {
+                    stream_name: self.stream_properties.stream_name.clone(),
+                    app: self.stream_properties.app.clone(),
+                },
+                context: self.stream_properties.stream_context.clone(),
+                result_sender: tx,
+            })
+            .map_err(|err| {
+                tracing::error!(
+                    "send publish event to stream center failed, {:?}. stream_name: {}, app: {}",
+                    err,
+                    stream_name,
+                    self.stream_properties.app.clone(),
+                );
+                return RtmpPublishServerError::ChannelSendFailed {
+                    backtrace: Backtrace::capture(),
+                };
+            })?;
 
-        self.runtime_handle = SessionRuntime::Publish {
-            stream_data_producer: sender,
-            no_data_since: None,
-        };
+        match rx.recv().await {
+            None => {
+                tracing::error!("channel closed while trying to receive publish result");
+                return Err(RtmpPublishServerError::ChannelSendFailed {
+                    backtrace: Backtrace::capture(),
+                });
+            }
+            Some(Err(err)) => {
+                tracing::error!(
+                    "publish to stream center failed, {:?}. stream_name: {},  app: {}, stream_type: {}",
+                    err,
+                    self.stream_properties.stream_name,
+                    self.stream_properties.app,
+                    self.stream_properties.stream_type,
+                );
+                return Err(err.into());
+            }
+            Some(Ok(sender)) => {
+                self.runtime_handle = SessionRuntime::Publish {
+                    stream_data_producer: sender,
+                    no_data_since: None,
+                };
+                tracing::info!(
+                    "publish to stream center success, stream_name: {}, app: {}",
+                    self.stream_properties.stream_name,
+                    self.stream_properties.app
+                );
+            }
+        }
+
         Ok(())
     }
 
-    #[instrument]
     async fn process_call_request(
         &mut self,
         request: CallCommandRequest,
@@ -692,17 +888,19 @@ impl RtmpPublishSession {
                     Some(stream_name) => {
                         // ignore the result
                         let res = if command_name == "FCUnpublish" {
-                            let res = stream_center::unpublish(
-                                &self.stream_properties.stream_name,
-                                &self.stream_properties.app,
-                            )
-                            .await;
+                            let res = self
+                                .unpublish_from_stream_center(
+                                    &self.stream_properties.stream_name.clone(),
+                                    &self.stream_properties.app.clone(),
+                                )
+                                .await;
                             self.runtime_handle = SessionRuntime::PublishStop {
                                 stop_time: SystemTime::now(),
                             };
                             res.map_err(|err| err.into())
                         } else {
                             self.publish_to_stream_center(stream_name, StreamType::default())
+                                .await
                         };
 
                         self.chunk_writer.write_call_response(
@@ -727,7 +925,116 @@ impl RtmpPublishSession {
         Ok(())
     }
 
-    #[instrument]
+    async fn subscribe_from_stream_center(
+        &mut self,
+        stream_name: &str,
+        app: &str,
+    ) -> RtmpPublishServerResult<(Uuid, StreamType, mpsc::Receiver<FrameData>)> {
+        let (tx, mut rx) = mpsc::channel(1);
+        self.stream_center_event_sender
+            .send(StreamCenterEvent::Subscribe {
+                stream_id: StreamIdentifier {
+                    stream_name: stream_name.to_string(),
+                    app: app.to_string(),
+                },
+                result_sender: tx,
+            })
+            .map_err(|err| {
+                tracing::error!(
+                    "send subscribe event to stream center failed, {:?}. stream_name: {}, app: {}",
+                    err,
+                    stream_name,
+                    app
+                );
+                return RtmpPublishServerError::ChannelSendFailed {
+                    backtrace: Backtrace::capture(),
+                };
+            })?;
+
+        match rx.recv().await {
+            None => {
+                tracing::error!("channel closed while trying receive subscribe result");
+                return Err(RtmpPublishServerError::ChannelSendFailed {
+                    backtrace: Backtrace::capture(),
+                });
+            }
+            Some(Err(err)) => {
+                tracing::error!(
+                    "subscribe from stream center failed, {:?}, stream_name: {}, app: {}",
+                    err,
+                    stream_name,
+                    app
+                );
+                return Err(err.into());
+            }
+            Some(Ok((uuid, stream_type, receiver))) => {
+                tracing::info!(
+                    "subscribe from stream center success, stream_name: {}, app: {}",
+                    stream_name,
+                    app
+                );
+                Ok((uuid, stream_type, receiver))
+            }
+        }
+    }
+
+    async fn unsubscribe_from_stream_center(
+        &mut self,
+        uuid: Uuid,
+        stream_name: &str,
+        app: &str,
+    ) -> RtmpPublishServerResult<()> {
+        let (tx, mut rx) = mpsc::channel(1);
+        self.stream_center_event_sender
+            .send(StreamCenterEvent::Unsubscribe {
+                stream_id: StreamIdentifier {
+                    stream_name: stream_name.to_string(),
+                    app: app.to_string(),
+                },
+                uuid,
+                result_sender: tx,
+            })
+            .map_err(|err| {
+                tracing::error!(
+                    "send unsubscribe event to stream center failed, {:?}. stream_name: {}, app: {}, uuid: {}",
+                    err,
+                    stream_name,
+                    app,
+                    uuid,
+                );
+                return RtmpPublishServerError::ChannelSendFailed {
+                    backtrace: Backtrace::capture(),
+                };
+            })?;
+
+        match rx.recv().await {
+            None => {
+                tracing::error!("channel closed while trying to receive unsubscribe result");
+                return Err(RtmpPublishServerError::ChannelSendFailed {
+                    backtrace: Backtrace::capture(),
+                });
+            }
+            Some(Err(err)) => {
+                tracing::error!(
+                    "unsubscribe from stream center failed, uuid: {}, stream_name: {}, app: {}",
+                    uuid,
+                    stream_name,
+                    app
+                );
+                return Err(err.into());
+            }
+            Some(Ok(())) => {
+                tracing::info!(
+                    "unsubscribe from stream center success, uuid: {}, stream_name: {}, app: {}",
+                    uuid,
+                    stream_name,
+                    app
+                );
+            }
+        }
+        Ok(())
+    }
+
     async fn process_play_request(&mut self, request: PlayCommand) -> RtmpPublishServerResult<()> {
         tracing::info!("got play request: {:?}", request);
         let stream_name = request.stream_name;
@@ -735,17 +1042,22 @@ impl RtmpPublishSession {
         let duration = request.duration; // this might by useful
         let reset = request.reset; // this should be ignored
 
-        let subscribe_res =
-            stream_center::subscribe(&stream_name, &self.stream_properties.app);
+        self.stream_properties.stream_name = stream_name.clone();
+        let subscribe_result = self
+            .subscribe_from_stream_center(stream_name.as_str(), &self.stream_properties.app.clone())
+            .await;
 
         self.chunk_writer
             .write_set_chunk_size(self.config.chunk_size)?;
+        self.flush_chunk().await?;
         if self.stream_properties.stream_type == StreamType::Record {
             self.chunk_writer.write_stream_ids_recorded(0)?; // I bet the stream_id is useless
+            self.flush_chunk().await?;
         }
 
         self.chunk_writer.write_stream_begin(0)?;
-        match subscribe_res {
+        self.flush_chunk().await?;
+        match subscribe_result {
             Err(err) => {
                 tracing::error!("subscribe stream failed: {:?}", err);
                 self.chunk_writer.write_on_status_response(
@@ -755,13 +1067,14 @@ impl RtmpPublishSession {
                     self.stream_properties.amf_version,
                 )?;
             }
-            Ok((receiver, stream_type)) => {
+            Ok((uuid, stream_type, receiver)) => {
                 self.runtime_handle = SessionRuntime::Play {
                     stream_data_consumer: receiver,
                     stream_type,
                     receive_audio: true,
                     receive_video: true,
                     buffer_length: None,
+                    play_id: uuid,
                 };
                 if reset {
                     self.chunk_writer.write_on_status_response(
@@ -796,6 +1109,7 @@ impl RtmpPublishSession {
         match &mut self.runtime_handle {
             SessionRuntime::Play {
                 stream_data_consumer: _,
+                play_id: _,
                 stream_type: _,
                 receive_audio,
                 receive_video: _,
@@ -819,6 +1133,7 @@ impl RtmpPublishSession {
         match &mut self.runtime_handle {
             SessionRuntime::Play {
                 stream_data_consumer: _,
+                play_id: _,
                 stream_type: _,
                 receive_audio: _,
                 receive_video,
@@ -840,7 +1155,6 @@ impl RtmpPublishSession {
         todo!()
     }
 
-    #[instrument]
     async fn process_user_control_event(
         &mut self,
         request: UserControlEvent,
@@ -852,6 +1166,7 @@ impl RtmpPublishSession {
             } => match &mut self.runtime_handle {
                 SessionRuntime::Play {
                     stream_data_consumer: _,
+                    play_id: _,
                     stream_type: _,
                     receive_audio: _,
                     receive_video: _,

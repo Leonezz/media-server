@@ -5,7 +5,7 @@ use errors::{ChunkMessageError, ChunkMessageResult};
 use crate::{
     message::{RtmpMessageType, RtmpUserMessageBody},
     protocol_control::{ProtocolControlMessage, ProtocolControlMessageType},
-    user_control::UserControlEvent,
+    user_control::{UserControlEvent, consts::USER_CONTROL_MESSAGE_TYPE},
 };
 
 pub mod consts;
@@ -169,12 +169,17 @@ pub enum RtmpChunkMessageBody {
 #[derive(Debug)]
 pub enum ChunkMessageType {
     ProtocolControl(ProtocolControlMessageType),
+    UserControl = USER_CONTROL_MESSAGE_TYPE,
     RtmpUserMessage(RtmpMessageType),
 }
 
 impl TryFrom<u8> for ChunkMessageType {
     type Error = ChunkMessageError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
+        if value == USER_CONTROL_MESSAGE_TYPE {
+            return Ok(ChunkMessageType::UserControl);
+        }
+
         if let Ok(v) = ProtocolControlMessageType::try_from(value) {
             return Ok(ChunkMessageType::ProtocolControl(v));
         }

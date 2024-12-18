@@ -17,10 +17,10 @@ pub struct VideoResolution {
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct VideoMeta {
-    pts: u64,
-    dts: u64,
-    codec: VideoCodec,
-    resolution: VideoResolution,
+    pub pts: u64,
+    pub dts: u64,
+    pub codec: VideoCodec,
+    pub resolution: VideoResolution,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -44,5 +44,11 @@ pub enum FrameData {
     Video { meta: VideoMeta, data: BytesMut },
     Audio { meta: AudioMeta, data: BytesMut },
     Aggregate { meta: AggregateMeta, data: BytesMut },
-    Meta { timestamp: u32, data: BytesMut },
+    Meta { timestamp: u32, data: amf::Value },
+}
+
+impl FrameData {
+    pub fn is_video_idr(&self) -> bool {
+        false
+    }
 }

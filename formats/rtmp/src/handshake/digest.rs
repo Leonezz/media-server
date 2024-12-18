@@ -60,7 +60,6 @@ fn get_digest_index(random_bytes: &[u8; RTMP_HANDSHAKE_SIZE], schema: DigestSche
     index
 }
 
-#[instrument(skip(random_bytes))]
 fn validate_c1_digest_with_schema(
     random_bytes: &[u8; RTMP_HANDSHAKE_SIZE],
     schema: DigestSchema,

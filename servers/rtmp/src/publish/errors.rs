@@ -18,6 +18,8 @@ pub enum RtmpPublishServerError {
     ChannelSendFailed { backtrace: Backtrace },
     #[error("invalid stream param")]
     InvalidStreamParam,
+    #[error("stream is gone")]
+    StreamIsGone,
 }
 
 pub type RtmpPublishServerResult<T> = Result<T, RtmpPublishServerError>;

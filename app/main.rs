@@ -1,3 +1,4 @@
+use stream_center::stream_center;
 use tokio::net::TcpListener;
 use tracing::{self, Dispatch, Level};
 use tracing_subscriber::{self, util::SubscriberInitExt};
@@ -22,10 +23,18 @@ async fn main() {
 
     tracing::debug!("running");
 
+    let mut stream_center = stream_center::StreamCenter::new();
+
     let rtmp_server_config = rtmp_server::publish::config::RtmpPublishServerConfig {
         port: 9999,
         chunk_size: 60000,
     };
-    let mut server = rtmp_server::publish::server::RtmpPublishServer::new(&rtmp_server_config);
+    let mut server = rtmp_server::publish::server::RtmpPublishServer::new(
+        stream_center.get_event_sender(),
+        &rtmp_server_config,
+    );
+
+    tokio::spawn(async move { stream_center.run().await });
+
     let _ = server.run().await;
 }

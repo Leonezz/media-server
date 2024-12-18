@@ -317,7 +317,7 @@ where
             handshaker: Either::Left(ComplexHandshakeServer::new(io)),
         }
     }
-    #[tracing::instrument]
+
     pub async fn handshake(mut self, complex_only: bool) -> HandshakeResult<()> {
         if let Either::Left(mut h) = self.handshaker {
             debug!("now do complex handshake");

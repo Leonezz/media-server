@@ -1,14 +1,22 @@
-use std::{collections::HashMap, fmt::Display};
+use core::time;
+use std::{
+    backtrace::Backtrace,
+    collections::{HashMap, VecDeque},
+    fmt::Display,
+    sync::Arc,
+};
 
 use tokio::sync::{
+    RwLock,
     broadcast::{self},
     mpsc,
 };
+use uuid::Uuid;
 
 use crate::{
     errors::{StreamCenterError, StreamCenterResult},
     frame_info::FrameData,
-    gop::Gop,
+    gop::{Gop, GopCache},
     signal::StreamSignal,
 };
 
@@ -72,11 +80,11 @@ pub struct StreamSource {
 
     context: HashMap<String, serde_json::Value>,
     data_receiver: mpsc::Receiver<FrameData>,
-    data_distributer: broadcast::Sender<FrameData>,
+    data_distributer: Arc<RwLock<HashMap<Uuid, mpsc::Sender<FrameData>>>>,
     // data_consumer: broadcast::Receiver<FrameData>,
     status: StreamStatus,
     signal_receiver: mpsc::Receiver<StreamSignal>,
-    gop_cache: Vec<Gop>,
+    gop_cache: GopCache,
 }
 
 impl StreamSource {
@@ -87,25 +95,22 @@ impl StreamSource {
         context: HashMap<String, serde_json::Value>,
         data_receiver: mpsc::Receiver<FrameData>,
         signal_receiver: mpsc::Receiver<StreamSignal>,
-    ) -> (Self, broadcast::Sender<FrameData>) {
-        let (tx, _) = broadcast::channel(128);
-        (
-            Self {
-                identifier: StreamIdentifier {
-                    stream_name: stream_name.to_string(),
-                    app: app.to_string(),
-                },
-                stream_type,
-                context,
-                data_receiver,
-                data_distributer: tx.clone(),
-                // data_consumer: rx,
-                gop_cache: Vec::new(),
-                status: StreamStatus::NotStarted,
-                signal_receiver,
+        data_distributer: Arc<RwLock<HashMap<Uuid, mpsc::Sender<FrameData>>>>,
+    ) -> Self {
+        Self {
+            identifier: StreamIdentifier {
+                stream_name: stream_name.to_string(),
+                app: app.to_string(),
             },
-            tx,
-        )
+            stream_type,
+            context,
+            data_receiver,
+            data_distributer,
+            // data_consumer: rx,
+            gop_cache: GopCache::new(100_1000, 1000_1000_1000),
+            status: StreamStatus::NotStarted,
+            signal_receiver,
+        }
     }
 
     pub async fn run(&mut self) -> StreamCenterResult<()> {
@@ -119,7 +124,8 @@ impl StreamSource {
             match self.data_receiver.recv().await {
                 None => {}
                 Some(data) => {
-                    self.on_frame_data(data)?;
+                    self.on_frame_data(data).await?;
+                    tracing::info!("get frame");
                 }
             }
             match self.signal_receiver.try_recv() {
@@ -134,7 +140,24 @@ impl StreamSource {
         }
     }
 
-    fn on_frame_data(&mut self, data: FrameData) -> StreamCenterResult<()> {
+    async fn on_frame_data(&mut self, data: FrameData) -> StreamCenterResult<()> {
+        self.gop_cache.append_frame(data.clone());
+        if self.data_distributer.read().await.len() == 0 {
+            return Ok(());
+        }
+        tracing::info!(
+            "stream source consumer count: {}",
+            self.data_distributer.read().await.len()
+        );
+        for (key, sender) in &mut self.data_distributer.read().await.iter() {
+            let res = sender
+                .send_timeout(data.clone(), time::Duration::from_millis(100))
+                .await;
+            if res.is_err() {
+                tracing::error!("distribute frame data to {} failed: {:?}", key, res);
+            }
+        }
+
         Ok(())
     }
 }
