@@ -16,7 +16,7 @@ use uuid::Uuid;
 use crate::{
     errors::{StreamCenterError, StreamCenterResult},
     frame_info::FrameData,
-    gop::{Gop, GopCache},
+    gop::{Gop, GopQueue},
     signal::StreamSignal,
 };
 
@@ -84,7 +84,7 @@ pub struct StreamSource {
     // data_consumer: broadcast::Receiver<FrameData>,
     status: StreamStatus,
     signal_receiver: mpsc::Receiver<StreamSignal>,
-    gop_cache: GopCache,
+    gop_cache: GopQueue,
 }
 
 impl StreamSource {
@@ -107,7 +107,7 @@ impl StreamSource {
             data_receiver,
             data_distributer,
             // data_consumer: rx,
-            gop_cache: GopCache::new(100_1000, 1000_1000_1000),
+            gop_cache: GopQueue::new(100_1000, 1000_1000_1000),
             status: StreamStatus::NotStarted,
             signal_receiver,
         }
@@ -150,9 +150,7 @@ impl StreamSource {
             self.data_distributer.read().await.len()
         );
         for (key, sender) in &mut self.data_distributer.read().await.iter() {
-            let res = sender
-                .send_timeout(data.clone(), time::Duration::from_millis(100))
-                .await;
+            let res = sender.try_send(data.clone());
             if res.is_err() {
                 tracing::error!("distribute frame data to {} failed: {:?}", key, res);
             }

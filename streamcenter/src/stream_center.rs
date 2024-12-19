@@ -5,6 +5,7 @@ use lazy_static::lazy_static;
 use tokio::sync::{
     RwLock, broadcast,
     mpsc::{self, Sender},
+    oneshot,
 };
 use tracing::instrument;
 use uuid::Uuid;
@@ -70,10 +71,7 @@ impl StreamCenter {
                 stream_id,
                 context,
                 result_sender,
-            } => {
-                self.process_publish_event(stream_type, stream_id, context, result_sender)
-                    .await?
-            }
+            } => self.process_publish_event(stream_type, stream_id, context, result_sender)?,
             StreamCenterEvent::Unpublish {
                 stream_id,
                 result_sender,
@@ -100,17 +98,16 @@ impl StreamCenter {
         Ok(())
     }
 
-    async fn process_publish_event(
+    fn process_publish_event(
         &mut self,
         stream_type: StreamType,
         stream_id: StreamIdentifier,
         context: HashMap<String, serde_json::Value>,
-        result_sender: Sender<StreamCenterResult<mpsc::Sender<FrameData>>>,
+        result_sender: oneshot::Sender<StreamCenterResult<mpsc::Sender<FrameData>>>,
     ) -> StreamCenterResult<()> {
         if self.streams.contains_key(&stream_id) {
             return result_sender
                 .send(Err(StreamCenterError::DuplicateStream(stream_id.clone())))
-                .await
                 .map_err(|err| {
                     tracing::error!("deliver publish fail result to caller failed, {:?}", err);
                     return StreamCenterError::ChannelSendFailed {
@@ -142,7 +139,7 @@ impl StreamCenter {
             data_distributer,
         });
 
-        result_sender.send(Ok(frame_sender)).await.map_err(|err| {
+        result_sender.send(Ok(frame_sender)).map_err(|err| {
             tracing::error!("deliver publish success result to caller failed, {:?}", err);
             return StreamCenterError::ChannelSendFailed {
                 backtrace: Backtrace::capture(),
@@ -164,12 +161,11 @@ impl StreamCenter {
     async fn process_unpublish_event(
         &mut self,
         stream_id: StreamIdentifier,
-        result_sender: Sender<StreamCenterResult<()>>,
+        result_sender: oneshot::Sender<StreamCenterResult<()>>,
     ) -> StreamCenterResult<()> {
         match self.streams.get_mut(&stream_id) {
             None => result_sender
                 .send(Err(StreamCenterError::StreamNotFound(stream_id.clone())))
-                .await
                 .map_err(|err| {
                     tracing::error!(
                         "deliver unpublish failed result to caller failed, {:?}",
@@ -179,58 +175,60 @@ impl StreamCenter {
                         backtrace: Backtrace::capture(),
                     };
                 }),
-            Some(handles) => handles
-                .signal_sender
-                .send(StreamSignal::Stop)
-                .await
-                .map_err(|err| {
-                    tracing::error!("send stop signal to stream source failed, {:?}", err);
+            Some(handles) => {
+                handles
+                    .signal_sender
+                    .send(StreamSignal::Stop)
+                    .await
+                    .map_err(|err| {
+                        tracing::error!("send stop signal to stream source failed, {:?}", err);
+                        return StreamCenterError::ChannelSendFailed {
+                            backtrace: Backtrace::capture(),
+                        };
+                    });
+                let removed = self.streams.remove(&stream_id);
+
+                if removed.is_some() {
+                    let removed = removed.expect("this cannot be none");
+                    tracing::info!(
+                        "unpublish stream success, stream_name: {}, app: {}, stream_type: {}. total stream count: {}",
+                        removed.stream_identifier.stream_name,
+                        removed.stream_identifier.app,
+                        removed.stream_type,
+                        self.streams.len()
+                    );
+                }
+
+                result_sender.send(Ok(())).map_err(|err| {
+                    tracing::error!(
+                        "deliver unpublish success result to caller failed, {:?}",
+                        err
+                    );
                     return StreamCenterError::ChannelSendFailed {
                         backtrace: Backtrace::capture(),
                     };
-                }),
-        }?;
-
-        let removed = self.streams.remove(&stream_id);
-
-        if removed.is_some() {
-            let removed = removed.expect("this cannot be none");
-            tracing::info!(
-                "unpublish stream success, stream_name: {}, app: {}, stream_type: {}. total stream count: {}",
-                removed.stream_identifier.stream_name,
-                removed.stream_identifier.app,
-                removed.stream_type,
-                self.streams.len()
-            );
+                })?;
+                tracing::info!(
+                    "ubpublish stream success, stream_name: {}, app: {} total stream count: {}",
+                    &stream_id.stream_name,
+                    &stream_id.app,
+                    self.streams.len()
+                );
+                Ok(())
+            }
         }
-
-        result_sender.send(Ok(())).await.map_err(|err| {
-            tracing::error!(
-                "deliver unpublish success result to caller failed, {:?}",
-                err
-            );
-            return StreamCenterError::ChannelSendFailed {
-                backtrace: Backtrace::capture(),
-            };
-        })?;
-        tracing::info!(
-            "ubpublish stream success, stream_name: {}, app: {} total stream count: {}",
-            &stream_id.stream_name,
-            &stream_id.app,
-            self.streams.len()
-        );
-        Ok(())
     }
 
     async fn process_subscribe_event(
         &mut self,
         stream_id: StreamIdentifier,
-        result_sender: Sender<StreamCenterResult<(Uuid, StreamType, mpsc::Receiver<FrameData>)>>,
+        result_sender: oneshot::Sender<
+            StreamCenterResult<(Uuid, StreamType, mpsc::Receiver<FrameData>)>,
+        >,
     ) -> StreamCenterResult<()> {
         if !self.streams.contains_key(&stream_id) {
             return result_sender
                 .send(Err(StreamCenterError::StreamNotFound(stream_id.clone())))
-                .await
                 .map_err(|err| {
                     tracing::error!(
                         "deliver subscribe failed result to caller failed, {:?}",
@@ -255,7 +253,6 @@ impl StreamCenter {
 
         result_sender
             .send(Ok((uuid, stream_type, rx)))
-            .await
             .map_err(|err| {
                 tracing::error!(
                     "deliver subscribe success result to caller failed, {:?}",
@@ -279,12 +276,11 @@ impl StreamCenter {
         &mut self,
         uuid: Uuid,
         stream_id: StreamIdentifier,
-        result_sender: Sender<StreamCenterResult<()>>,
+        result_sender: oneshot::Sender<StreamCenterResult<()>>,
     ) -> StreamCenterResult<()> {
         if !self.streams.contains_key(&stream_id) {
             return result_sender
                 .send(Err(StreamCenterError::StreamNotFound(stream_id.clone())))
-                .await
                 .map_err(|err| {
                     tracing::error!(
                         "deliver unsubscribe fail result to caller failed, {:?}",
@@ -303,7 +299,7 @@ impl StreamCenter {
                 .remove(&uuid);
         }
 
-        result_sender.send(Ok(())).await.map_err(|err| {
+        result_sender.send(Ok(())).map_err(|err| {
             tracing::error!(
                 "deliver unsubscribe sucess result to caller failed, {:?}",
                 err

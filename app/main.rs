@@ -25,14 +25,14 @@ async fn main() {
 
     let mut stream_center = stream_center::StreamCenter::new();
 
-    let rtmp_server_config = rtmp_server::publish::config::RtmpPublishServerConfig {
+    let rtmp_server_config = rtmp_server::config::RtmpServerConfig {
         port: 9999,
         chunk_size: 60000,
+        write_timeout_ms: 10000,
+        read_timeout_ms: 10000,
     };
-    let mut server = rtmp_server::publish::server::RtmpPublishServer::new(
-        stream_center.get_event_sender(),
-        &rtmp_server_config,
-    );
+    let mut server =
+        rtmp_server::server::RtmpServer::new(stream_center.get_event_sender(), &rtmp_server_config);
 
     tokio::spawn(async move { stream_center.run().await });
 

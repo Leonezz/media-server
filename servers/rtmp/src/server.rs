@@ -2,22 +2,20 @@ use stream_center::events::StreamCenterEvent;
 use tokio::sync::mpsc;
 use tracing::instrument;
 
-use crate::publish::config::RtmpSessionConfig;
+use crate::config::RtmpSessionConfig;
 
-use super::{
-    config::RtmpPublishServerConfig, errors::RtmpPublishServerResult, session::RtmpPublishSession,
-};
+use super::{config::RtmpServerConfig, errors::RtmpServerResult, session::RtmpSession};
 
 #[derive(Debug)]
-pub struct RtmpPublishServer {
-    config: RtmpPublishServerConfig,
+pub struct RtmpServer {
+    config: RtmpServerConfig,
     stream_center_event_sender: mpsc::UnboundedSender<StreamCenterEvent>,
 }
 
-impl RtmpPublishServer {
+impl RtmpServer {
     pub fn new(
         stream_center_event_sender: mpsc::UnboundedSender<StreamCenterEvent>,
-        config: &RtmpPublishServerConfig,
+        config: &RtmpServerConfig,
     ) -> Self {
         Self {
             config: config.clone(),
@@ -26,16 +24,18 @@ impl RtmpPublishServer {
     }
 
     #[instrument]
-    pub async fn run(&mut self) -> RtmpPublishServerResult<()> {
+    pub async fn run(&mut self) -> RtmpServerResult<()> {
         let listener = tokio::net::TcpListener::bind(("0.0.0.0", self.config.port)).await?;
         loop {
             let (tcp_stream, addr) = listener.accept().await?;
             tracing::info!("{}", addr);
-            let mut session = RtmpPublishSession::new(
+            let mut session = RtmpSession::new(
                 tcp_stream,
                 self.stream_center_event_sender.clone(),
                 RtmpSessionConfig {
                     chunk_size: self.config.chunk_size,
+                    write_timeout_ms: self.config.write_timeout_ms,
+                    read_timeout_ms: self.config.read_timeout_ms,
                 },
             );
             tokio::spawn(async move {

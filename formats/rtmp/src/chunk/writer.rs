@@ -136,10 +136,14 @@ impl Writer {
 
                 while cursor_buf.has_remaining() {
                     let bytes_to_write = min(cursor_buf.remaining(), len as usize);
+                    tmp_buf.clear();
                     tmp_buf.resize(bytes_to_write, 0);
                     cursor_buf.read_exact(&mut tmp_buf)?;
 
                     self.write_basic_header(&basic_header)?;
+                    if value.header.timestamp >= MAX_TIMESTAMP {
+                        self.inner.write_u32::<BigEndian>(value.header.timestamp)?;
+                    }
                     self.inner.reserve(bytes_to_write);
                     self.inner.write_all(&tmp_buf)?;
                     self.bytes_written += bytes_to_write + basic_header.get_header_length();

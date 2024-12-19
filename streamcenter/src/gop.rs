@@ -78,17 +78,20 @@ impl Gop {
 }
 
 #[derive(Debug)]
-pub struct GopCache {
+pub struct GopQueue {
     pub video_sequence_header: Option<FrameData>,
     pub audio_sequence_header: Option<FrameData>,
     gops: VecDeque<Gop>,
-    total_frame_cnt: usize,
+    total_frame_cnt: u64,
     max_duration_ms: u64,
-    max_frame_cnt: usize,
+    max_frame_cnt: u64,
+    dropped_gops_cnt: u64,
+    dropped_video_cnt: u64,
+    dropped_audio_cnt: u64,
 }
 
-impl GopCache {
-    pub fn new(max_duration_ms: u64, max_frame_cnt: usize) -> Self {
+impl GopQueue {
+    pub fn new(max_duration_ms: u64, max_frame_cnt: u64) -> Self {
         Self {
             video_sequence_header: None,
             audio_sequence_header: None,
@@ -96,12 +99,30 @@ impl GopCache {
             max_duration_ms,
             max_frame_cnt,
             total_frame_cnt: 0,
+            dropped_gops_cnt: 0,
+            dropped_video_cnt: 0,
+            dropped_audio_cnt: 0,
         }
     }
 
     #[inline]
     pub fn get_gops_cnt(&self) -> usize {
         self.gops.len()
+    }
+
+    #[inline]
+    pub fn get_dropped_gop_cnt(&self) -> u64 {
+        self.dropped_gops_cnt
+    }
+
+    #[inline]
+    pub fn get_dropped_video_cnt(&self) -> u64 {
+        self.dropped_video_cnt
+    }
+
+    #[inline]
+    pub fn get_dropped_audio_cnt(&self) -> u64 {
+        self.dropped_audio_cnt
     }
 
     #[inline]
@@ -168,7 +189,12 @@ impl GopCache {
             || self.total_frame_cnt >= self.max_frame_cnt)
             && self.gops.len() > 1
         {
-            self.gops.pop_front();
+            let dropped = self.gops.pop_front();
+            if let Some(gop) = dropped {
+                self.dropped_gops_cnt += 1;
+                self.dropped_video_cnt += gop.get_video_frame_cnt() as u64;
+                self.dropped_audio_cnt += gop.get_audio_frame_cnt() as u64;
+            }
         }
 
         self.gops

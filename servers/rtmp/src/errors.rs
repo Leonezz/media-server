@@ -5,7 +5,7 @@ use stream_center::errors::StreamCenterError;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-pub enum RtmpPublishServerError {
+pub enum RtmpServerError {
     #[error("io error: {0}")]
     Io(#[from] io::Error),
     #[error("handshake failed: {0:?}")]
@@ -22,4 +22,4 @@ pub enum RtmpPublishServerError {
     StreamIsGone,
 }
 
-pub type RtmpPublishServerResult<T> = Result<T, RtmpPublishServerError>;
+pub type RtmpServerResult<T> = Result<T, RtmpServerError>;
