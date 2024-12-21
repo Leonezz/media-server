@@ -13,6 +13,8 @@ pub enum StreamCenterError {
     ChannelSendFailed { backtrace: Backtrace },
     #[error("invalid stream type: {0}")]
     InvalidStreamType(String),
+    #[error("parse flv tag failed")]
+    ParseFLVTagFailed(#[from] flv::errors::FLVError),
 }
 
 pub type StreamCenterResult<T> = Result<T, StreamCenterError>;

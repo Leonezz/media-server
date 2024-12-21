@@ -1,0 +1,10 @@
+[package]
+name = "flv"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+byteorder = "1.5.0"
+thiserror = "2.0.7"
+tokio-util = { version = "0.7.13", features = ["full"] }
+amf = { path = "../amf" }

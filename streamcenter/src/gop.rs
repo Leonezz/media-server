@@ -1,10 +1,12 @@
-use std::collections::VecDeque;
+use std::{collections::VecDeque, io::Cursor};
 
-use crate::frame_info::FrameData;
+use tokio_util::bytes::BytesMut;
+
+use crate::{errors::StreamCenterResult, frame_info::FrameData};
 
 #[derive(Debug)]
 pub struct Gop {
-    frames: Vec<FrameData>,
+    pub frames: Vec<FrameData>,
     video_frame_cnt: usize,
     audio_frame_cnt: usize,
     aggregate_frame_cnt: usize,
@@ -81,7 +83,7 @@ impl Gop {
 pub struct GopQueue {
     pub video_sequence_header: Option<FrameData>,
     pub audio_sequence_header: Option<FrameData>,
-    gops: VecDeque<Gop>,
+    pub gops: VecDeque<Gop>,
     total_frame_cnt: u64,
     max_duration_ms: u64,
     max_frame_cnt: u64,
@@ -157,20 +159,27 @@ impl GopQueue {
         self.accumulate_gops(|gop| gop.get_meta_frame_cnt())
     }
 
-    pub fn append_frame(&mut self, frame: FrameData) {
-        if self.gops.is_empty() {
-            let sh = frame.clone();
-            match sh {
-                FrameData::Video { meta, data } => {
-                    self.video_sequence_header = Some(FrameData::Video { meta, data })
+    pub fn append_frame(&mut self, frame: FrameData) -> StreamCenterResult<()> {
+        let mut is_sequence_header = false;
+        match frame {
+            FrameData::Audio { meta, data: _ } => {
+                if meta.tag_header.is_sequence_header() {
+                    self.audio_sequence_header = Some(frame.clone());
+                    is_sequence_header = true
                 }
-                FrameData::Audio { meta, data } => {
-                    self.audio_sequence_header = Some(FrameData::Audio { meta, data })
-                }
-                _ => {}
             }
+            FrameData::Video { meta, data: _ } => {
+                if meta.tag_header.is_sequence_header() {
+                    self.video_sequence_header = Some(frame.clone());
+                    is_sequence_header = true;
+                } else if meta.tag_header.is_key_frame() {
+                    self.gops.push_back(Gop::new());
+                }
+            }
+            _ => {}
         }
-        if self.gops.is_empty() || frame.is_video_idr() {
+
+        if self.gops.is_empty() {
             self.gops.push_back(Gop::new());
         }
 
@@ -197,15 +206,14 @@ impl GopQueue {
             }
         }
 
-        self.gops
-            .back_mut()
-            .expect("this cannot be empty")
-            .append_frame(frame);
-        self.total_frame_cnt += 1;
-        tracing::info!(
-            "gop cache got frame, gop count: {}, frame_cnt: {}",
-            self.gops.len(),
-            self.total_frame_cnt,
-        )
+        if !is_sequence_header {
+            self.gops
+                .back_mut()
+                .expect("this cannot be empty")
+                .append_frame(frame);
+            self.total_frame_cnt += 1;
+        }
+
+        Ok(())
     }
 }

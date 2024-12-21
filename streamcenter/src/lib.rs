@@ -6,4 +6,3 @@ pub mod gop;
 pub mod signal;
 pub mod stream_center;
 pub mod stream_source;
-mod util;

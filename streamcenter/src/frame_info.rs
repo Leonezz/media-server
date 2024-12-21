@@ -3,13 +3,6 @@ use std::fmt::Debug;
 use tokio_util::bytes::BytesMut;
 
 #[derive(Debug, Clone, Copy, Default)]
-pub enum VideoCodec {
-    #[default]
-    H264,
-    H265,
-}
-
-#[derive(Debug, Clone, Copy, Default)]
 pub struct VideoResolution {
     width: usize,
     height: usize,
@@ -19,25 +12,23 @@ pub struct VideoResolution {
 pub struct VideoMeta {
     pub pts: u64,
     pub dts: u64,
-    pub codec: VideoCodec,
+    // NOTE - this tag_header is also included in the frame payload
+    pub tag_header: flv::tag::video_tag_header::VideoTagHeader,
     pub resolution: VideoResolution,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-pub enum AudioCodec {
-    #[default]
-    AAC,
-}
-
-#[derive(Debug, Clone, Copy, Default)]
 pub struct AudioMeta {
-    pts: u64,
-    dts: u64,
-    codec: AudioCodec,
+    pub pts: u64,
+    pub dts: u64,
+    // NOTE - this tag_header is also included in the frame payload
+    pub tag_header: flv::tag::audio_tag_header::AudioTagHeader,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-pub struct AggregateMeta {}
+pub struct AggregateMeta {
+    pub pts: u64,
+}
 
 #[derive(Debug, Clone)]
 pub enum FrameData {
@@ -48,7 +39,47 @@ pub enum FrameData {
 }
 
 impl FrameData {
-    pub fn is_video_idr(&self) -> bool {
-        false
+    #[inline]
+    pub fn is_video(&self) -> bool {
+        match self {
+            FrameData::Video { meta: _, data: _ } => true,
+            _ => false,
+        }
+    }
+
+    #[inline]
+    pub fn is_audio(&self) -> bool {
+        match self {
+            FrameData::Audio { meta: _, data: _ } => true,
+            _ => false,
+        }
+    }
+
+    #[inline]
+    pub fn is_meta(&self) -> bool {
+        match self {
+            FrameData::Meta {
+                timestamp: _,
+                data: _,
+            } => true,
+            _ => false,
+        }
+    }
+
+    #[inline]
+    pub fn is_video_key_frame(&self) -> bool {
+        match self {
+            FrameData::Video { meta, data: _ } => meta.tag_header.is_key_frame(),
+            _ => false,
+        }
+    }
+
+    #[inline]
+    pub fn is_sequence_header(&self) -> bool {
+        match self {
+            FrameData::Audio { meta, data: _ } => meta.tag_header.is_sequence_header(),
+            FrameData::Video { meta, data: _ } => meta.tag_header.is_sequence_header(),
+            _ => false,
+        }
     }
 }

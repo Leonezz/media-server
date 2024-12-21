@@ -15,7 +15,9 @@ use crate::{
     events::StreamCenterEvent,
     frame_info::FrameData,
     signal::StreamSignal,
-    stream_source::{StreamIdentifier, StreamSource, StreamType},
+    stream_source::{
+        ConsumeGopCache, StreamIdentifier, StreamSource, StreamType, SubscribeHandler,
+    },
 };
 
 #[derive(Debug)]
@@ -26,7 +28,7 @@ struct StreamSourceHandles {
     stream_identifier: StreamIdentifier,
     stream_type: StreamType,
 
-    data_distributer: Arc<RwLock<HashMap<Uuid, mpsc::Sender<FrameData>>>>,
+    data_distributer: Arc<RwLock<HashMap<Uuid, SubscribeHandler>>>,
 }
 
 #[derive(Debug)]
@@ -163,7 +165,8 @@ impl StreamCenter {
         stream_id: StreamIdentifier,
         result_sender: oneshot::Sender<StreamCenterResult<()>>,
     ) -> StreamCenterResult<()> {
-        match self.streams.get_mut(&stream_id) {
+        let removed = self.streams.remove(&stream_id);
+        match removed {
             None => result_sender
                 .send(Err(StreamCenterError::StreamNotFound(stream_id.clone())))
                 .map_err(|err| {
@@ -176,7 +179,7 @@ impl StreamCenter {
                     };
                 }),
             Some(handles) => {
-                handles
+                let _ = handles
                     .signal_sender
                     .send(StreamSignal::Stop)
                     .await
@@ -186,18 +189,6 @@ impl StreamCenter {
                             backtrace: Backtrace::capture(),
                         };
                     });
-                let removed = self.streams.remove(&stream_id);
-
-                if removed.is_some() {
-                    let removed = removed.expect("this cannot be none");
-                    tracing::info!(
-                        "unpublish stream success, stream_name: {}, app: {}, stream_type: {}. total stream count: {}",
-                        removed.stream_identifier.stream_name,
-                        removed.stream_identifier.app,
-                        removed.stream_type,
-                        self.streams.len()
-                    );
-                }
 
                 result_sender.send(Ok(())).map_err(|err| {
                     tracing::error!(
@@ -238,7 +229,7 @@ impl StreamCenter {
                 });
         }
 
-        let (tx, rx) = mpsc::channel(128);
+        let (tx, rx) = mpsc::channel(1280);
         let uuid = Uuid::now_v7();
         let stream_type;
         {
@@ -247,7 +238,11 @@ impl StreamCenter {
                 .data_distributer
                 .write()
                 .await
-                .insert(uuid.clone(), tx);
+                .insert(uuid.clone(), SubscribeHandler {
+                    gop_cache_consume_param: ConsumeGopCache::GopCount(1),
+                    data_sender: tx,
+                    stat: Default::default(),
+                });
             stream_type = stream.stream_type;
         }
 
@@ -290,18 +285,22 @@ impl StreamCenter {
                 });
         }
         {
-            self.streams
+            let removed = self
+                .streams
                 .get_mut(&stream_id)
                 .expect("this must exist")
                 .data_distributer
                 .write()
                 .await
                 .remove(&uuid);
+            if let Some(handler) = removed {
+                tracing::info!("unsubscribe done, stat: {:?}", handler.stat);
+            }
         }
 
         result_sender.send(Ok(())).map_err(|err| {
             tracing::error!(
-                "deliver unsubscribe sucess result to caller failed, {:?}",
+                "deliver unsubscribe success result to caller failed, {:?}",
                 err
             );
             return StreamCenterError::ChannelSendFailed {

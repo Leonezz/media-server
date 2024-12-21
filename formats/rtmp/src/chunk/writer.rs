@@ -140,7 +140,14 @@ impl Writer {
                     tmp_buf.resize(bytes_to_write, 0);
                     cursor_buf.read_exact(&mut tmp_buf)?;
 
-                    self.write_basic_header(&basic_header)?;
+                    self.write_basic_header(&ChunkBasicHeader {
+                        // !! important, remember to set this fmt to 3,
+                        // !! otherwise the peer cannot parse the right chunk size
+                        // !! this bug takes me days to debug
+                        fmt: 3,
+                        header_type: basic_header.header_type.clone(),
+                        chunk_stream_id: basic_header.chunk_stream_id,
+                    })?;
                     if value.header.timestamp >= MAX_TIMESTAMP {
                         self.inner.write_u32::<BigEndian>(value.header.timestamp)?;
                     }
@@ -155,6 +162,7 @@ impl Writer {
 
     pub fn write_set_chunk_size(&mut self, chunk_size: u32) -> ChunkMessageResult<()> {
         self.chunk_size = Some(chunk_size);
+
         self.write(
             ChunkMessage {
                 header: Self::make_protocol_control_common_header(
@@ -163,12 +171,14 @@ impl Writer {
                 )?,
                 chunk_message_body: RtmpChunkMessageBody::ProtocolControl(
                     ProtocolControlMessage::SetChunkSize(SetChunkSize {
-                        chunk_size: chunk_size & 0x7FFFFFFF,
+                        chunk_size: chunk_size & 0x7FFF_FFFF,
                     }),
                 ),
             },
             amf::Version::Amf0,
-        )
+        )?;
+        self.bytes_written = 0;
+        Ok(())
     }
 
     pub fn write_abort_message(&mut self, chunk_stream_id: u32) -> ChunkMessageResult<()> {
@@ -641,8 +651,7 @@ impl Writer {
         })
     }
 
-    pub fn write_meta(&mut self, meta: amf::Value) -> ChunkMessageResult<()> {
-        let timestamp = get_timestamp_ms()? as u32;
+    pub fn write_meta(&mut self, meta: amf::Value, timestamp: u32) -> ChunkMessageResult<()> {
         self.write(
             ChunkMessage {
                 header: ChunkMessageCommonHeader {
@@ -664,13 +673,12 @@ impl Writer {
         )
     }
 
-    pub fn write_audio(&mut self, message: BytesMut) -> ChunkMessageResult<()> {
-        let timestamp = get_timestamp_ms()? as u32;
+    pub fn write_audio(&mut self, message: BytesMut, timestamp: u32) -> ChunkMessageResult<()> {
         self.write(
             ChunkMessage {
                 header: ChunkMessageCommonHeader {
                     basic_header: ChunkBasicHeader::new(0, csid::AUDIO.into())?,
-                    timestamp: timestamp,
+                    timestamp,
                     message_length: 0,
                     message_type_id: RtmpMessageType::Audio.into(),
                     message_stream_id: 0,
@@ -684,8 +692,7 @@ impl Writer {
         )
     }
 
-    pub fn write_video(&mut self, message: BytesMut) -> ChunkMessageResult<()> {
-        let timestamp = get_timestamp_ms()? as u32;
+    pub fn write_video(&mut self, message: BytesMut, timestamp: u32) -> ChunkMessageResult<()> {
         self.write(
             ChunkMessage {
                 header: ChunkMessageCommonHeader {

@@ -47,6 +47,7 @@ impl RtmpServer {
                         tracing::error!("{:?}", err);
                     }
                 };
+                session.log_stats().await;
             });
         }
     }
