@@ -1,27 +1,23 @@
-use core::time;
 use std::{
-    backtrace::Backtrace,
-    borrow::BorrowMut,
     cmp::min,
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     fmt::Display,
-    hash::{self, Hash},
-    io::Cursor,
+    io::{Cursor, Read},
     sync::Arc,
 };
 
-use flv::header;
-use tokio::sync::{
-    RwLock,
-    broadcast::{self},
-    mpsc,
-};
+use flv::tag::{FLVTag, FLVTagType};
+use tokio::sync::{RwLock, mpsc};
+use tokio_util::bytes::{Buf, BytesMut};
+use utils::system::util::get_timestamp_ns;
 use uuid::Uuid;
 
 use crate::{
     errors::{StreamCenterError, StreamCenterResult},
-    frame_info::FrameData,
-    gop::{Gop, GopQueue},
+    frame_info::{
+        AggregateMeta, AudioMeta, FrameData, MediaMessageRuntimeStat, MetaMeta, VideoMeta,
+    },
+    gop::GopQueue,
     signal::StreamSignal,
 };
 
@@ -90,7 +86,6 @@ pub struct PlayStat {
     video_sh_sent: bool,
     audio_sh_sent: bool,
     first_key_frame_sent: bool,
-    meta_sh_sent: bool,
     video_frames_sent: u64,
     audio_frames_sent: u64,
     meta_frames_sent: u64,
@@ -175,24 +170,36 @@ impl StreamSource {
 
     async fn on_frame_data(&mut self, mut frame: FrameData) -> StreamCenterResult<()> {
         match &mut frame {
-            FrameData::Audio { meta, data } => {
+            FrameData::Audio {
+                meta,
+                payload: data,
+            } => {
+                meta.runtime_stat.stream_source_received_time_ns = get_timestamp_ns().unwrap_or(0);
+
                 let mut cursor = Cursor::new(data);
                 let tag_header =
                     flv::tag::audio_tag_header::AudioTagHeader::read_from(&mut cursor)?;
                 meta.tag_header = tag_header;
-                meta.dts =
-                    utils::system::util::get_timestamp_ms().expect("this is very unlikely to fail");
+
+                meta.runtime_stat.stream_source_parse_time_ns = get_timestamp_ns().unwrap_or(0);
+
                 if meta.tag_header.is_aac_sequence_header() {
                     tracing::info!("got aac seq header");
                 }
             }
-            FrameData::Video { meta, data } => {
+            FrameData::Video {
+                meta,
+                payload: data,
+            } => {
+                meta.runtime_stat.stream_source_received_time_ns = get_timestamp_ns().unwrap_or(0);
+
                 let mut cursor = Cursor::new(data);
                 let tag_header =
                     flv::tag::video_tag_header::VideoTagHeader::read_from(&mut cursor)?;
                 meta.tag_header = tag_header;
-                meta.dts =
-                    utils::system::util::get_timestamp_ms().expect("this is very unlikely to fail");
+
+                meta.runtime_stat.stream_source_parse_time_ns = get_timestamp_ns().unwrap_or(0);
+
                 // if let Some(time) = tag_header.composition_time {
                 //     meta.pts = time.into();
                 // }
@@ -200,7 +207,18 @@ impl StreamSource {
                     tracing::info!("got avc seq header");
                 }
             }
-            _ => {}
+            FrameData::Meta { meta, payload: _ } => {
+                meta.runtime_stat.stream_source_received_time_ns = get_timestamp_ns().unwrap_or(0);
+                meta.runtime_stat.stream_source_parse_time_ns = get_timestamp_ns().unwrap_or(0);
+                tracing::trace!("got meta, I don't see anything need to do");
+            }
+            FrameData::Aggregate { meta, data } => {
+                Box::pin(async move {
+                    return self.on_aggregate_message(&meta, &data).await;
+                })
+                .await?;
+                return Ok(());
+            }
         }
 
         if let Err(err) = self.gop_cache.append_frame(frame.clone()) {
@@ -212,17 +230,23 @@ impl StreamSource {
         }
 
         let update_stat = |stat: &mut PlayStat, frame: &FrameData, fail: bool| match frame {
-            FrameData::Video { meta: _, data: _ } => {
+            FrameData::Video {
+                meta: _,
+                payload: _,
+            } => {
                 stat.video_frame_send_fail_cnt += <bool as Into<u64>>::into(fail);
                 stat.video_frames_sent += <bool as Into<u64>>::into(!fail);
             }
-            FrameData::Audio { meta: _, data: _ } => {
+            FrameData::Audio {
+                meta: _,
+                payload: _,
+            } => {
                 stat.audio_frame_send_fail_cnt += <bool as Into<u64>>::into(fail);
                 stat.audio_frames_sent += <bool as Into<u64>>::into(!fail);
             }
             FrameData::Meta {
-                timestamp: _,
-                data: _,
+                meta: _,
+                payload: _,
             } => {
                 stat.meta_frame_send_fail_cnt += <bool as Into<u64>>::into(fail);
                 stat.meta_frames_sent += <bool as Into<u64>>::into(!fail)
@@ -234,69 +258,7 @@ impl StreamSource {
 
         for (key, handler) in &mut self.data_distributer.write().await.iter_mut() {
             if !handler.stat.audio_sh_sent || !handler.stat.video_sh_sent {
-                if let Some(video_sh) = &self.gop_cache.video_sequence_header {
-                    let res = handler.data_sender.try_send(video_sh.clone());
-                    if res.is_err() {
-                        tracing::error!(
-                            "distribute video sh frame data to {} failed: {:?}",
-                            key,
-                            res
-                        );
-                        handler.stat.video_frame_send_fail_cnt += 1;
-                    } else {
-                        handler.stat.video_sh_sent = true;
-                        handler.stat.video_frames_sent += 1;
-                    }
-                }
-                if let Some(audio_sh) = &self.gop_cache.audio_sequence_header {
-                    let res = handler.data_sender.try_send(audio_sh.clone());
-                    if res.is_err() {
-                        tracing::error!(
-                            "distribute audio sh frame data to {} failed: {:?}",
-                            key,
-                            res
-                        );
-                        handler.stat.audio_frame_send_fail_cnt += 1;
-                    } else {
-                        handler.stat.audio_sh_sent = true;
-                        handler.stat.audio_frames_sent += 1;
-                    }
-                }
-
-                let total_gop_cnt = self.gop_cache.get_gops_cnt();
-
-                let gop_consumer_cnt = match handler.gop_cache_consume_param {
-                    ConsumeGopCache::All => total_gop_cnt,
-                    ConsumeGopCache::GopCount(cnt) => min(total_gop_cnt, cnt as usize),
-                    ConsumeGopCache::None => min(1, total_gop_cnt),
-                };
-
-                tracing::info!(
-                    "dump {} gops for play id: {}, total gop cnt: {}",
-                    gop_consumer_cnt,
-                    key,
-                    self.gop_cache.get_gops_cnt()
-                );
-
-                for index in (total_gop_cnt - gop_consumer_cnt)..total_gop_cnt {
-                    let gop = self.gop_cache.gops.get(index).expect("this cannot be none");
-
-                    tracing::info!("dump gop index: {}, frame cnt: {}", index, gop.frames.len());
-                    for frame in &gop.frames {
-                        let res = handler.data_sender.try_send(frame.clone());
-                        if let Err(err) = &res {
-                            tracing::error!(
-                                "distribute audio sh frame data to {} failed: {:?}",
-                                key,
-                                err
-                            );
-                        }
-                        update_stat(&mut handler.stat, frame, res.is_err());
-                    }
-
-                    // there must be some key frames
-                    handler.stat.first_key_frame_sent = true;
-                }
+                self.on_new_consumer(key, handler, update_stat).await?;
             }
 
             let res = handler.data_sender.try_send(frame.clone());
@@ -309,6 +271,156 @@ impl StreamSource {
             update_stat(&mut handler.stat, &frame, res.is_err());
         }
 
+        Ok(())
+    }
+
+    async fn on_new_consumer<F>(
+        &self,
+        key: &Uuid,
+        handler: &mut SubscribeHandler,
+        update_stat: F,
+    ) -> StreamCenterResult<()>
+    where
+        F: Fn(&mut PlayStat, &FrameData, bool) -> (),
+    {
+        if let Some(video_sh) = &self.gop_cache.video_sequence_header {
+            let res = handler.data_sender.try_send(video_sh.clone());
+            if res.is_err() {
+                tracing::error!(
+                    "distribute video sh frame data to {} failed: {:?}",
+                    key,
+                    res
+                );
+                handler.stat.video_frame_send_fail_cnt += 1;
+            } else {
+                handler.stat.video_sh_sent = true;
+                handler.stat.video_frames_sent += 1;
+            }
+        }
+        if let Some(audio_sh) = &self.gop_cache.audio_sequence_header {
+            let res = handler.data_sender.try_send(audio_sh.clone());
+            if res.is_err() {
+                tracing::error!(
+                    "distribute audio sh frame data to {} failed: {:?}",
+                    key,
+                    res
+                );
+                handler.stat.audio_frame_send_fail_cnt += 1;
+            } else {
+                handler.stat.audio_sh_sent = true;
+                handler.stat.audio_frames_sent += 1;
+            }
+        }
+
+        let total_gop_cnt = self.gop_cache.get_gops_cnt();
+
+        let gop_consumer_cnt = match handler.gop_cache_consume_param {
+            ConsumeGopCache::All => total_gop_cnt,
+            ConsumeGopCache::GopCount(cnt) => min(total_gop_cnt, cnt as usize),
+            ConsumeGopCache::None => 0,
+        };
+
+        tracing::info!(
+            "dump {} gops for play id: {}, total gop cnt: {}",
+            gop_consumer_cnt,
+            key,
+            self.gop_cache.get_gops_cnt()
+        );
+
+        for index in (total_gop_cnt - gop_consumer_cnt)..total_gop_cnt {
+            let gop = self.gop_cache.gops.get(index).expect("this cannot be none");
+
+            tracing::info!("dump gop index: {}, frame cnt: {}", index, gop.frames.len());
+            for frame in &gop.frames {
+                let res = handler.data_sender.try_send(frame.clone());
+                if let Err(err) = &res {
+                    tracing::error!(
+                        "distribute audio sh frame data to {} failed: {:?}",
+                        key,
+                        err
+                    );
+                }
+                update_stat(&mut handler.stat, frame, res.is_err());
+            }
+
+            // there must be some key frames
+            handler.stat.first_key_frame_sent = true;
+        }
+        Ok(())
+    }
+
+    async fn on_aggregate_message(
+        &mut self,
+        aggregate_meta: &AggregateMeta,
+        payload: &BytesMut,
+    ) -> StreamCenterResult<()> {
+        let mut cursor = Cursor::new(payload);
+        let mut timestamp_delta = None;
+        while cursor.has_remaining() {
+            let flv_tag_header = FLVTag::read_tag_header_from(&mut cursor)?;
+            let mut body_bytes = BytesMut::with_capacity(flv_tag_header.data_size as usize);
+            body_bytes.resize(flv_tag_header.data_size as usize, 0);
+            cursor.read_exact(&mut body_bytes)?;
+
+            if timestamp_delta.is_none() {
+                timestamp_delta = Some(aggregate_meta.pts - (flv_tag_header.timestamp as u64));
+            }
+
+            match flv_tag_header.tag_type {
+                FLVTagType::Audio => {
+                    self.on_frame_data(FrameData::Audio {
+                        meta: AudioMeta {
+                            pts: aggregate_meta.pts + timestamp_delta.expect("this cannot be none"),
+                            runtime_stat: MediaMessageRuntimeStat {
+                                read_time_ns: aggregate_meta.read_time_ns,
+                                session_process_time_ns: aggregate_meta.session_process_time_ns,
+                                publish_stream_source_time_ns: aggregate_meta
+                                    .publish_stream_source_time_ns,
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        },
+                        payload: body_bytes,
+                    })
+                    .await?;
+                }
+                FLVTagType::Video => {
+                    self.on_frame_data(FrameData::Video {
+                        meta: VideoMeta {
+                            pts: aggregate_meta.pts + timestamp_delta.expect("this cannot be none"),
+                            runtime_stat: MediaMessageRuntimeStat {
+                                read_time_ns: aggregate_meta.read_time_ns,
+                                session_process_time_ns: aggregate_meta.session_process_time_ns,
+                                publish_stream_source_time_ns: aggregate_meta
+                                    .publish_stream_source_time_ns,
+                                stream_source_received_time_ns: get_timestamp_ns().unwrap_or(0),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        },
+                        payload: body_bytes,
+                    })
+                    .await?;
+                }
+                FLVTagType::Meta => {
+                    self.on_frame_data(FrameData::Meta {
+                        meta: MetaMeta {
+                            pts: aggregate_meta.pts + timestamp_delta.expect("this cannot be none"),
+                            runtime_stat: MediaMessageRuntimeStat {
+                                read_time_ns: aggregate_meta.read_time_ns,
+                                session_process_time_ns: aggregate_meta.session_process_time_ns,
+                                publish_stream_source_time_ns: aggregate_meta
+                                    .publish_stream_source_time_ns,
+                                stream_source_received_time_ns: get_timestamp_ns().unwrap_or(0),
+                                ..Default::default()
+                            },
+                        },
+                        payload: body_bytes,
+                    })
+                    .await?;
+                }
+            }
+        }
         Ok(())
     }
 }

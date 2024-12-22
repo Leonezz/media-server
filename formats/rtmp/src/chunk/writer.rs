@@ -19,10 +19,7 @@ use crate::{
         CreateStreamCommandRequest, CreateStreamCommandResponse, DeleteStreamCommand,
         OnStatusCommand, PauseCommand, Play2Command, PlayCommand, PublishCommand,
         ReceiveAudioCommand, ReceiveVideoCommand, RtmpC2SCommands, RtmpS2CCommands, SeekCommand,
-        consts::{
-            c2s_command_names,
-            s2c_command_names::{self, ON_STATUS},
-        },
+        consts::s2c_command_names::{self, ON_STATUS},
     },
     message::{RtmpMessageType, RtmpUserMessageBody},
     protocol_control::{
@@ -267,6 +264,9 @@ impl Writer {
             message_type_id: message_type.into(),
             message_stream_id: PROTOCOL_CONTROL_MESSAGE_STREAM_ID.into(),
             extended_timestamp_enabled: false,
+
+            // we do not need this to write
+            runtime_stat: Default::default(),
         })
     }
 
@@ -369,6 +369,9 @@ impl Writer {
             message_type_id: USER_CONTROL_MESSAGE_TYPE,
             message_stream_id: USER_CONTROL_MESSAGE_STREAM_ID.into(),
             extended_timestamp_enabled: false,
+
+            // we do not need this to write
+            runtime_stat: Default::default(),
         })
     }
 
@@ -648,25 +651,26 @@ impl Writer {
             message_type_id: RtmpMessageType::AMF0Command.into(),
             message_stream_id: 0, //TODO - check this out
             extended_timestamp_enabled: timestamp >= MAX_TIMESTAMP,
+            // we do not need this to write
+            runtime_stat: Default::default(),
         })
     }
 
-    pub fn write_meta(&mut self, meta: amf::Value, timestamp: u32) -> ChunkMessageResult<()> {
+    pub fn write_meta(&mut self, meta: BytesMut, timestamp: u32) -> ChunkMessageResult<()> {
         self.write(
             ChunkMessage {
                 header: ChunkMessageCommonHeader {
                     basic_header: ChunkBasicHeader::new(0, csid::NET_CONNECTION_COMMAND2.into())?,
                     timestamp: timestamp,
                     message_length: 0,
-                    message_type_id: match meta {
-                        amf::Value::AMF0Value(_) => RtmpMessageType::AMF0Data.into(),
-                        amf::Value::AMF3Value(_) => RtmpMessageType::AMF3Data.into(),
-                    },
+                    message_type_id: RtmpMessageType::AMF0Data.into(),
                     message_stream_id: 0,
                     extended_timestamp_enabled: timestamp >= MAX_TIMESTAMP,
+                    // we do not need this to write
+                    runtime_stat: Default::default(),
                 },
                 chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
-                    RtmpUserMessageBody::MetaData(meta),
+                    RtmpUserMessageBody::MetaData { payload: meta },
                 ),
             },
             amf::Version::Amf0,
@@ -683,6 +687,8 @@ impl Writer {
                     message_type_id: RtmpMessageType::Audio.into(),
                     message_stream_id: 0,
                     extended_timestamp_enabled: timestamp >= MAX_TIMESTAMP,
+                    // we do not need this to write
+                    runtime_stat: Default::default(),
                 },
                 chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
                     RtmpUserMessageBody::Audio { payload: message },
@@ -702,6 +708,8 @@ impl Writer {
                     message_type_id: RtmpMessageType::Video.into(),
                     message_stream_id: 0,
                     extended_timestamp_enabled: timestamp >= MAX_TIMESTAMP,
+                    // we do not need this to write
+                    runtime_stat: Default::default(),
                 },
                 chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
                     RtmpUserMessageBody::Video { payload: message },

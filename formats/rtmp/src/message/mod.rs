@@ -49,7 +49,7 @@ pub mod writer;
 pub enum RtmpUserMessageBody {
     C2SCommand(RtmpC2SCommands),
     S2Command(RtmpS2CCommands),
-    MetaData(amf::Value),
+    MetaData { payload: BytesMut },
     SharedObject(/*TODO */),
     Audio { payload: BytesMut },
     Video { payload: BytesMut },
@@ -61,7 +61,9 @@ impl Debug for RtmpUserMessageBody {
         match self {
             Self::C2SCommand(command) => f.write_str(format!("C2SCommand: {:?}", command).as_str()),
             Self::S2Command(command) => f.write_str(format!("S2CCommand: {:?}", command).as_str()),
-            Self::MetaData(meta) => f.write_str(format!("Meta: {:?}", meta).as_str()),
+            Self::MetaData { payload } => {
+                f.write_str(format!("Meta, payload length: {:?}", payload.len()).as_str())
+            }
             Self::SharedObject() => f.write_str("shared object"),
             Self::Aggregate { payload } => {
                 f.write_str(format!("Aggregate, length: {}", payload.len()).as_str())

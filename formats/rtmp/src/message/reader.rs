@@ -1,8 +1,5 @@
 use crate::{
-    chunk::{
-        ChunkMessageCommonHeader,
-        errors::{ChunkMessageError, ChunkMessageResult},
-    },
+    chunk::{ChunkMessageCommonHeader, errors::ChunkMessageResult},
     commands,
 };
 
@@ -36,16 +33,7 @@ where
 
         let message = match header.message_type_id.try_into()? {
             RtmpMessageType::AMF0Data | RtmpMessageType::AMF3Data => {
-                let data = amf::Value::read_from(payload_reader, version)?;
-                match data {
-                    None => {
-                        return Err(ChunkMessageError::Io(io::Error::new(
-                            io::ErrorKind::UnexpectedEof,
-                            "unexpected eof",
-                        )));
-                    }
-                    Some(d) => RtmpUserMessageBody::MetaData(d),
-                }
+                RtmpUserMessageBody::MetaData { payload: payload }
             }
             RtmpMessageType::Audio => RtmpUserMessageBody::Audio { payload },
             RtmpMessageType::Video => RtmpUserMessageBody::Video { payload },

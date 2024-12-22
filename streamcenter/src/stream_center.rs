@@ -1,13 +1,10 @@
 use std::{backtrace::Backtrace, collections::HashMap, sync::Arc};
 
-use dashmap::DashMap;
-use lazy_static::lazy_static;
 use tokio::sync::{
-    RwLock, broadcast,
-    mpsc::{self, Sender},
+    RwLock,
+    mpsc::{self},
     oneshot,
 };
-use tracing::instrument;
 use uuid::Uuid;
 
 use crate::{
@@ -239,7 +236,7 @@ impl StreamCenter {
                 .write()
                 .await
                 .insert(uuid.clone(), SubscribeHandler {
-                    gop_cache_consume_param: ConsumeGopCache::GopCount(1),
+                    gop_cache_consume_param: ConsumeGopCache::None,
                     data_sender: tx,
                     stat: Default::default(),
                 });

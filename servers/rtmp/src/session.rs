@@ -1,7 +1,6 @@
 use core::time;
 use std::{
     backtrace::Backtrace,
-    borrow::BorrowMut,
     cmp::min,
     collections::HashMap,
     io::{self, Cursor},
@@ -32,12 +31,13 @@ use rtmp_formats::{
     },
     user_control::UserControlEvent,
 };
+use stream_center::frame_info::{MediaMessageRuntimeStat, MetaMeta};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, BufWriter},
     net::TcpStream,
     sync::{
         RwLock,
-        mpsc::{self, Receiver},
+        mpsc::{self},
         oneshot,
     },
     time::timeout,
@@ -46,9 +46,10 @@ use tokio_util::{
     bytes::{Buf, BytesMut},
     either::Either,
 };
+use utils::system::util::get_timestamp_ns;
 use uuid::Uuid;
 
-use crate::{errors::RtmpServerError, session};
+use crate::errors::RtmpServerError;
 
 use super::{
     config::RtmpSessionConfig,
@@ -365,10 +366,15 @@ impl RtmpSession {
                     tracing::error!("channel closed while trying to play");
                     return Err(RtmpServerError::StreamIsGone);
                 }
-                len => {
-                    for message in &messages {
+                _len => {
+                    for message in &mut messages {
                         match message {
-                            FrameData::Video { meta, data } => {
+                            FrameData::Video {
+                                meta,
+                                payload: data,
+                            } => {
+                                meta.runtime_stat.play_time_ns = get_timestamp_ns().unwrap_or(0);
+
                                 let res =
                                     self.chunk_writer.write_video(data.clone(), meta.pts as u32);
                                 if res.is_err() {
@@ -381,7 +387,12 @@ impl RtmpSession {
                                     handle.stat.video_frame_cnt += 1;
                                 }
                             }
-                            FrameData::Audio { meta, data } => {
+                            FrameData::Audio {
+                                meta,
+                                payload: data,
+                            } => {
+                                meta.runtime_stat.play_time_ns = get_timestamp_ns().unwrap_or(0);
+
                                 let res =
                                     self.chunk_writer.write_audio(data.clone(), meta.pts as u32);
                                 if res.is_err() {
@@ -394,19 +405,25 @@ impl RtmpSession {
                                     handle.stat.audio_frame_cnt += 1;
                                 }
                             }
-                            FrameData::Aggregate { meta: _, data } => {
+                            FrameData::Aggregate { meta: _, data: _ } => {
                                 tracing::info!("got an aggregate, ignore for now");
-                                //TODO -
+                                //NOTE - not possible to play aggregate
                                 handle.stat.aggregate_frame_cnt += 1;
                             }
-                            FrameData::Meta { timestamp, data } => {
+                            FrameData::Meta {
+                                meta,
+                                payload: data,
+                            } => {
+                                meta.runtime_stat.play_time_ns = get_timestamp_ns().unwrap_or(0);
+
                                 self.chunk_writer
-                                    .write_meta(data.clone(), timestamp.clone())?;
+                                    .write_meta(data.clone(), meta.pts as u32)?;
                                 //TODO -
                                 handle.stat.meta_frame_cnt += 1;
                             }
                         }
                         self.flush_chunk().await?;
+                        // message.log_runtime_stat();
                     }
                 }
             }
@@ -414,7 +431,9 @@ impl RtmpSession {
     }
 
     async fn process_message(&mut self, message: ChunkMessage) -> RtmpServerResult<()> {
-        let header = message.header;
+        let mut header = message.header;
+        header.runtime_stat.process_time_ns = get_timestamp_ns().unwrap_or(0);
+
         let body = message.chunk_message_body;
         match body {
             RtmpChunkMessageBody::ProtocolControl(request) => {
@@ -439,7 +458,7 @@ impl RtmpSession {
             RtmpUserMessageBody::C2SCommand(command) => {
                 self.process_user_command(command, header).await?
             }
-            RtmpUserMessageBody::MetaData(meta) => self.process_meta(header, meta).await?,
+            RtmpUserMessageBody::MetaData { payload } => self.process_meta(header, payload).await?,
             RtmpUserMessageBody::Aggregate { payload } => {
                 self.process_aggregate(header, payload).await?
             }
@@ -470,9 +489,15 @@ impl RtmpSession {
                         // we send the payload to stream center asap, parse and adjust meta info there
                         meta: AudioMeta {
                             pts: header.timestamp as u64,
+                            runtime_stat: MediaMessageRuntimeStat {
+                                read_time_ns: header.runtime_stat.read_time_ns,
+                                session_process_time_ns: header.runtime_stat.process_time_ns,
+                                publish_stream_source_time_ns: get_timestamp_ns().unwrap_or(0),
+                                ..Default::default()
+                            },
                             ..Default::default()
                         },
-                        data: audio,
+                        payload: audio,
                     })
                     .await
                     .map_err(|err| {
@@ -512,9 +537,15 @@ impl RtmpSession {
                     .send(FrameData::Video {
                         meta: VideoMeta {
                             pts: header.timestamp as u64,
+                            runtime_stat: MediaMessageRuntimeStat {
+                                read_time_ns: header.runtime_stat.read_time_ns,
+                                session_process_time_ns: header.runtime_stat.process_time_ns,
+                                publish_stream_source_time_ns: get_timestamp_ns().unwrap_or(0),
+                                ..Default::default()
+                            },
                             ..Default::default()
                         },
-                        data: video,
+                        payload: video,
                     })
                     .await
                     .map_err(|err| {
@@ -543,7 +574,7 @@ impl RtmpSession {
     async fn process_meta(
         &mut self,
         header: ChunkMessageCommonHeader,
-        meta: amf::Value,
+        meta: BytesMut,
     ) -> RtmpServerResult<()> {
         let _ = match &mut self.runtime_handle {
             SessionRuntime::Publish(handle) => {
@@ -552,8 +583,16 @@ impl RtmpSession {
                 let res = handle
                     .stream_data_producer
                     .send(FrameData::Meta {
-                        timestamp: header.timestamp,
-                        data: meta,
+                        meta: MetaMeta {
+                            pts: header.timestamp as u64,
+                            runtime_stat: MediaMessageRuntimeStat {
+                                read_time_ns: header.runtime_stat.read_time_ns,
+                                session_process_time_ns: header.runtime_stat.process_time_ns,
+                                publish_stream_source_time_ns: get_timestamp_ns().unwrap_or(0),
+                                ..Default::default()
+                            },
+                        },
+                        payload: meta,
                     })
                     .await
                     .map_err(|err| {
@@ -593,11 +632,14 @@ impl RtmpSession {
                     .send(FrameData::Aggregate {
                         meta: AggregateMeta {
                             pts: header.timestamp as u64,
+                            read_time_ns: header.runtime_stat.read_time_ns,
+                            session_process_time_ns: header.runtime_stat.process_time_ns,
+                            publish_stream_source_time_ns: get_timestamp_ns().unwrap_or(0),
                         },
                         data: aggregate,
                     })
                     .await
-                    .map_err(|err| RtmpServerError::ChannelSendFailed {
+                    .map_err(|_err| RtmpServerError::ChannelSendFailed {
                         backtrace: Backtrace::capture(),
                     });
 
@@ -739,7 +781,7 @@ impl RtmpSession {
             })?;
 
         match rx.await {
-            Err(err) => {
+            Err(_err) => {
                 tracing::error!("channel closed while trying to receive unpublish result");
                 return Err(RtmpServerError::ChannelSendFailed {
                     backtrace: Backtrace::capture(),
@@ -931,7 +973,7 @@ impl RtmpSession {
             })?;
 
         match rx.await {
-            Err(err) => {
+            Err(_err) => {
                 tracing::error!("channel closed while trying to receive publish result");
                 return Err(RtmpServerError::ChannelSendFailed {
                     backtrace: Backtrace::capture(),
@@ -990,7 +1032,7 @@ impl RtmpSession {
                     Some(stream_name) => {
                         // ignore the result
                         let res = if command_name == "FCUnpublish" {
-                            let res = self
+                            let _res = self
                                 .unpublish_from_stream_center(
                                     &self.stream_properties.stream_name.clone(),
                                     &self.stream_properties.app.clone(),
@@ -1026,7 +1068,7 @@ impl RtmpSession {
     }
 
     async fn subscribe_from_stream_center(
-        &mut self,
+        &self,
         stream_name: &str,
         app: &str,
     ) -> RtmpServerResult<(Uuid, StreamType, mpsc::Receiver<FrameData>)> {
@@ -1052,7 +1094,7 @@ impl RtmpSession {
             })?;
 
         match rx.await {
-            Err(err) => {
+            Err(_err) => {
                 tracing::error!("channel closed while trying receive subscribe result");
                 return Err(RtmpServerError::ChannelSendFailed {
                     backtrace: Backtrace::capture(),
@@ -1108,7 +1150,7 @@ impl RtmpSession {
             })?;
 
         match rx.await {
-            Err(err) => {
+            Err(_err) => {
                 tracing::error!("channel closed while trying to receive unsubscribe result");
                 return Err(RtmpServerError::ChannelSendFailed {
                     backtrace: Backtrace::capture(),

@@ -1,6 +1,4 @@
-use std::{collections::VecDeque, io::Cursor};
-
-use tokio_util::bytes::BytesMut;
+use std::collections::VecDeque;
 
 use crate::{errors::StreamCenterResult, frame_info::FrameData};
 
@@ -60,18 +58,21 @@ impl Gop {
 
     pub fn append_frame(&mut self, frame: FrameData) {
         match frame {
-            FrameData::Video { meta, data: _ } => {
+            FrameData::Video { meta, payload: _ } => {
                 self.video_frame_cnt += 1;
                 if self.frames.is_empty() {
                     self.first_video_pts = meta.pts;
                 }
                 self.last_video_pts = meta.pts;
             }
-            FrameData::Audio { meta: _, data: _ } => self.audio_frame_cnt += 1,
+            FrameData::Audio {
+                meta: _,
+                payload: _,
+            } => self.audio_frame_cnt += 1,
             FrameData::Aggregate { meta: _, data: _ } => self.aggregate_frame_cnt += 1,
             FrameData::Meta {
-                timestamp: _,
-                data: _,
+                meta: _,
+                payload: _,
             } => self.meta_frame_cnt += 1,
         }
 
@@ -162,13 +163,13 @@ impl GopQueue {
     pub fn append_frame(&mut self, frame: FrameData) -> StreamCenterResult<()> {
         let mut is_sequence_header = false;
         match frame {
-            FrameData::Audio { meta, data: _ } => {
+            FrameData::Audio { meta, payload: _ } => {
                 if meta.tag_header.is_sequence_header() {
                     self.audio_sequence_header = Some(frame.clone());
                     is_sequence_header = true
                 }
             }
-            FrameData::Video { meta, data: _ } => {
+            FrameData::Video { meta, payload: _ } => {
                 if meta.tag_header.is_sequence_header() {
                     self.video_sequence_header = Some(frame.clone());
                     is_sequence_header = true;

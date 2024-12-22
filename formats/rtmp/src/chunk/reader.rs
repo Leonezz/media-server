@@ -5,6 +5,7 @@ use std::{
     io::{Cursor, Read},
 };
 use tokio_util::bytes::{Buf, BytesMut};
+use utils::system::util::get_timestamp_ns;
 
 use crate::{
     chunk::errors::ChunkMessageError,
@@ -15,8 +16,8 @@ use crate::{
 use super::{
     CSID, ChunkBasicHeader, ChunkBasicHeaderType, ChunkMessage, ChunkMessageCommonHeader,
     ChunkMessageHeader, ChunkMessageHeaderType0, ChunkMessageHeaderType1, ChunkMessageHeaderType2,
-    ChunkMessageHeaderType3, ChunkMessageType, RtmpChunkMessageBody, consts::MAX_TIMESTAMP,
-    errors::ChunkMessageResult,
+    ChunkMessageHeaderType3, ChunkMessageType, RtmpChunkMessageBody, RuntimeStat,
+    consts::MAX_TIMESTAMP, errors::ChunkMessageResult,
 };
 
 #[derive(Debug, Default)]
@@ -281,6 +282,10 @@ impl Reader {
             message_type_id: context.message_type_id,
             message_stream_id: context.message_stream_id,
             extended_timestamp_enabled: context.extended_timestamp_enabled,
+            runtime_stat: RuntimeStat {
+                read_time_ns: get_timestamp_ns().unwrap_or(0),
+                ..Default::default()
+            },
         }))
     }
 

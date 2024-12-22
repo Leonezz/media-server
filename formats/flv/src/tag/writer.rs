@@ -4,7 +4,7 @@ use tokio_util::either::Either;
 
 use crate::errors::FLVResult;
 
-use super::{FLVTag, FLVTagBody, FLVTagBodyWithFilter, FLVTagType, Filter};
+use super::{FLVTag, FLVTagBody, FLVTagBodyWithFilter, FLVTagHeader, FLVTagType, Filter};
 
 #[derive(Debug)]
 pub struct Writer<W> {
@@ -20,20 +20,25 @@ where
     }
 
     pub fn write(&mut self, tag: &FLVTag) -> FLVResult<()> {
-        let mut byte: u8 = 0;
-        if tag.body_with_filter.filter.is_some() {
-            byte = 0b0010_0000;
-        }
-        byte |= <FLVTagType as Into<u8>>::into(tag.tag_type);
-        self.inner.write_u8(byte)?;
-        self.inner.write_u24::<BigEndian>(tag.data_size)?;
-        self.inner
-            .write_u24::<BigEndian>(tag.timestamp & 0x00FF_FFFF)?;
-        self.inner.write_u8(((tag.timestamp >> 24) & 0xFF) as u8)?;
-        self.inner.write_u24::<BigEndian>(0)?;
-
+        self.write_tag_header(&tag.tag_header)?;
         self.write_tag_body(&tag.body_with_filter)?;
 
+        Ok(())
+    }
+
+    fn write_tag_header(&mut self, tag_header: &FLVTagHeader) -> FLVResult<()> {
+        let mut byte: u8 = 0;
+        if tag_header.filter_enabled {
+            byte = 0b0010_0000;
+        }
+        byte |= <FLVTagType as Into<u8>>::into(tag_header.tag_type);
+        self.inner.write_u8(byte)?;
+        self.inner.write_u24::<BigEndian>(tag_header.data_size)?;
+        self.inner
+            .write_u24::<BigEndian>(tag_header.timestamp & 0x00FF_FFFF)?;
+        self.inner
+            .write_u8(((tag_header.timestamp >> 24) & 0xFF) as u8)?;
+        self.inner.write_u24::<BigEndian>(0)?;
         Ok(())
     }
 

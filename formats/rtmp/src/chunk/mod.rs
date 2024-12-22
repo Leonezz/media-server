@@ -135,6 +135,12 @@ impl ChunkMessageHeader {
     }
 }
 
+#[derive(Debug, Default)]
+pub struct RuntimeStat {
+    pub read_time_ns: u128,
+    pub process_time_ns: u128,
+}
+
 #[derive(Debug)]
 pub struct ChunkMessageCommonHeader {
     pub basic_header: ChunkBasicHeader,
@@ -143,6 +149,8 @@ pub struct ChunkMessageCommonHeader {
     pub message_type_id: u8,
     pub message_stream_id: u32,
     pub extended_timestamp_enabled: bool,
+
+    pub runtime_stat: RuntimeStat,
 }
 
 ///! @see: 5.3.1. Chunk Format

@@ -28,10 +28,8 @@ where
             RtmpUserMessageBody::S2Command(command) => {
                 command.write_to(self.inner.by_ref(), version)
             }
-            RtmpUserMessageBody::MetaData(data) => data
-                .write_to(self.inner.by_ref())
-                .map_err(|err| ChunkMessageError::MetaDataError(err)),
-            RtmpUserMessageBody::Audio { payload }
+            RtmpUserMessageBody::MetaData { payload }
+            | RtmpUserMessageBody::Audio { payload }
             | RtmpUserMessageBody::Video { payload }
             | RtmpUserMessageBody::Aggregate { payload } => self
                 .inner

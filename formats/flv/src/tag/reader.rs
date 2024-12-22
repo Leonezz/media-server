@@ -9,7 +9,7 @@ use std::io::{self, Cursor, Read};
 use crate::errors::{FLVError, FLVResult};
 
 use super::{
-    FLVTag, FLVTagBody, FLVTagBodyWithFilter, FLVTagType, Filter, audio_tag_header,
+    FLVTag, FLVTagBody, FLVTagBodyWithFilter, FLVTagHeader, FLVTagType, Filter, audio_tag_header,
     encryption::{
         EncryptionFilterParams, EncryptionTagHeader, FilterParams, SelectiveEncryptionFilterParams,
     },
@@ -29,24 +29,33 @@ where
     }
 
     pub fn read(&mut self) -> FLVResult<FLVTag> {
+        let tag_header = self.read_tag_header()?;
+        let mut payload = BytesMut::with_capacity(tag_header.data_size as usize);
+        self.inner.read_exact(&mut payload)?;
+
+        let tag_body =
+            FLVTag::read_tag_body(tag_header.tag_type, payload, tag_header.filter_enabled)?;
+        Ok(FLVTag {
+            tag_header,
+            body_with_filter: tag_body,
+        })
+    }
+
+    pub fn read_tag_header(&mut self) -> FLVResult<FLVTagHeader> {
         let first_byte = self.inner.read_u8()?;
         let filter_enabled = ((first_byte >> 5) & 0b1) != 0;
         let tag_type: FLVTagType = ((first_byte >> 0) & 0b11111).try_into()?;
         let data_size = self.inner.read_u24::<BigEndian>()?;
         let timestamp = self.inner.read_u24::<BigEndian>()?;
         let timestamp_extended = self.inner.read_u8()?;
-        let timestamp = ((timestamp_extended as u32) << 24) | timestamp;
+        let timestamp = (((timestamp_extended as u32) << 24) | timestamp) & 0x7FFF_FFFF;
         let _stream_id = self.inner.read_u24::<BigEndian>()?;
 
-        let mut payload = BytesMut::with_capacity(data_size as usize);
-        self.inner.read_exact(&mut payload)?;
-
-        let tag_body = FLVTag::read_tag_body(tag_type, payload, filter_enabled)?;
-        Ok(FLVTag {
+        Ok(FLVTagHeader {
             tag_type,
             data_size,
             timestamp,
-            body_with_filter: tag_body,
+            filter_enabled,
         })
     }
 }
@@ -57,6 +66,13 @@ impl FLVTag {
         R: io::Read,
     {
         Reader::new(reader).read()
+    }
+
+    pub fn read_tag_header_from<R>(reader: R) -> FLVResult<FLVTagHeader>
+    where
+        R: io::Read,
+    {
+        Reader::new(reader).read_tag_header()
     }
 
     pub fn read_tag_body(
@@ -108,7 +124,7 @@ impl FLVTag {
         }
     }
 
-    fn read_filter<Reader>(mut reader: Reader) -> FLVResult<Filter>
+    pub fn read_filter<Reader>(mut reader: Reader) -> FLVResult<Filter>
     where
         Reader: io::Read,
     {
@@ -135,7 +151,7 @@ impl FLVTag {
         })
     }
 
-    fn read_meta<Reader>(mut reader: Reader) -> FLVResult<FLVTagBody>
+    pub fn read_meta<Reader>(mut reader: Reader) -> FLVResult<FLVTagBody>
     where
         Reader: io::Read,
     {

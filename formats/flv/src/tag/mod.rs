@@ -1,11 +1,11 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, io::Cursor};
 
 use audio_tag_header::AudioTagHeader;
 use encryption::{EncryptionTagHeader, FilterParams};
-use tokio_util::bytes::BytesMut;
+use tokio_util::{bytes::BytesMut, either::Either};
 use video_tag_header::VideoTagHeader;
 
-use crate::errors::FLVError;
+use crate::errors::{FLVError, FLVResult};
 
 pub mod audio_tag_header;
 pub mod encryption;
@@ -45,11 +45,17 @@ pub struct FLVTagBodyWithFilter {
 }
 
 #[derive(Debug)]
-pub struct FLVTag {
-    tag_type: FLVTagType,
-    data_size: u32,
-    timestamp: u32,
+pub struct FLVTagHeader {
+    pub tag_type: FLVTagType,
+    pub data_size: u32,
+    pub timestamp: u32,
+    pub filter_enabled: bool,
     // stream_id: u32, // always 0
+}
+
+#[derive(Debug)]
+pub struct FLVTag {
+    tag_header: FLVTagHeader,
     body_with_filter: FLVTagBodyWithFilter,
 }
 

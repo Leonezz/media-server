@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 rtmp-formats = { path = "../../formats/rtmp" }
 amf = { path = "../../formats/amf" }
+utils = { path = "../../utils" }
 thiserror = "2.0.7"
 tokio = { version = "1.42.0", features = ["full"] }
 tokio-util = { version = "0.7.13", features = ["full"] }

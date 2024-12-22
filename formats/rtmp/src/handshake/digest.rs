@@ -1,6 +1,6 @@
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
-use tracing::{debug, instrument};
+use tracing::debug;
 
 use super::{
     consts::{RTMP_CLIENT_KEY, RTMP_HANDSHAKE_SIZE, SHA256_DIGEST_SIZE},

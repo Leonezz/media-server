@@ -1,7 +1,7 @@
 pub mod reader;
 pub mod writer;
 
-use std::{default, io};
+use std::io;
 
 use crate::errors::{FLVError, FLVResult};
 
