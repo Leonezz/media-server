@@ -46,7 +46,7 @@ use tokio_util::{
     bytes::{Buf, BytesMut},
     either::Either,
 };
-use utils::system::util::get_timestamp_ns;
+use utils::system::time::get_timestamp_ns;
 use uuid::Uuid;
 
 use crate::errors::RtmpServerError;
@@ -1095,7 +1095,11 @@ impl RtmpSession {
 
         match rx.await {
             Err(_err) => {
-                tracing::error!("channel closed while trying receive subscribe result");
+                tracing::error!(
+                    "channel closed while trying receive subscribe result, stream_name: {}, app: {}",
+                    stream_name,
+                    app
+                );
                 return Err(RtmpServerError::ChannelSendFailed {
                     backtrace: Backtrace::capture(),
                 });

@@ -5,7 +5,7 @@ use std::{
     io::{Cursor, Read},
 };
 use tokio_util::bytes::{Buf, BytesMut};
-use utils::system::util::get_timestamp_ns;
+use utils::system::time::get_timestamp_ns;
 
 use crate::{
     chunk::errors::ChunkMessageError,

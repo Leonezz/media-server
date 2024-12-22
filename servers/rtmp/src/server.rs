@@ -14,8 +14,8 @@ pub struct RtmpServer {
 
 impl RtmpServer {
     pub fn new(
-        stream_center_event_sender: mpsc::UnboundedSender<StreamCenterEvent>,
         config: &RtmpServerConfig,
+        stream_center_event_sender: mpsc::UnboundedSender<StreamCenterEvent>,
     ) -> Self {
         Self {
             config: config.clone(),
@@ -23,12 +23,18 @@ impl RtmpServer {
         }
     }
 
-    #[instrument]
     pub async fn run(&mut self) -> RtmpServerResult<()> {
-        let listener = tokio::net::TcpListener::bind(("0.0.0.0", self.config.port)).await?;
+        tracing::info!("rtmp server is running: {:?}", self.config);
+        let listener =
+            tokio::net::TcpListener::bind((self.config.ip.as_str(), self.config.port)).await?;
         loop {
             let (tcp_stream, addr) = listener.accept().await?;
-            tracing::info!("{}", addr);
+            let peer_addr = tcp_stream.peer_addr();
+            tracing::info!(
+                "got new rtmp connection, addr: {}, peer addr: {:?}",
+                addr,
+                peer_addr
+            );
             let mut session = RtmpSession::new(
                 tcp_stream,
                 self.stream_center_event_sender.clone(),
@@ -41,7 +47,11 @@ impl RtmpServer {
             tokio::spawn(async move {
                 match session.run().await {
                     Ok(()) => {
-                        tracing::info!("session successfully closed");
+                        tracing::info!(
+                            "rtmp session successfully closed, addr: {}, peer addr: {:?}",
+                            addr,
+                            peer_addr
+                        );
                     }
                     Err(err) => {
                         tracing::error!("{:?}", err);

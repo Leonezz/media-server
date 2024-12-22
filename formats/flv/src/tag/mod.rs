@@ -1,4 +1,7 @@
-use std::{fmt::Debug, io::Cursor};
+use std::{
+    fmt::Debug,
+    io::{self, Cursor},
+};
 
 use audio_tag_header::AudioTagHeader;
 use encryption::{EncryptionTagHeader, FilterParams};

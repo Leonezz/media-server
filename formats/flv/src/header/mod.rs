@@ -27,6 +27,15 @@ pub struct FLVHeader {
 }
 
 impl FLVHeader {
+    pub fn new(has_audio: bool, has_video: bool) -> Self {
+        Self {
+            flv_marker: [b'F', b'L', b'V'],
+            flv_version: 1,
+            has_audio: has_audio,
+            has_video: has_video,
+            data_offset: 9,
+        }
+    }
     pub fn read_from<R>(reader: R) -> FLVResult<FLVHeader>
     where
         R: io::Read,

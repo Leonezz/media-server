@@ -26,7 +26,7 @@ where
         Ok(())
     }
 
-    fn write_tag_header(&mut self, tag_header: &FLVTagHeader) -> FLVResult<()> {
+    pub fn write_tag_header(&mut self, tag_header: &FLVTagHeader) -> FLVResult<()> {
         let mut byte: u8 = 0;
         if tag_header.filter_enabled {
             byte = 0b0010_0000;
@@ -83,5 +83,14 @@ impl FLVTag {
         W: io::Write,
     {
         Writer::new(writer).write(self)
+    }
+}
+
+impl FLVTagHeader {
+    pub fn write_to<W>(&self, writer: W) -> FLVResult<()>
+    where
+        W: io::Write,
+    {
+        Writer::new(writer).write_tag_header(self)
     }
 }

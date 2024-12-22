@@ -2,14 +2,14 @@ use std::{
     cmp::min,
     collections::HashMap,
     fmt::Display,
-    io::{Cursor, Read},
+    io::{BufRead, Cursor, Read},
     sync::Arc,
 };
 
 use flv::tag::{FLVTag, FLVTagType};
 use tokio::sync::{RwLock, mpsc};
 use tokio_util::bytes::{Buf, BytesMut};
-use utils::system::util::get_timestamp_ns;
+use utils::system::time::get_timestamp_ns;
 use uuid::Uuid;
 
 use crate::{
@@ -361,6 +361,9 @@ impl StreamSource {
             let mut body_bytes = BytesMut::with_capacity(flv_tag_header.data_size as usize);
             body_bytes.resize(flv_tag_header.data_size as usize, 0);
             cursor.read_exact(&mut body_bytes)?;
+
+            // skip prev tag size
+            cursor.advance(4);
 
             if timestamp_delta.is_none() {
                 timestamp_delta = Some(aggregate_meta.pts - (flv_tag_header.timestamp as u64));

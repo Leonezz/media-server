@@ -1,0 +1,36 @@
+[package]
+name = "httpflv-server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+utils = { path = "../../utils" }
+stream-center = { path = "../../streamcenter" }
+flv = { path = "../../formats/flv" }
+
+thiserror = "2.0.7"
+tokio = { version = "1.42.0", features = ["full"] }
+tokio-util = "0.7.13"
+tokio-stream = "0.1.17"
+byteorder = "1.5.0"
+
+hyper = { version = "1.5.2", features = ["full"] }
+http-body-util = "0.1.2"
+hyper-util = { version = "0.1.10", features = ["full"] }
+url = "2.5.4"
+
+tracing = "0.1.41"
+tracing-subscriber = "0.3.19"
+tracing-tracy = "0.11.3"
+tracing-futures = { version = "0.2.5", features = ["tokio"] }
+serde_json = "1.0.133"
+serde = { version = "1.0.216", features = ["derive"] }
+
+
+[dependencies.uuid]
+version = "1.11.0"
+features = [
+  "v7",                # Lets you generate random UUIDs
+  "fast-rng",          # Use a faster (but still sufficiently random) RNG
+  "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
+]
