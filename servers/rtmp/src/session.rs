@@ -31,7 +31,10 @@ use rtmp_formats::{
     },
     user_control::UserControlEvent,
 };
-use stream_center::frame_info::{MediaMessageRuntimeStat, MetaMeta};
+use stream_center::{
+    events::SubscribeResponse,
+    frame_info::{MediaMessageRuntimeStat, MetaMeta},
+};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, BufWriter},
     net::TcpStream,
@@ -1071,7 +1074,7 @@ impl RtmpSession {
         &self,
         stream_name: &str,
         app: &str,
-    ) -> RtmpServerResult<(Uuid, StreamType, mpsc::Receiver<FrameData>)> {
+    ) -> RtmpServerResult<SubscribeResponse> {
         let (tx, rx) = oneshot::channel();
         self.stream_center_event_sender
             .send(StreamCenterEvent::Subscribe {
@@ -1113,13 +1116,13 @@ impl RtmpSession {
                 );
                 return Err(err.into());
             }
-            Ok(Ok((uuid, stream_type, receiver))) => {
+            Ok(Ok(response)) => {
                 tracing::info!(
                     "subscribe from stream center success, stream_name: {}, app: {}",
                     stream_name,
                     app
                 );
-                Ok((uuid, stream_type, receiver))
+                Ok(response)
             }
         }
     }
@@ -1219,14 +1222,14 @@ impl RtmpSession {
                     self.stream_properties.amf_version,
                 )?;
             }
-            Ok((uuid, stream_type, receiver)) => {
+            Ok(response) => {
                 self.runtime_handle = SessionRuntime::Play(Arc::new(RwLock::new(PlayHandle {
-                    stream_data_consumer: receiver,
-                    stream_type,
-                    receive_audio: true,
-                    receive_video: true,
+                    stream_data_consumer: response.media_receiver,
+                    stream_type: response.stream_type,
+                    receive_audio: response.has_audio,
+                    receive_video: response.has_video,
                     buffer_length: None,
-                    play_id: uuid,
+                    play_id: response.subscribe_id,
                     stat: Default::default(),
                 })));
                 if reset {

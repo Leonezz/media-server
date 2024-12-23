@@ -23,12 +23,20 @@ pub enum StreamCenterEvent {
     },
     Subscribe {
         stream_id: StreamIdentifier,
-        result_sender:
-            oneshot::Sender<StreamCenterResult<(Uuid, StreamType, mpsc::Receiver<FrameData>)>>,
+        result_sender: oneshot::Sender<StreamCenterResult<SubscribeResponse>>,
     },
     Unsubscribe {
         stream_id: StreamIdentifier,
         uuid: Uuid,
         result_sender: oneshot::Sender<StreamCenterResult<()>>,
     },
+}
+
+#[derive(Debug)]
+pub struct SubscribeResponse {
+    pub subscribe_id: Uuid,
+    pub stream_type: StreamType,
+    pub has_video: bool,
+    pub has_audio: bool,
+    pub media_receiver: mpsc::Receiver<FrameData>,
 }

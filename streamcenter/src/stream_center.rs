@@ -9,13 +9,19 @@ use uuid::Uuid;
 
 use crate::{
     errors::{StreamCenterError, StreamCenterResult},
-    events::StreamCenterEvent,
+    events::{StreamCenterEvent, SubscribeResponse},
     frame_info::FrameData,
     signal::StreamSignal,
     stream_source::{
         ConsumeGopCache, StreamIdentifier, StreamSource, StreamType, SubscribeHandler,
     },
 };
+
+#[derive(Debug)]
+pub struct StreamSourceDynamicInfo {
+    pub has_video: bool,
+    pub has_audio: bool,
+}
 
 #[derive(Debug)]
 struct StreamSourceHandles {
@@ -26,6 +32,7 @@ struct StreamSourceHandles {
     stream_type: StreamType,
 
     data_distributer: Arc<RwLock<HashMap<Uuid, SubscribeHandler>>>,
+    stream_dynamic_info: Arc<RwLock<StreamSourceDynamicInfo>>,
 }
 
 #[derive(Debug)]
@@ -118,6 +125,11 @@ impl StreamCenter {
         let (frame_sender, frame_receiver) = mpsc::channel(128);
         let (signal_sender, signal_receiver) = mpsc::channel(1);
         let data_distributer = Arc::new(RwLock::new(HashMap::new()));
+        let stream_source_dynamic_info = Arc::new(RwLock::new(StreamSourceDynamicInfo {
+            has_video: true,
+            has_audio: true,
+        }));
+
         let mut source = StreamSource::new(
             &stream_id.stream_name,
             &stream_id.app,
@@ -125,7 +137,8 @@ impl StreamCenter {
             context.clone(),
             frame_receiver,
             signal_receiver,
-            data_distributer.clone(),
+            Arc::clone(&data_distributer),
+            Arc::clone(&stream_source_dynamic_info),
         );
 
         tokio::spawn(async move { source.run().await });
@@ -136,6 +149,7 @@ impl StreamCenter {
             stream_identifier: stream_id.clone(),
             stream_type,
             data_distributer,
+            stream_dynamic_info: stream_source_dynamic_info,
         });
 
         result_sender.send(Ok(frame_sender)).map_err(|err| {
@@ -210,9 +224,7 @@ impl StreamCenter {
     async fn process_subscribe_event(
         &mut self,
         stream_id: StreamIdentifier,
-        result_sender: oneshot::Sender<
-            StreamCenterResult<(Uuid, StreamType, mpsc::Receiver<FrameData>)>,
-        >,
+        result_sender: oneshot::Sender<StreamCenterResult<SubscribeResponse>>,
     ) -> StreamCenterResult<()> {
         if !self.streams.contains_key(&stream_id) {
             return result_sender
@@ -244,7 +256,13 @@ impl StreamCenter {
         }
 
         result_sender
-            .send(Ok((uuid, stream_type, rx)))
+            .send(Ok(SubscribeResponse {
+                subscribe_id: uuid,
+                stream_type: stream_type,
+                has_video: true,
+                has_audio: true,
+                media_receiver: rx,
+            }))
             .map_err(|err| {
                 tracing::error!(
                     "deliver subscribe success result to caller failed, {:?}",

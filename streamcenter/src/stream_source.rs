@@ -6,7 +6,10 @@ use std::{
     sync::Arc,
 };
 
-use flv::tag::{FLVTag, FLVTagType};
+use flv::{
+    header,
+    tag::{FLVTag, FLVTagType},
+};
 use tokio::sync::{RwLock, mpsc};
 use tokio_util::bytes::{Buf, BytesMut};
 use utils::system::time::get_timestamp_ns;
@@ -19,6 +22,7 @@ use crate::{
     },
     gop::GopQueue,
     signal::StreamSignal,
+    stream_center::StreamSourceDynamicInfo,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -110,6 +114,7 @@ pub struct StreamSource {
     context: HashMap<String, serde_json::Value>,
     data_receiver: mpsc::Receiver<FrameData>,
     data_distributer: Arc<RwLock<HashMap<Uuid, SubscribeHandler>>>,
+    stream_dynamic_info: Arc<RwLock<StreamSourceDynamicInfo>>,
     // data_consumer: broadcast::Receiver<FrameData>,
     status: StreamStatus,
     signal_receiver: mpsc::Receiver<StreamSignal>,
@@ -125,6 +130,7 @@ impl StreamSource {
         data_receiver: mpsc::Receiver<FrameData>,
         signal_receiver: mpsc::Receiver<StreamSignal>,
         data_distributer: Arc<RwLock<HashMap<Uuid, SubscribeHandler>>>,
+        stream_dynamic_info: Arc<RwLock<StreamSourceDynamicInfo>>,
     ) -> Self {
         Self {
             identifier: StreamIdentifier {
@@ -135,6 +141,7 @@ impl StreamSource {
             context,
             data_receiver,
             data_distributer,
+            stream_dynamic_info,
             // data_consumer: rx,
             gop_cache: GopQueue::new(100_1000, 1000),
             status: StreamStatus::NotStarted,
@@ -283,6 +290,13 @@ impl StreamSource {
     where
         F: Fn(&mut PlayStat, &FrameData, bool) -> (),
     {
+        // we trust the gop stats after 3 gops (but why?)
+        if self.gop_cache.gops.len() > 2 {
+            self.stream_dynamic_info.write().await.has_audio =
+                self.gop_cache.get_audio_frame_cut() > 0;
+            self.stream_dynamic_info.write().await.has_video =
+                self.gop_cache.get_video_frame_cnt() > 0;
+        }
         if let Some(video_sh) = &self.gop_cache.video_sequence_header {
             let res = handler.data_sender.try_send(video_sh.clone());
             if res.is_err() {

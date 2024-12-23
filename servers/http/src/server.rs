@@ -1,9 +1,9 @@
-use std::{collections::HashMap, pin::Pin};
+use std::{collections::HashMap, convert::Infallible, pin::Pin};
 
-use http_body_util::{BodyExt, BodyStream, Empty, StreamBody};
+use http_body_util::{BodyExt, Empty, Full, StreamBody};
 use hyper::{
     Method, Request, Response, StatusCode,
-    body::{Frame, Incoming},
+    body::{Body, Bytes, Frame, Incoming},
     header,
     server::conn::http1,
     service::Service,
@@ -13,7 +13,7 @@ use stream_center::events::StreamCenterEvent;
 use tokio::sync::mpsc::{self, UnboundedReceiver};
 use tokio_stream::{StreamExt, wrappers::UnboundedReceiverStream};
 use tokio_util::bytes::BytesMut;
-use url::Url;
+use url::{Host, Url};
 
 use crate::{
     config::{HttpFlvServerConfig, HttpFlvSessionConfig},
@@ -55,44 +55,43 @@ impl HttpFlvServer {
 
             let service = self.clone();
             tokio::spawn(async move {
-                http1::Builder::new()
+                let _ = http1::Builder::new()
                     .serve_connection(tokio_io, service)
-                    .await
+                    .await;
             });
         }
     }
 }
 
 impl Service<Request<Incoming>> for HttpFlvServer {
-    type Error = HttpFlvServerError;
-    type Response =
-        Response<StreamBody<UnboundedReceiverStream<HttpFlvServerResult<Frame<BytesMut>>>>>;
+    type Error = Infallible;
+    type Response = Response<StreamBody<UnboundedReceiverStream<Result<Frame<Bytes>, Infallible>>>>;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+
     fn call(&self, req: Request<Incoming>) -> Self::Future {
         let (response_sender, response_receiver) =
-            mpsc::unbounded_channel::<HttpFlvServerResult<Frame<BytesMut>>>();
-        let response_stream: StreamBody<
-            UnboundedReceiverStream<HttpFlvServerResult<Frame<BytesMut>>>,
-        > = StreamBody::new(tokio_stream::wrappers::UnboundedReceiverStream::new(
-            response_receiver,
-        ));
+            mpsc::unbounded_channel::<Result<Frame<Bytes>, Infallible>>();
+        let response_stream: StreamBody<UnboundedReceiverStream<Result<Frame<Bytes>, Infallible>>> =
+            StreamBody::new(tokio_stream::wrappers::UnboundedReceiverStream::new(
+                response_receiver,
+            ));
         fn make_response(
             code: StatusCode,
         ) -> Result<
             Response<
                 StreamBody<
                     tokio_stream::wrappers::UnboundedReceiverStream<
-                        HttpFlvServerResult<Frame<BytesMut>>,
+                        Result<Frame<Bytes>, Infallible>,
                     >,
                 >,
             >,
-            HttpFlvServerError,
+            Infallible,
         > {
-            let (_, mut rx) = mpsc::unbounded_channel::<HttpFlvServerResult<Frame<BytesMut>>>();
+            let (_, mut rx) = mpsc::unbounded_channel::<Result<Frame<Bytes>, Infallible>>();
             rx.close();
-            let response_stream: StreamBody<
-                UnboundedReceiverStream<HttpFlvServerResult<Frame<BytesMut>>>,
-            > = StreamBody::new(tokio_stream::wrappers::UnboundedReceiverStream::new(rx));
+
+            let response_stream =
+                StreamBody::new(tokio_stream::wrappers::UnboundedReceiverStream::new(rx));
             Ok(Response::builder()
                 .status(code)
                 .body(response_stream)
@@ -105,7 +104,15 @@ impl Service<Request<Incoming>> for HttpFlvServer {
         }
 
         let uri = req.uri();
-        let uri = format!("http://0.0.0.0:8888{}", uri.path());
+        let mut host: Option<&str> = uri.host();
+        if host.is_none() {
+            host = req
+                .headers()
+                .get("host")
+                .map(|v| v.to_str().unwrap_or("0.0.0.0"));
+        }
+
+        let uri = format!("http://{}{}", host.unwrap_or("0.0.0.0"), uri.path());
         let url = Url::parse(uri.as_str()).expect("Could I get a bad url from hyper?");
 
         let app;
@@ -152,18 +159,20 @@ impl Service<Request<Incoming>> for HttpFlvServer {
             response_sender,
         );
 
-        tokio::spawn(async move { session.serve_pull_request().await });
+        tokio::spawn(async move {
+            let _ = session.serve_pull_request().await;
+            let _ = session.unsubscribe_from_stream_center().await;
+        });
 
         let response: Response<
             StreamBody<
-                tokio_stream::wrappers::UnboundedReceiverStream<
-                    HttpFlvServerResult<Frame<BytesMut>>,
-                >,
+                tokio_stream::wrappers::UnboundedReceiverStream<Result<Frame<Bytes>, Infallible>>,
             >,
         > = Response::builder()
             .header(header::CONTENT_TYPE, "video/x-flv")
             .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
             .header(header::TRANSFER_ENCODING, "chunked")
+            .status(StatusCode::OK)
             .body(response_stream)
             .unwrap();
         Box::pin(async { Ok(response) })
