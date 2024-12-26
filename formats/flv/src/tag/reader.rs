@@ -77,10 +77,10 @@ impl FLVTag {
 
     pub fn read_tag_body(
         tag_type: FLVTagType,
-        payload: BytesMut,
+        mut payload: BytesMut,
         filter_enabled: bool,
     ) -> FLVResult<FLVTagBodyWithFilter> {
-        let mut cursor_bytes = Cursor::new(payload);
+        let mut cursor_bytes = Cursor::new(&mut payload);
 
         // TODO(check) - how the fuck should I do with the filter params, the spec sucks
         let filter = if !filter_enabled {

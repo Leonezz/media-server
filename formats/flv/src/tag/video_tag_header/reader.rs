@@ -1,40 +1,46 @@
 use byteorder::{BigEndian, ReadBytesExt};
-use std::io;
+use std::io::{self, Cursor};
+use tokio_util::{bytes::BytesMut, either::Either};
 
-use crate::errors::FLVResult;
+use crate::{errors::FLVResult, tag::enhanced::ex_video::ex_video_header::ExVideoTagHeader};
 
 use super::{CodecID, FrameType, VideoTagHeader};
 
-pub struct Reader<R> {
-    inner: R,
-}
+impl VideoTagHeader {
+    pub fn read_from(
+        mut reader: &mut Cursor<&mut BytesMut>,
+    ) -> FLVResult<Either<VideoTagHeader, ExVideoTagHeader>> {
+        let byte = reader.read_u8()?;
 
-impl<R> Reader<R>
-where
-    R: io::Read,
-{
-    pub fn new(inner: R) -> Self {
-        Self { inner }
-    }
+        let is_ex_header = ((byte >> 7) & 0b1) == 0b1;
+        if is_ex_header {
+            let ex_header = ExVideoTagHeader::read_from(&mut reader, byte)?;
+            return Ok(Either::Right(ex_header));
+        }
 
-    pub fn read(&mut self) -> FLVResult<VideoTagHeader> {
-        let byte = self.inner.read_u8()?;
         let frame_type: FrameType = ((byte >> 4) & 0b1111).try_into()?;
         let codec_id: CodecID = ((byte >> 0) & 0b1111).try_into()?;
+
+        let mut video_command = None;
+        if frame_type == FrameType::CommandFrame {
+            video_command = Some(reader.read_u8()?.try_into()?);
+        }
+
         let mut avc_packet_type = None;
         let mut composition_time = None;
         if codec_id == CodecID::AVC {
-            let packet_type = self.inner.read_u8()?;
+            let packet_type = reader.read_u8()?;
             avc_packet_type = Some(packet_type.try_into()?);
 
-            let time = self.inner.read_u24::<BigEndian>()?;
+            let time = reader.read_u24::<BigEndian>()?;
             composition_time = Some(time);
         }
-        Ok(VideoTagHeader {
+        Ok(Either::Left(VideoTagHeader {
             frame_type,
             codec_id,
+            video_command,
             avc_packet_type,
             composition_time,
-        })
+        }))
     }
 }

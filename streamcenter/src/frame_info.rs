@@ -1,12 +1,13 @@
 use std::fmt::Debug;
 
-use tokio_util::bytes::BytesMut;
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct VideoResolution {
-    width: usize,
-    height: usize,
-}
+use flv::tag::{
+    audio_tag_header,
+    enhanced::{
+        ex_audio::ex_audio_header::ExAudioTagHeader, ex_video::ex_video_header::ExVideoTagHeader,
+    },
+    video_tag_header,
+};
+use tokio_util::{bytes::BytesMut, either::Either};
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct MediaMessageRuntimeStat {
@@ -18,12 +19,11 @@ pub struct MediaMessageRuntimeStat {
     pub play_time_ns: u128,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone)]
 pub struct VideoMeta {
     pub pts: u64,
     // NOTE - this tag_header is also included in the frame payload
-    pub tag_header: flv::tag::video_tag_header::VideoTagHeader,
-    pub resolution: VideoResolution,
+    pub tag_header: Either<flv::tag::video_tag_header::VideoTagHeader, ExVideoTagHeader>,
 
     pub runtime_stat: MediaMessageRuntimeStat,
 }
@@ -35,11 +35,11 @@ pub struct MetaMeta {
     pub runtime_stat: MediaMessageRuntimeStat,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone)]
 pub struct AudioMeta {
     pub pts: u64,
     // NOTE - this tag_header is also included in the frame payload
-    pub tag_header: flv::tag::audio_tag_header::AudioTagHeader,
+    pub tag_header: Either<flv::tag::audio_tag_header::AudioTagHeader, ExAudioTagHeader>,
 
     pub runtime_stat: MediaMessageRuntimeStat,
 }
@@ -114,7 +114,10 @@ impl FrameData {
     #[inline]
     pub fn is_video_key_frame(&self) -> bool {
         match self {
-            FrameData::Video { meta, payload: _ } => meta.tag_header.is_key_frame(),
+            FrameData::Video { meta, payload: _ } => match &meta.tag_header {
+                Either::Left(header) => header.is_key_frame(),
+                Either::Right(ex_header) => ex_header.is_key_frame(),
+            },
             _ => false,
         }
     }
@@ -122,8 +125,12 @@ impl FrameData {
     #[inline]
     pub fn is_sequence_header(&self) -> bool {
         match self {
-            FrameData::Audio { meta, payload: _ } => meta.tag_header.is_sequence_header(),
-            FrameData::Video { meta, payload: _ } => meta.tag_header.is_sequence_header(),
+            FrameData::Audio { meta, payload: _ } => {
+                audio_tag_header::is_sequence_header(&meta.tag_header)
+            }
+            FrameData::Video { meta, payload: _ } => {
+                video_tag_header::is_sequence_header(&meta.tag_header)
+            }
             _ => false,
         }
     }

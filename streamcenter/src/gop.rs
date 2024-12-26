@@ -1,5 +1,7 @@
 use std::collections::VecDeque;
 
+use flv::tag::{audio_tag_header, video_tag_header};
+
 use crate::{errors::StreamCenterResult, frame_info::FrameData};
 
 #[derive(Debug)]
@@ -57,7 +59,7 @@ impl Gop {
     }
 
     pub fn append_frame(&mut self, frame: FrameData) {
-        match frame {
+        match &frame {
             FrameData::Video { meta, payload: _ } => {
                 self.video_frame_cnt += 1;
                 if self.frames.is_empty() {
@@ -162,18 +164,20 @@ impl GopQueue {
 
     pub fn append_frame(&mut self, frame: FrameData) -> StreamCenterResult<()> {
         let mut is_sequence_header = false;
-        match frame {
+        match &frame {
             FrameData::Audio { meta, payload: _ } => {
-                if meta.tag_header.is_sequence_header() {
+                if audio_tag_header::is_sequence_header(&meta.tag_header) {
+                    tracing::info!("{:?}", meta.tag_header);
                     self.audio_sequence_header = Some(frame.clone());
                     is_sequence_header = true
                 }
             }
             FrameData::Video { meta, payload: _ } => {
-                if meta.tag_header.is_sequence_header() {
+                if video_tag_header::is_sequence_header(&meta.tag_header) {
                     self.video_sequence_header = Some(frame.clone());
+                    tracing::info!("{:?}", meta.tag_header);
                     is_sequence_header = true;
-                } else if meta.tag_header.is_key_frame() {
+                } else if video_tag_header::is_key_frame(&meta.tag_header) {
                     self.gops.push_back(Gop::new());
                 }
             }

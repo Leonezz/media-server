@@ -48,11 +48,21 @@ where
         }
         match &tag_body.body {
             FLVTagBody::Audio { header, body } => {
-                header.write_to(self.inner.by_ref())?;
+                match header {
+                    Either::Left(header) => header.write_to(self.inner.by_ref())?,
+                    Either::Right(ex_header) => {
+                        todo!()
+                    }
+                }
                 self.inner.write_all(&body)?;
             }
             FLVTagBody::Video { header, body } => {
-                header.write_to(self.inner.by_ref())?;
+                match header {
+                    Either::Left(header) => header.write_to(self.inner.by_ref())?,
+                    Either::Right(ex_header) => {
+                        todo!()
+                    }
+                }
                 self.inner.write_all(&body)?;
             }
             FLVTagBody::Meta { name, value } => {

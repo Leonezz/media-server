@@ -26,6 +26,24 @@ pub enum FLVError {
     AMFError(#[from] amf::errors::AmfError),
     #[error("unexpected value: {0}")]
     UnexpectedValue(String),
+    #[error("unknown fourcc: {0}")]
+    UnknownFourCC(String),
+    #[error("unknown audio packet type: {0}")]
+    UnknownAudioPacketType(u8),
+    #[error("unknown multi track type: {0}")]
+    UnknownMultiTrackType(u8),
+    #[error("unknown audio channel order: {0}")]
+    UnknownChannelOrder(u8),
+    #[error("unknown audio channel: {0}")]
+    UnknownAudioChannel(u8),
+    #[error("unknown audio packet mod ex type: {0}")]
+    UnknownAudioPacketModExType(u8),
+    #[error("unknown video packet mod ex type: {0}")]
+    UnknownVideoPacketModExType(u8),
+    #[error("unknown video command type: {0}")]
+    UnknownVideoCommandType(u8),
+    #[error("unknown video packet type: {0}")]
+    UnknownVideoPacketType(u8),
 }
 
 pub type FLVResult<T> = Result<T, FLVError>;

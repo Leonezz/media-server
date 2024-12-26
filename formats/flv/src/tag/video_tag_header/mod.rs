@@ -1,10 +1,13 @@
 use std::io;
 
+use tokio_util::either::Either;
+
 use crate::errors::{FLVError, FLVResult};
+
+use super::enhanced::ex_video::ex_video_header::ExVideoTagHeader;
 
 pub mod reader;
 pub mod writer;
-
 ///
 /// Type of video frame.
 /// The following values are defined:
@@ -17,9 +20,9 @@ pub mod writer;
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub enum FrameType {
     #[default]
-    AVCKeyFrame = 1,
-    AVCInterFrame = 2,
-    H263DisposableInterFrame = 3,
+    KeyFrame = 1,
+    InterFrame = 2,
+    DisposableInterFrame = 3,
     GeneratedKeyFrame = 4,
     CommandFrame = 5,
 }
@@ -34,9 +37,9 @@ impl TryFrom<u8> for FrameType {
     type Error = FLVError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            1 => Ok(Self::AVCKeyFrame),
-            2 => Ok(Self::AVCInterFrame),
-            3 => Ok(Self::H263DisposableInterFrame),
+            1 => Ok(Self::KeyFrame),
+            2 => Ok(Self::InterFrame),
+            3 => Ok(Self::DisposableInterFrame),
             4 => Ok(Self::GeneratedKeyFrame),
             5 => Ok(Self::CommandFrame),
             _ => Err(FLVError::UnknownVideoFrameType(value)),
@@ -63,6 +66,7 @@ pub enum CodecID {
     ScreenVideoV2 = 6,
     #[default]
     AVC = 7,
+    HEVC = 12, // not standard, but used a lot
 }
 
 impl Into<u8> for CodecID {
@@ -118,11 +122,38 @@ impl TryFrom<u8> for AVCPacketType {
     }
 }
 
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VideoCommand {
+    StartSeek = 0,
+    EndSeek = 1,
+    // 0x03 = reserved
+    // ...
+    // 0xff = reserved
+}
+
+impl Into<u8> for VideoCommand {
+    fn into(self) -> u8 {
+        self as u8
+    }
+}
+
+impl TryFrom<u8> for VideoCommand {
+    type Error = FLVError;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(VideoCommand::StartSeek),
+            1 => Ok(VideoCommand::EndSeek),
+            _ => Err(FLVError::UnknownVideoCommandType(value)),
+        }
+    }
+}
 #[derive(Debug, Clone, Copy, Default)]
 pub struct VideoTagHeader {
     pub frame_type: FrameType,
     pub codec_id: CodecID,
     pub avc_packet_type: Option<AVCPacketType>,
+    pub video_command: Option<VideoCommand>,
     ///
     /// IF CodecID == 7
     /// IF AVCPacketType == 1
@@ -156,7 +187,7 @@ impl VideoTagHeader {
 
     #[inline]
     pub fn is_avc_key_frame(&self) -> bool {
-        self.frame_type == FrameType::AVCKeyFrame
+        self.frame_type == FrameType::KeyFrame
     }
 
     #[inline]
@@ -195,17 +226,24 @@ impl VideoTagHeader {
 }
 
 impl VideoTagHeader {
-    pub fn read_from<R>(reader: R) -> FLVResult<VideoTagHeader>
-    where
-        R: io::Read,
-    {
-        reader::Reader::new(reader).read()
-    }
-
     pub fn write_to<W>(&self, writer: W) -> FLVResult<()>
     where
         W: io::Write,
     {
         writer::Writer::new(writer).write(self)
+    }
+}
+
+pub fn is_sequence_header(header: &Either<VideoTagHeader, ExVideoTagHeader>) -> bool {
+    match header {
+        Either::Left(h) => h.is_sequence_header(),
+        Either::Right(h) => h.is_sequence_header(),
+    }
+}
+
+pub fn is_key_frame(header: &Either<VideoTagHeader, ExVideoTagHeader>) -> bool {
+    match header {
+        Either::Left(h) => h.is_key_frame(),
+        Either::Right(h) => h.is_key_frame(),
     }
 }

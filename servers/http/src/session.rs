@@ -11,7 +11,7 @@ use byteorder::{BigEndian, WriteBytesExt};
 use flv::{
     errors::FLVResult,
     header::FLVHeader,
-    tag::{FLVTagHeader, FLVTagType},
+    tag::{FLVTagHeader, FLVTagType, audio_tag_header, video_tag_header},
 };
 use http_body_util::BodyStream;
 use hyper::{
@@ -108,15 +108,15 @@ impl HttpFlvSession {
             match response.media_receiver.recv().await {
                 None => {}
                 Some(frame) => {
-                    match frame {
+                    match &frame {
                         FrameData::Video { meta, payload: _ } => {
-                            if meta.tag_header.is_sequence_header() {
+                            if video_tag_header::is_sequence_header(&meta.tag_header) {
                                 has_video_sequence_header = true;
                                 self.runtime_stat.video_sequence_header_sent = true;
                             }
                         }
                         FrameData::Audio { meta, payload: _ } => {
-                            if meta.tag_header.is_sequence_header() {
+                            if audio_tag_header::is_sequence_header(&meta.tag_header) {
                                 has_audio_sequence_header = true;
                                 self.runtime_stat.audio_sequence_header_sent = true;
                             }

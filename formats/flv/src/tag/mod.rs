@@ -1,10 +1,14 @@
 use std::{
+    ascii,
     fmt::Debug,
     io::{self, Cursor},
 };
 
 use audio_tag_header::AudioTagHeader;
 use encryption::{EncryptionTagHeader, FilterParams};
+use enhanced::{
+    ex_audio::ex_audio_header::ExAudioTagHeader, ex_video::ex_video_header::ExVideoTagHeader,
+};
 use tokio_util::{bytes::BytesMut, either::Either};
 use video_tag_header::VideoTagHeader;
 
@@ -12,9 +16,11 @@ use crate::errors::{FLVError, FLVResult};
 
 pub mod audio_tag_header;
 pub mod encryption;
+pub mod enhanced;
 pub mod reader;
 pub mod video_tag_header;
 pub mod writer;
+
 #[repr(u8)]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum FLVTagType {
@@ -70,11 +76,11 @@ pub struct Filter {
 
 pub enum FLVTagBody {
     Audio {
-        header: AudioTagHeader,
+        header: Either<AudioTagHeader, ExAudioTagHeader>,
         body: BytesMut,
     },
     Video {
-        header: VideoTagHeader,
+        header: Either<VideoTagHeader, ExVideoTagHeader>,
         body: BytesMut,
     },
     Meta {

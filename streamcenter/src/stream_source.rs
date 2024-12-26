@@ -8,10 +8,13 @@ use std::{
 
 use flv::{
     header,
-    tag::{FLVTag, FLVTagType},
+    tag::{FLVTag, FLVTagType, audio_tag_header::AudioTagHeader, video_tag_header::VideoTagHeader},
 };
 use tokio::sync::{RwLock, mpsc};
-use tokio_util::bytes::{Buf, BytesMut};
+use tokio_util::{
+    bytes::{Buf, BytesMut},
+    either::Either,
+};
 use utils::system::time::get_timestamp_ns;
 use uuid::Uuid;
 
@@ -189,10 +192,6 @@ impl StreamSource {
                 meta.tag_header = tag_header;
 
                 meta.runtime_stat.stream_source_parse_time_ns = get_timestamp_ns().unwrap_or(0);
-
-                if meta.tag_header.is_aac_sequence_header() {
-                    tracing::info!("got aac seq header");
-                }
             }
             FrameData::Video {
                 meta,
@@ -210,9 +209,6 @@ impl StreamSource {
                 // if let Some(time) = tag_header.composition_time {
                 //     meta.pts = time.into();
                 // }
-                if meta.tag_header.is_sequence_header() {
-                    tracing::info!("got avc seq header");
-                }
             }
             FrameData::Meta { meta, payload: _ } => {
                 meta.runtime_stat.stream_source_received_time_ns = get_timestamp_ns().unwrap_or(0);
@@ -395,7 +391,7 @@ impl StreamSource {
                                     .publish_stream_source_time_ns,
                                 ..Default::default()
                             },
-                            ..Default::default()
+                            tag_header: Either::Left(AudioTagHeader::default()),
                         },
                         payload: body_bytes,
                     })
@@ -413,7 +409,7 @@ impl StreamSource {
                                 stream_source_received_time_ns: get_timestamp_ns().unwrap_or(0),
                                 ..Default::default()
                             },
-                            ..Default::default()
+                            tag_header: Either::Left(VideoTagHeader::default()),
                         },
                         payload: body_bytes,
                     })

@@ -13,6 +13,7 @@ use ::stream_center::{
     frame_info::{AggregateMeta, AudioMeta, FrameData, VideoMeta},
     stream_source::{StreamIdentifier, StreamType},
 };
+use flv::tag::{audio_tag_header::AudioTagHeader, video_tag_header::VideoTagHeader};
 use rtmp_formats::{
     chunk::{
         self, ChunkMessage, ChunkMessageCommonHeader, RtmpChunkMessageBody,
@@ -498,7 +499,7 @@ impl RtmpSession {
                                 publish_stream_source_time_ns: get_timestamp_ns().unwrap_or(0),
                                 ..Default::default()
                             },
-                            ..Default::default()
+                            tag_header: Either::Left(AudioTagHeader::default()),
                         },
                         payload: audio,
                     })
@@ -546,7 +547,7 @@ impl RtmpSession {
                                 publish_stream_source_time_ns: get_timestamp_ns().unwrap_or(0),
                                 ..Default::default()
                             },
-                            ..Default::default()
+                            tag_header: Either::Left(VideoTagHeader::default()),
                         },
                         payload: video,
                     })
