@@ -1,4 +1,4 @@
-use std::time::{self, SystemTime, SystemTimeError, UNIX_EPOCH};
+use std::time::{self, SystemTimeError, UNIX_EPOCH};
 
 pub fn random_fill(buffer: &mut [u8]) {
     for i in buffer {

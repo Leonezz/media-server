@@ -9,7 +9,13 @@ tokio = { version = "1.42.0", features = ["full"] }
 rtmp-server = { path = "../servers/rtmp" }
 httpflv-server = { path = "../servers/http" }
 stream-center = { path = "../streamcenter" }
-tracing-subscriber = "0.3.19"
+tracing-subscriber = { version = "0.3.19", features = [
+  "time",
+  "local-time",
+  "fmt",
+  "std",
+] }
+time = { version = "0.3.37", features = ["macros"] }
 tracing-tracy = "0.11.3"
 
 [[bin]]

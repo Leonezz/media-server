@@ -1,5 +1,5 @@
 use byteorder::{BigEndian, ReadBytesExt};
-use std::io::{self, Cursor};
+use std::io::Cursor;
 use tokio_util::{bytes::BytesMut, either::Either};
 
 use crate::{errors::FLVResult, tag::enhanced::ex_video::ex_video_header::ExVideoTagHeader};

@@ -1,6 +1,5 @@
 use stream_center::events::StreamCenterEvent;
 use tokio::sync::mpsc;
-use tracing::instrument;
 
 use crate::config::RtmpSessionConfig;
 
@@ -58,6 +57,7 @@ impl RtmpServer {
                     }
                 };
                 session.log_stats().await;
+                let _ = session.clean_up().await;
             });
         }
     }

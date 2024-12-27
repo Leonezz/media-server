@@ -10,10 +10,10 @@ use std::{
 
 use ::stream_center::{
     events::StreamCenterEvent,
-    frame_info::{AggregateMeta, AudioMeta, FrameData, VideoMeta},
+    frame_info::{AggregateMeta, AudioMeta, ChunkFrameData, VideoMeta},
     stream_source::{StreamIdentifier, StreamType},
 };
-use flv::tag::{audio_tag_header::AudioTagHeader, video_tag_header::VideoTagHeader};
+use flv::errors::FLVResult;
 use rtmp_formats::{
     chunk::{
         self, ChunkMessage, ChunkMessageCommonHeader, RtmpChunkMessageBody,
@@ -35,6 +35,7 @@ use rtmp_formats::{
 use stream_center::{
     events::SubscribeResponse,
     frame_info::{MediaMessageRuntimeStat, MetaMeta},
+    gop::FLVMediaFrame,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, BufWriter},
@@ -76,7 +77,7 @@ pub struct SessionStat {
 
 #[derive(Debug)]
 struct PlayHandle {
-    stream_data_consumer: mpsc::Receiver<FrameData>,
+    stream_data_consumer: mpsc::Receiver<FLVMediaFrame>,
     stream_type: StreamType,
     play_id: Uuid,
     receive_audio: bool,
@@ -87,7 +88,7 @@ struct PlayHandle {
 
 #[derive(Debug)]
 struct PublishHandle {
-    stream_data_producer: mpsc::Sender<FrameData>,
+    stream_data_producer: mpsc::Sender<ChunkFrameData>,
     no_data_since: Option<SystemTime>,
     stat: SessionStat,
 }
@@ -261,7 +262,7 @@ impl RtmpSession {
             };
 
             if let Some(play_handle) = play_handle {
-                let play_id = play_handle.read().await.play_id.clone();
+                // let play_id = play_handle.read().await.play_id.clone();
                 let res = self.playing(play_handle).await;
                 match res {
                     Ok(_) => {
@@ -271,14 +272,6 @@ impl RtmpSession {
                         tracing::info!("play session end with err: {:?}", err);
                     }
                 }
-
-                return self
-                    .unsubscribe_from_stream_center(
-                        play_id,
-                        &self.stream_properties.stream_name,
-                        &self.stream_properties.app,
-                    )
-                    .await;
             }
 
             match self.read_chunk().await {
@@ -330,6 +323,29 @@ impl RtmpSession {
         }
     }
 
+    pub async fn clean_up(&self) -> RtmpServerResult<()> {
+        match &self.runtime_handle {
+            SessionRuntime::Play(play_handle) => {
+                let play_id = play_handle.read().await.play_id;
+                self.unsubscribe_from_stream_center(
+                    play_id,
+                    &self.stream_properties.stream_name,
+                    &self.stream_properties.app,
+                )
+                .await?
+            }
+            SessionRuntime::Publish(_publish_handle) => {
+                self.unpublish_from_stream_center(
+                    &self.stream_properties.stream_name,
+                    &self.stream_properties.app,
+                )
+                .await?
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
     pub async fn log_stats(&self) {
         match &self.runtime_handle {
             SessionRuntime::Play(handle) => {
@@ -373,14 +389,16 @@ impl RtmpSession {
                 _len => {
                     for message in &mut messages {
                         match message {
-                            FrameData::Video {
-                                meta,
-                                payload: data,
+                            FLVMediaFrame::Video {
+                                runtime_stat,
+                                pts,
+                                header: _,
+                                payload,
                             } => {
-                                meta.runtime_stat.play_time_ns = get_timestamp_ns().unwrap_or(0);
+                                runtime_stat.play_time_ns = get_timestamp_ns().unwrap_or(0);
 
                                 let res =
-                                    self.chunk_writer.write_video(data.clone(), meta.pts as u32);
+                                    self.chunk_writer.write_video(payload.clone(), *pts as u32);
                                 if res.is_err() {
                                     tracing::error!(
                                         "write video message to rtmp chunk failed, err: {:?}",
@@ -391,14 +409,16 @@ impl RtmpSession {
                                     handle.stat.video_frame_cnt += 1;
                                 }
                             }
-                            FrameData::Audio {
-                                meta,
-                                payload: data,
+                            FLVMediaFrame::Audio {
+                                runtime_stat,
+                                pts,
+                                header: _,
+                                payload,
                             } => {
-                                meta.runtime_stat.play_time_ns = get_timestamp_ns().unwrap_or(0);
+                                runtime_stat.play_time_ns = get_timestamp_ns().unwrap_or(0);
 
                                 let res =
-                                    self.chunk_writer.write_audio(data.clone(), meta.pts as u32);
+                                    self.chunk_writer.write_audio(payload.clone(), *pts as u32);
                                 if res.is_err() {
                                     tracing::error!(
                                         "write audio message to rtmp chunk failed, err: {:?}",
@@ -409,19 +429,14 @@ impl RtmpSession {
                                     handle.stat.audio_frame_cnt += 1;
                                 }
                             }
-                            FrameData::Aggregate { meta: _, data: _ } => {
-                                tracing::info!("got an aggregate, ignore for now");
-                                //NOTE - not possible to play aggregate
-                                handle.stat.aggregate_frame_cnt += 1;
-                            }
-                            FrameData::Meta {
-                                meta,
-                                payload: data,
+                            FLVMediaFrame::Meta {
+                                runtime_stat,
+                                pts,
+                                payload,
                             } => {
-                                meta.runtime_stat.play_time_ns = get_timestamp_ns().unwrap_or(0);
+                                runtime_stat.play_time_ns = get_timestamp_ns().unwrap_or(0);
 
-                                self.chunk_writer
-                                    .write_meta(data.clone(), meta.pts as u32)?;
+                                self.chunk_writer.write_meta(payload.clone(), *pts as u32)?;
                                 //TODO -
                                 handle.stat.meta_frame_cnt += 1;
                             }
@@ -489,7 +504,7 @@ impl RtmpSession {
 
                 let res = handle
                     .stream_data_producer
-                    .send(FrameData::Audio {
+                    .send(ChunkFrameData::Audio {
                         // we send the payload to stream center asap, parse and adjust meta info there
                         meta: AudioMeta {
                             pts: header.timestamp as u64,
@@ -499,7 +514,6 @@ impl RtmpSession {
                                 publish_stream_source_time_ns: get_timestamp_ns().unwrap_or(0),
                                 ..Default::default()
                             },
-                            tag_header: Either::Left(AudioTagHeader::default()),
                         },
                         payload: audio,
                     })
@@ -538,7 +552,7 @@ impl RtmpSession {
 
                 let res = handle
                     .stream_data_producer
-                    .send(FrameData::Video {
+                    .send(ChunkFrameData::Video {
                         meta: VideoMeta {
                             pts: header.timestamp as u64,
                             runtime_stat: MediaMessageRuntimeStat {
@@ -547,7 +561,6 @@ impl RtmpSession {
                                 publish_stream_source_time_ns: get_timestamp_ns().unwrap_or(0),
                                 ..Default::default()
                             },
-                            tag_header: Either::Left(VideoTagHeader::default()),
                         },
                         payload: video,
                     })
@@ -586,7 +599,7 @@ impl RtmpSession {
 
                 let res = handle
                     .stream_data_producer
-                    .send(FrameData::Meta {
+                    .send(ChunkFrameData::Meta {
                         meta: MetaMeta {
                             pts: header.timestamp as u64,
                             runtime_stat: MediaMessageRuntimeStat {
@@ -633,7 +646,7 @@ impl RtmpSession {
 
                 let res = handle
                     .stream_data_producer
-                    .send(FrameData::Aggregate {
+                    .send(ChunkFrameData::Aggregate {
                         meta: AggregateMeta {
                             pts: header.timestamp as u64,
                             read_time_ns: header.runtime_stat.read_time_ns,
@@ -759,7 +772,7 @@ impl RtmpSession {
     }
 
     async fn unpublish_from_stream_center(
-        &mut self,
+        &self,
         stream_name: &str,
         app: &str,
     ) -> RtmpServerResult<()> {

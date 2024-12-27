@@ -1,5 +1,5 @@
 use byteorder::ReadBytesExt;
-use std::io::{self, Cursor};
+use std::io::Cursor;
 use tokio_util::{bytes::BytesMut, either::Either};
 
 use crate::{errors::FLVResult, tag::enhanced::ex_audio::ex_audio_header::ExAudioTagHeader};
@@ -11,12 +11,13 @@ impl AudioTagHeader {
         mut reader: &mut Cursor<&mut BytesMut>,
     ) -> FLVResult<Either<AudioTagHeader, ExAudioTagHeader>> {
         let first_byte = reader.read_u8()?;
-        let sound_format: SoundFormat = ((first_byte >> 4) & 0b1111).try_into()?;
 
-        if sound_format == SoundFormat::ExHeader {
+        if ((first_byte >> 4) & 0b1111) == 9 {
             let ex_header = ExAudioTagHeader::read_from(&mut reader, first_byte)?;
             return Ok(Either::Right(ex_header));
         }
+
+        let sound_format: SoundFormat = ((first_byte >> 4) & 0b1111).try_into()?;
 
         let sound_rate: SoundRate = ((first_byte >> 2) & 0b11).try_into()?;
         let sound_size: SoundSize = ((first_byte >> 1) & 0b1).into();

@@ -1,16 +1,114 @@
 use std::collections::VecDeque;
 
-use flv::tag::{audio_tag_header, video_tag_header};
+use flv::tag::{
+    audio_tag_header_info::AudioTagHeaderWithoutMultiTrack,
+    video_tag_header_info::VideoTagHeaderWithoutMultiTrack,
+};
+use tokio_util::bytes::BytesMut;
 
-use crate::{errors::StreamCenterResult, frame_info::FrameData};
+use crate::{errors::StreamCenterResult, frame_info::MediaMessageRuntimeStat};
+
+#[derive(Debug, Clone)]
+pub enum FLVMediaFrame {
+    Video {
+        runtime_stat: MediaMessageRuntimeStat,
+        pts: u64,
+        // NOTE - this tag_header is also included in the frame payload
+        header: VideoTagHeaderWithoutMultiTrack,
+        payload: BytesMut,
+    },
+    Audio {
+        runtime_stat: MediaMessageRuntimeStat,
+        pts: u64,
+        // NOTE - this tag_header is also included in the frame payload
+        header: AudioTagHeaderWithoutMultiTrack,
+        payload: BytesMut,
+    },
+    Meta {
+        runtime_stat: MediaMessageRuntimeStat,
+        pts: u64,
+        payload: BytesMut,
+    },
+}
+
+impl FLVMediaFrame {
+    #[inline]
+    pub fn is_video(&self) -> bool {
+        match self {
+            FLVMediaFrame::Video {
+                runtime_stat: _,
+                pts: _,
+                header: _,
+                payload: _,
+            } => true,
+            _ => false,
+        }
+    }
+
+    #[inline]
+    pub fn is_audio(&self) -> bool {
+        match self {
+            FLVMediaFrame::Audio {
+                runtime_stat: _,
+                pts: _,
+                header: _,
+                payload: _,
+            } => true,
+            _ => false,
+        }
+    }
+
+    #[inline]
+    pub fn is_script(&self) -> bool {
+        match self {
+            FLVMediaFrame::Meta {
+                runtime_stat: _,
+                pts: _,
+                payload: _,
+            } => true,
+            _ => false,
+        }
+    }
+
+    #[inline]
+    pub fn is_sequence_header(&self) -> bool {
+        match self {
+            FLVMediaFrame::Audio {
+                runtime_stat: _,
+                pts: _,
+                header,
+                payload: _,
+            } => header.is_sequence_header(),
+            FLVMediaFrame::Video {
+                runtime_stat: _,
+                pts: _,
+                header,
+                payload: _,
+            } => header.is_sequence_header(),
+            _ => false,
+        }
+    }
+
+    #[inline]
+    pub fn is_video_key_frame(&self) -> bool {
+        match self {
+            FLVMediaFrame::Video {
+                runtime_stat: _,
+                pts: _,
+                header,
+                payload: _,
+            } => header.is_key_frame(),
+            _ => false,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct Gop {
-    pub frames: Vec<FrameData>,
-    video_frame_cnt: usize,
-    audio_frame_cnt: usize,
-    aggregate_frame_cnt: usize,
-    meta_frame_cnt: usize,
+    pub flv_frames: Vec<FLVMediaFrame>,
+    video_tag_cnt: usize,
+    audio_tag_cnt: usize,
+    meta_tag_cnt: usize,
     first_video_pts: u64,
     last_video_pts: u64,
 }
@@ -18,11 +116,10 @@ pub struct Gop {
 impl Gop {
     pub fn new() -> Self {
         Self {
-            frames: Vec::new(),
-            video_frame_cnt: 0,
-            audio_frame_cnt: 0,
-            aggregate_frame_cnt: 0,
-            meta_frame_cnt: 0,
+            flv_frames: Vec::new(),
+            video_tag_cnt: 0,
+            audio_tag_cnt: 0,
+            meta_tag_cnt: 0,
             first_video_pts: 0,
             last_video_pts: 0,
         }
@@ -30,22 +127,17 @@ impl Gop {
 
     #[inline]
     pub fn get_video_frame_cnt(&self) -> usize {
-        self.video_frame_cnt
+        self.video_tag_cnt
     }
 
     #[inline]
     pub fn get_audio_frame_cnt(&self) -> usize {
-        self.audio_frame_cnt
-    }
-
-    #[inline]
-    pub fn get_aggregate_frame_cnt(&self) -> usize {
-        self.aggregate_frame_cnt
+        self.audio_tag_cnt
     }
 
     #[inline]
     pub fn get_meta_frame_cnt(&self) -> usize {
-        self.meta_frame_cnt
+        self.meta_tag_cnt
     }
 
     #[inline]
@@ -58,34 +150,41 @@ impl Gop {
         self.last_video_pts
     }
 
-    pub fn append_frame(&mut self, frame: FrameData) {
+    pub fn append_flv_tag(&mut self, frame: FLVMediaFrame) {
         match &frame {
-            FrameData::Video { meta, payload: _ } => {
-                self.video_frame_cnt += 1;
-                if self.frames.is_empty() {
-                    self.first_video_pts = meta.pts;
+            &FLVMediaFrame::Video {
+                pts,
+                header: _,
+                payload: _,
+                runtime_stat: _,
+            } => {
+                self.video_tag_cnt += 1;
+                if self.flv_frames.is_empty() {
+                    self.first_video_pts = pts;
                 }
-                self.last_video_pts = meta.pts;
+                self.last_video_pts = pts;
             }
-            FrameData::Audio {
-                meta: _,
+            &FLVMediaFrame::Audio {
+                pts: _,
+                header: _,
                 payload: _,
-            } => self.audio_frame_cnt += 1,
-            FrameData::Aggregate { meta: _, data: _ } => self.aggregate_frame_cnt += 1,
-            FrameData::Meta {
-                meta: _,
+                runtime_stat: _,
+            } => self.audio_tag_cnt += 1,
+            &FLVMediaFrame::Meta {
+                pts: _,
                 payload: _,
-            } => self.meta_frame_cnt += 1,
+                runtime_stat: _,
+            } => self.meta_tag_cnt += 1,
         }
 
-        self.frames.push(frame);
+        self.flv_frames.push(frame);
     }
 }
 
 #[derive(Debug)]
 pub struct GopQueue {
-    pub video_sequence_header: Option<FrameData>,
-    pub audio_sequence_header: Option<FrameData>,
+    pub video_sequence_header: Option<FLVMediaFrame>,
+    pub audio_sequence_header: Option<FLVMediaFrame>,
     pub gops: VecDeque<Gop>,
     total_frame_cnt: u64,
     max_duration_ms: u64,
@@ -153,35 +252,48 @@ impl GopQueue {
     }
 
     #[inline]
-    pub fn get_aggregate_frame_cnt(&self) -> usize {
-        self.accumulate_gops(|gop| gop.get_aggregate_frame_cnt())
-    }
-
-    #[inline]
     pub fn get_meta_frame_cnt(&self) -> usize {
         self.accumulate_gops(|gop| gop.get_meta_frame_cnt())
     }
 
-    pub fn append_frame(&mut self, frame: FrameData) -> StreamCenterResult<()> {
+    pub fn append_frame(&mut self, frame: FLVMediaFrame) -> StreamCenterResult<()> {
         let mut is_sequence_header = false;
+        let mut is_video = false;
         match &frame {
-            FrameData::Audio { meta, payload: _ } => {
-                if audio_tag_header::is_sequence_header(&meta.tag_header) {
-                    tracing::info!("{:?}", meta.tag_header);
+            &FLVMediaFrame::Audio {
+                pts: _,
+                header,
+                payload: _,
+                runtime_stat: _,
+            } => {
+                if header.is_sequence_header() {
+                    tracing::info!("audio header: {:?}", header);
                     self.audio_sequence_header = Some(frame.clone());
                     is_sequence_header = true
                 }
             }
-            FrameData::Video { meta, payload: _ } => {
-                if video_tag_header::is_sequence_header(&meta.tag_header) {
+            &FLVMediaFrame::Video {
+                pts: _,
+                header,
+                payload: _,
+                runtime_stat: _,
+            } => {
+                is_video = true;
+                if header.is_sequence_header() {
+                    tracing::info!("video header: {:?}", header);
                     self.video_sequence_header = Some(frame.clone());
-                    tracing::info!("{:?}", meta.tag_header);
+                    tracing::info!("{:?}", header);
                     is_sequence_header = true;
-                } else if video_tag_header::is_key_frame(&meta.tag_header) {
+                } else if header.is_key_frame() {
                     self.gops.push_back(Gop::new());
                 }
             }
             _ => {}
+        }
+
+        if self.gops.is_empty() && is_video {
+            self.dropped_video_cnt += 1;
+            return Ok(());
         }
 
         if self.gops.is_empty() {
@@ -215,7 +327,7 @@ impl GopQueue {
             self.gops
                 .back_mut()
                 .expect("this cannot be empty")
-                .append_frame(frame);
+                .append_flv_tag(frame);
             self.total_frame_cnt += 1;
         }
 

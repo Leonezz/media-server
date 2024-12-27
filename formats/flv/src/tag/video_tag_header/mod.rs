@@ -1,10 +1,6 @@
 use std::io;
 
-use tokio_util::either::Either;
-
 use crate::errors::{FLVError, FLVResult};
-
-use super::enhanced::ex_video::ex_video_header::ExVideoTagHeader;
 
 pub mod reader;
 pub mod writer;
@@ -231,19 +227,5 @@ impl VideoTagHeader {
         W: io::Write,
     {
         writer::Writer::new(writer).write(self)
-    }
-}
-
-pub fn is_sequence_header(header: &Either<VideoTagHeader, ExVideoTagHeader>) -> bool {
-    match header {
-        Either::Left(h) => h.is_sequence_header(),
-        Either::Right(h) => h.is_sequence_header(),
-    }
-}
-
-pub fn is_key_frame(header: &Either<VideoTagHeader, ExVideoTagHeader>) -> bool {
-    match header {
-        Either::Left(h) => h.is_key_frame(),
-        Either::Right(h) => h.is_key_frame(),
     }
 }

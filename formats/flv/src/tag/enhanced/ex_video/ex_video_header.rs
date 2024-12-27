@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use crate::{
     errors::FLVError,
     tag::{
-        enhanced::{AvMultiTrackType, make_four_cc},
-        video_tag_header::{FrameType, VideoCommand},
+        enhanced::AvMultiTrackType,
+        video_tag_header::{AVCPacketType, FrameType, VideoCommand},
     },
 };
 
@@ -73,6 +73,28 @@ impl TryFrom<u8> for VideoPacketType {
             6 => Ok(Self::Multitrack),
             7 => Ok(Self::ModEx),
             _ => Err(FLVError::UnknownVideoPacketType(value)),
+        }
+    }
+}
+
+impl From<AVCPacketType> for VideoPacketType {
+    fn from(value: AVCPacketType) -> Self {
+        match value {
+            AVCPacketType::SequenceHeader => Self::SequenceStart,
+            AVCPacketType::NALU => Self::CodedFrames,
+            AVCPacketType::EndOfSequence => Self::SequenceEnd,
+        }
+    }
+}
+
+impl TryInto<AVCPacketType> for VideoPacketType {
+    type Error = FLVError;
+    fn try_into(self) -> Result<AVCPacketType, Self::Error> {
+        match self {
+            Self::SequenceStart => Ok(AVCPacketType::SequenceHeader),
+            Self::CodedFrames | Self::CodedFramesX => Ok(AVCPacketType::NALU),
+            Self::SequenceEnd => Ok(AVCPacketType::EndOfSequence),
+            _ => Err(FLVError::UnknownAVCPacketType(255)),
         }
     }
 }

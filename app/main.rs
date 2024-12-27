@@ -1,13 +1,17 @@
 use httpflv_server::config::HttpFlvServerConfig;
 use stream_center::stream_center;
+use time::macros::format_description;
 use tokio::signal;
 use tracing::{self, Dispatch, Level};
-use tracing_subscriber::{self};
+use tracing_subscriber::{self, fmt::time::LocalTime};
 
 #[tokio::main]
 async fn main() {
     let subscriber = tracing_subscriber::fmt()
         .with_max_level(Level::DEBUG)
+        .with_timer(LocalTime::new(format_description!(
+            "[year]-[month]-[day] [hour]:[minute]:[second] [unix_timestamp precision:nanosecond]"
+        )))
         // Use a more compact, abbreviated log format
         .compact()
         // Display source code file paths

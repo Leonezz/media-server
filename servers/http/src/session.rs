@@ -1,32 +1,20 @@
-use std::{
-    collections::HashMap,
-    convert::Infallible,
-    io::{Cursor, Write},
-    pin::Pin,
-    sync::{Arc, Mutex},
-};
+use std::{collections::HashMap, convert::Infallible, io::Write};
 
 use byteorder::{BigEndian, WriteBytesExt};
 
 use flv::{
     errors::FLVResult,
     header::FLVHeader,
-    tag::{FLVTagHeader, FLVTagType, audio_tag_header, video_tag_header},
+    tag::{FLVTagHeader, FLVTagType},
 };
-use http_body_util::BodyStream;
-use hyper::{
-    Method, Request, Response, StatusCode, Uri,
-    body::{Body, Bytes, Frame, Incoming},
-    service::Service,
-};
+use hyper::body::{Bytes, Frame};
 use stream_center::{
     events::{StreamCenterEvent, SubscribeResponse},
-    frame_info::FrameData,
+    gop::FLVMediaFrame,
     stream_source::{StreamIdentifier, StreamType},
 };
-use tokio::sync::{RwLock, mpsc, oneshot};
-use tokio_util::bytes::{BufMut, BytesMut};
-use url::Url;
+use tokio::sync::{mpsc, oneshot};
+use tokio_util::bytes::BytesMut;
 use utils::system::time::get_timestamp_ns;
 use uuid::Uuid;
 
@@ -109,14 +97,24 @@ impl HttpFlvSession {
                 None => {}
                 Some(frame) => {
                     match &frame {
-                        FrameData::Video { meta, payload: _ } => {
-                            if video_tag_header::is_sequence_header(&meta.tag_header) {
+                        FLVMediaFrame::Video {
+                            runtime_stat,
+                            pts,
+                            header,
+                            payload,
+                        } => {
+                            if header.is_sequence_header() {
                                 has_video_sequence_header = true;
                                 self.runtime_stat.video_sequence_header_sent = true;
                             }
                         }
-                        FrameData::Audio { meta, payload: _ } => {
-                            if audio_tag_header::is_sequence_header(&meta.tag_header) {
+                        FLVMediaFrame::Audio {
+                            runtime_stat,
+                            pts,
+                            header,
+                            payload,
+                        } => {
+                            if header.is_sequence_header() {
                                 has_audio_sequence_header = true;
                                 self.runtime_stat.audio_sequence_header_sent = true;
                             }
@@ -129,7 +127,7 @@ impl HttpFlvSession {
                         continue;
                     }
 
-                    self.write_frame_to_flv_tag(frame, &mut bytes)?;
+                    self.write_flv_tag(frame, &mut bytes)?;
 
                     let res = self
                         .http_response_bytes_sender
@@ -149,9 +147,9 @@ impl HttpFlvSession {
         }
     }
 
-    pub fn write_frame_to_flv_tag(
+    pub fn write_flv_tag(
         &mut self,
-        mut frame: FrameData,
+        mut frame: FLVMediaFrame,
         bytes_buffer: &mut Vec<u8>,
     ) -> HttpFlvServerResult<()> {
         fn write_tag(
@@ -182,30 +180,43 @@ impl HttpFlvSession {
             Ok(())
         }
         match &mut frame {
-            FrameData::Video { meta, payload } => {
+            FLVMediaFrame::Video {
+                runtime_stat,
+                pts,
+                header: _,
+                payload,
+            } => {
                 if !self.has_video {
                     return Ok(());
                 }
-                meta.runtime_stat.play_time_ns = get_timestamp_ns().expect("this cannot be error");
+                runtime_stat.play_time_ns = get_timestamp_ns().expect("this cannot be error");
                 self.runtime_stat.video_frame_sent += 1;
 
-                write_tag(FLVTagType::Video, meta.pts as u32, payload, bytes_buffer)?;
+                write_tag(FLVTagType::Video, *pts as u32, payload, bytes_buffer)?;
             }
-            FrameData::Audio { meta, payload } => {
+            FLVMediaFrame::Audio {
+                runtime_stat,
+                pts,
+                header: _,
+                payload,
+            } => {
                 if !self.has_audio {
                     return Ok(());
                 }
-                meta.runtime_stat.play_time_ns = get_timestamp_ns().expect("this cannot be error");
+                runtime_stat.play_time_ns = get_timestamp_ns().expect("this cannot be error");
                 self.runtime_stat.audio_frame_sent += 1;
 
-                write_tag(FLVTagType::Audio, meta.pts as u32, payload, bytes_buffer)?;
+                write_tag(FLVTagType::Audio, *pts as u32, payload, bytes_buffer)?;
             }
-            FrameData::Meta { meta, payload } => {
-                meta.runtime_stat.play_time_ns = get_timestamp_ns().expect("this cannot be error");
+            FLVMediaFrame::Meta {
+                runtime_stat,
+                pts,
+                payload,
+            } => {
+                runtime_stat.play_time_ns = get_timestamp_ns().expect("this cannot be error");
 
-                write_tag(FLVTagType::Meta, meta.pts as u32, payload, bytes_buffer)?;
+                write_tag(FLVTagType::Meta, *pts as u32, payload, bytes_buffer)?;
             }
-            FrameData::Aggregate { meta: _, data: _ } => {}
         }
         Ok(())
     }

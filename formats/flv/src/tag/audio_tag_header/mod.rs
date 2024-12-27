@@ -3,11 +3,7 @@ pub mod writer;
 
 use std::io;
 
-use tokio_util::either::Either;
-
 use crate::errors::{FLVError, FLVResult};
-
-use super::enhanced::ex_audio::ex_audio_header::ExAudioTagHeader;
 
 ///
 /// Format of SoundData, the following values are defined
@@ -43,9 +39,6 @@ pub enum SoundFormat {
     Speex = 11,
     MP38KHZ = 14, // reserved,
     DeviceSpecific = 15,
-
-    // enhanced rtmp defined, indicates there is ExAudioTagHeader
-    ExHeader = 9,
 }
 
 impl Into<u8> for SoundFormat {
@@ -66,7 +59,6 @@ impl TryFrom<u8> for SoundFormat {
             6 => Ok(Self::NellyMoser),
             7 => Ok(Self::G711ALawLogarithmicPCM),
             8 => Ok(Self::G711MULawLogarithmicPCM),
-            9 => Ok(Self::ExHeader),
             10 => Ok(Self::AAC),
             11 => Ok(Self::Speex),
             14 => Ok(Self::MP38KHZ),
@@ -196,11 +188,11 @@ impl From<u8> for AACPacketType {
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AudioTagHeader {
-    sound_format: SoundFormat,
-    sound_rate: SoundRate,
-    sound_size: SoundSize,
-    sound_type: SoundType,
-    aac_packet_type: Option<AACPacketType>,
+    pub sound_format: SoundFormat,
+    pub sound_rate: SoundRate,
+    pub sound_size: SoundSize,
+    pub sound_type: SoundType,
+    pub aac_packet_type: Option<AACPacketType>,
 }
 
 impl AudioTagHeader {
@@ -267,11 +259,5 @@ impl AudioTagHeader {
         W: io::Write,
     {
         writer::Writer::new(writer).write(self)
-    }
-}
-pub fn is_sequence_header(header: &Either<AudioTagHeader, ExAudioTagHeader>) -> bool {
-    match header {
-        Either::Left(h) => h.is_sequence_header(),
-        Either::Right(h) => h.is_sequence_header(),
     }
 }

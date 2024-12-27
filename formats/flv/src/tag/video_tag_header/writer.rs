@@ -4,7 +4,7 @@ use byteorder::{BigEndian, WriteBytesExt};
 
 use crate::errors::{FLVError, FLVResult};
 
-use super::{CodecID, FrameType, VideoCommand, VideoTagHeader};
+use super::{CodecID, FrameType, VideoTagHeader};
 
 #[derive(Debug)]
 pub struct Writer<W> {

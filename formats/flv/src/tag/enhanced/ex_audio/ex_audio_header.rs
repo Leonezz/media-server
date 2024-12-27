@@ -1,10 +1,11 @@
-use std::{collections::HashMap, iter::FlatMap};
-
-use tokio_util::bytes::BytesMut;
+use std::collections::HashMap;
 
 use crate::{
     errors::FLVError,
-    tag::enhanced::{AvMultiTrackType, make_four_cc},
+    tag::{
+        audio_tag_header::{self, AACPacketType},
+        enhanced::AvMultiTrackType,
+    },
 };
 
 #[repr(u8)]
@@ -47,6 +48,26 @@ impl TryFrom<u8> for AudioPacketType {
             5 => Ok(Self::MultiTrack),
             7 => Ok(Self::ModEx),
             _ => Err(FLVError::UnknownAVCPacketType(value)),
+        }
+    }
+}
+
+impl From<audio_tag_header::AACPacketType> for AudioPacketType {
+    fn from(value: audio_tag_header::AACPacketType) -> Self {
+        match value {
+            AACPacketType::AACSequenceHeader => Self::SequenceStart,
+            AACPacketType::AACRaw => Self::CodedFrames,
+        }
+    }
+}
+
+impl TryInto<audio_tag_header::AACPacketType> for AudioPacketType {
+    type Error = FLVError;
+    fn try_into(self) -> Result<audio_tag_header::AACPacketType, Self::Error> {
+        match self {
+            Self::SequenceStart => Ok(audio_tag_header::AACPacketType::AACSequenceHeader),
+            Self::CodedFrames => Ok(audio_tag_header::AACPacketType::AACRaw),
+            _ => Err(FLVError::UnknownAudioPacketType(255)),
         }
     }
 }

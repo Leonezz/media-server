@@ -10,7 +10,7 @@ use uuid::Uuid;
 use crate::{
     errors::{StreamCenterError, StreamCenterResult},
     events::{StreamCenterEvent, SubscribeResponse},
-    frame_info::FrameData,
+    frame_info::ChunkFrameData,
     signal::StreamSignal,
     stream_source::{
         ConsumeGopCache, StreamIdentifier, StreamSource, StreamType, SubscribeHandler,
@@ -26,7 +26,7 @@ pub struct StreamSourceDynamicInfo {
 #[derive(Debug)]
 struct StreamSourceHandles {
     signal_sender: mpsc::Sender<StreamSignal>,
-    source_sender: mpsc::Sender<FrameData>,
+    source_sender: mpsc::Sender<ChunkFrameData>,
 
     stream_identifier: StreamIdentifier,
     stream_type: StreamType,
@@ -109,7 +109,7 @@ impl StreamCenter {
         stream_type: StreamType,
         stream_id: StreamIdentifier,
         context: HashMap<String, serde_json::Value>,
-        result_sender: oneshot::Sender<StreamCenterResult<mpsc::Sender<FrameData>>>,
+        result_sender: oneshot::Sender<StreamCenterResult<mpsc::Sender<ChunkFrameData>>>,
     ) -> StreamCenterResult<()> {
         if self.streams.contains_key(&stream_id) {
             return result_sender
