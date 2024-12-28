@@ -18,7 +18,7 @@ pub struct VideoMeta {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-pub struct MetaMeta {
+pub struct ScriptMeta {
     pub pts: u64,
 
     pub runtime_stat: MediaMessageRuntimeStat,
@@ -44,7 +44,7 @@ pub enum ChunkFrameData {
     Video { meta: VideoMeta, payload: BytesMut },
     Audio { meta: AudioMeta, payload: BytesMut },
     Aggregate { meta: AggregateMeta, data: BytesMut },
-    Meta { meta: MetaMeta, payload: BytesMut },
+    Script { meta: ScriptMeta, payload: BytesMut },
 }
 
 impl ChunkFrameData {
@@ -56,7 +56,7 @@ impl ChunkFrameData {
             ChunkFrameData::Audio { meta, payload: _ } => {
                 tracing::info!("audio message stat: {:?}", meta.runtime_stat);
             }
-            ChunkFrameData::Meta { meta, payload: _ } => {
+            ChunkFrameData::Script { meta, payload: _ } => {
                 tracing::info!("meta message stat: {:?}", meta.runtime_stat);
             }
             _ => {}
@@ -88,9 +88,9 @@ impl ChunkFrameData {
     }
 
     #[inline]
-    pub fn is_meta(&self) -> bool {
+    pub fn is_script(&self) -> bool {
         match self {
-            ChunkFrameData::Meta {
+            ChunkFrameData::Script {
                 meta: _,
                 payload: _,
             } => true,

@@ -219,14 +219,15 @@ impl HttpFlvSession {
 
                 write_tag(FLVTagType::Audio, *pts as u32, payload, bytes_buffer)?;
             }
-            FLVMediaFrame::Meta {
+            FLVMediaFrame::Script {
                 runtime_stat,
                 pts,
                 payload,
+                on_meta_data: _,
             } => {
                 runtime_stat.play_time_ns = get_timestamp_ns().expect("this cannot be error");
 
-                write_tag(FLVTagType::Meta, *pts as u32, payload, bytes_buffer)?;
+                write_tag(FLVTagType::Script, *pts as u32, payload, bytes_buffer)?;
             }
         }
         Ok(())

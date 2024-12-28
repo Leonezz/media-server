@@ -117,7 +117,7 @@ impl FLVTag {
                     },
                 });
             }
-            FLVTagType::Meta => Ok(FLVTagBodyWithFilter {
+            FLVTagType::Script => Ok(FLVTagBodyWithFilter {
                 filter,
                 body: Self::read_meta(&mut cursor_bytes)?,
             }),
@@ -195,7 +195,7 @@ impl FLVTag {
                 )));
             }
         }
-        Ok(FLVTagBody::Meta {
+        Ok(FLVTagBody::Script {
             name: name_str,
             value: value_arr,
         })

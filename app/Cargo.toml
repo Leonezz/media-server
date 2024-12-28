@@ -14,6 +14,7 @@ tracing-subscriber = { version = "0.3.19", features = [
   "local-time",
   "fmt",
   "std",
+  "env-filter",
 ] }
 time = { version = "0.3.37", features = ["macros"] }
 tracing-tracy = "0.11.3"

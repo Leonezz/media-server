@@ -1,5 +1,6 @@
-use std::{backtrace::Backtrace, collections::HashMap, io};
+use std::{collections::HashMap, io};
 
+use amf::AmfComplexObject;
 use tokio_util::either::Either;
 
 use crate::chunk::errors::{ChunkMessageError, ChunkMessageResult};
@@ -144,138 +145,61 @@ pub struct ConnectCommandRequestObject {
 impl TryFrom<HashMap<String, amf::Value>> for ConnectCommandRequestObject {
     type Error = ChunkMessageError;
     fn try_from(value: HashMap<String, amf::Value>) -> Result<Self, Self::Error> {
-        let extract_string_field = |key: &str| match value.get(key) {
-            Some(value) => match value.try_as_str() {
-                Some(v) => Ok(v.to_string()),
-                None => {
-                    return Err(ChunkMessageError::UnexpectedAmfType {
-                        amf_type: format!("expect a string type"),
-                        backtrace: Backtrace::capture(),
-                    });
-                }
-            },
-            None => {
-                return Err(ChunkMessageError::UnexpectedAmfType {
-                    amf_type: format!("expect {} field", key),
-                    backtrace: Backtrace::capture(),
-                });
-            }
-        };
-
-        let extract_bool_field = |key: &str| match value.get(key) {
-            Some(value) => match value.try_as_bool() {
-                Some(v) => Ok(v),
-                None => {
-                    return Err(ChunkMessageError::UnexpectedAmfType {
-                        amf_type: format!("expect a bool type"),
-                        backtrace: Backtrace::capture(),
-                    });
-                }
-            },
-            None => {
-                return Err(ChunkMessageError::UnexpectedAmfType {
-                    amf_type: format!("expect {} field", key),
-                    backtrace: Backtrace::capture(),
-                });
-            }
-        };
-
-        let extract_number_field = |key: &str| match value.get(key) {
-            Some(value) => match value.try_as_f64() {
-                Some(v) => Ok(v),
-                None => {
-                    return Err(ChunkMessageError::UnexpectedAmfType {
-                        amf_type: format!("expect a number type"),
-                        backtrace: Backtrace::capture(),
-                    });
-                }
-            },
-            None => {
-                return Err(ChunkMessageError::UnexpectedAmfType {
-                    amf_type: format!("expect {} field", key),
-                    backtrace: Backtrace::capture(),
-                });
-            }
-        };
-
-        let extract_array_field = |key: &str| match value.get(key) {
-            Some(v) => match v.clone().try_into_values() {
-                Ok(values) => return Ok(values),
-                Err(err) => {
-                    return Err(ChunkMessageError::UnexpectedAmfType {
-                        amf_type: format!("expect array type, got {:?} instead", err),
-                        backtrace: Backtrace::capture(),
-                    });
-                }
-            },
-            None => {
-                return Err(ChunkMessageError::UnexpectedAmfType {
-                    amf_type: format!("expect {} field", key),
-                    backtrace: Backtrace::capture(),
-                });
-            }
-        };
-
-        let extract_string_array_field = |key: &str| match extract_array_field(key) {
-            Ok(values) => {
+        let extract_string_array_field = |key: &str| match value.extract_array_field(key) {
+            Some(values) => {
                 let mut result = vec![];
                 for v in values {
                     if let Some(str_value) = v.try_as_str() {
                         result.push(str_value.to_string());
                     } else {
-                        return Err(ChunkMessageError::UnexpectedAmfType {
-                            amf_type: format!("expect a string in array, got {:?} instead", v),
-                            backtrace: Backtrace::capture(),
-                        });
+                        return None;
                     }
                 }
-                Ok(result)
+                Some(result)
             }
-            Err(err) => Err(err),
-        };
-
-        let extract_object_field = |key: &str| match value.get(key) {
-            Some(v) => match v.clone().try_into_pairs() {
-                Ok(pairs) => Ok(pairs),
-                Err(err) => Err(ChunkMessageError::UnexpectedAmfType {
-                    amf_type: format!("expect key-value pairs type, got {:?} instead", err),
-                    backtrace: Backtrace::capture(),
-                }),
-            },
-            None => {
-                return Err(ChunkMessageError::UnexpectedAmfType {
-                    amf_type: format!("expect {} field", key),
-                    backtrace: Backtrace::capture(),
-                });
-            }
+            None => None,
         };
 
         let extract_four_cc_info = |key: &str| {
-            extract_object_field(key).map_or_else(
-                |_| None,
-                |pairs| {
-                    let mut info: HashMap<String, FourCCInfo> = HashMap::new();
-                    for (k, v) in pairs {
-                        if let Some(flag) = v.try_as_f64() {
-                            info.insert(k, (flag as u8).into());
-                        }
+            value.extract_object_field(key).map(|pairs| {
+                let mut info: HashMap<String, FourCCInfo> = HashMap::new();
+                for (k, v) in pairs {
+                    if let Some(flag) = v.try_as_f64() {
+                        info.insert(k, (flag as u8).into());
                     }
-                    Some(info)
-                },
-            )
+                }
+                info
+            })
         };
 
         let command_object = ConnectCommandRequestObject {
-            app: extract_string_field("app").unwrap_or("default".into()),
-            flash_version: extract_string_field("flashver").unwrap_or("default".into()),
-            swf_url: extract_string_field("swfUrl").unwrap_or("default".into()),
-            tc_url: extract_string_field("tcUrl").unwrap_or("default".into()),
-            fpad: extract_bool_field("fpad").unwrap_or(false),
-            audio_codecs: extract_number_field("audioCodecs").unwrap_or(0.into()) as u16,
-            video_codecs: extract_number_field("videoCodecs").unwrap_or(0.into()) as u16,
-            video_function: extract_number_field("videoFunction").unwrap_or(0.into()) as u16,
-            page_url: extract_string_field("pageUrl").unwrap_or("default".into()),
-            object_encoding: match extract_number_field("objectEncoding")
+            app: value
+                .extract_string_field("app")
+                .unwrap_or("default".into()),
+            flash_version: value
+                .extract_string_field("flashver")
+                .unwrap_or("default".into()),
+            swf_url: value
+                .extract_string_field("swfUrl")
+                .unwrap_or("default".into()),
+            tc_url: value
+                .extract_string_field("tcUrl")
+                .unwrap_or("default".into()),
+            fpad: value.extract_bool_field("fpad").unwrap_or(false),
+            audio_codecs: value
+                .extract_number_field("audioCodecs")
+                .unwrap_or(0.into()) as u16,
+            video_codecs: value
+                .extract_number_field("videoCodecs")
+                .unwrap_or(0.into()) as u16,
+            video_function: value
+                .extract_number_field("videoFunction")
+                .unwrap_or(0.into()) as u16,
+            page_url: value
+                .extract_string_field("pageUrl")
+                .unwrap_or("default".into()),
+            object_encoding: match value
+                .extract_number_field("objectEncoding")
                 .unwrap_or((amf::Version::Amf0 as u8).into())
                 as u8
             {
@@ -283,12 +207,12 @@ impl TryFrom<HashMap<String, amf::Value>> for ConnectCommandRequestObject {
                 3 => amf::Version::Amf3,
                 v => return Err(ChunkMessageError::UnknownAmfVersion(v as u8)),
             },
-            four_cc_list: extract_string_array_field("fourCcList")
-                .map_or_else(|_| None, |v| Some(v)),
+            four_cc_list: extract_string_array_field("fourCcList"),
             video_four_cc_info: extract_four_cc_info("videoFourCcInfoMap"),
             audio_four_cc_info: extract_four_cc_info("audioFourCcInfoMap"),
-            caps_ex_info: extract_number_field("capsEx")
-                .map_or_else(|_| None, |v| Some((v as u8).into())),
+            caps_ex_info: value
+                .extract_number_field("capsEx")
+                .map(|v| (v as u8).into()),
         };
 
         Ok(command_object)

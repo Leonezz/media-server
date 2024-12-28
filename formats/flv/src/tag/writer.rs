@@ -65,7 +65,7 @@ where
                 }
                 self.inner.write_all(&body)?;
             }
-            FLVTagBody::Meta { name, value } => {
+            FLVTagBody::Script { name, value } => {
                 amf::amf0::Value::String(name.clone()).write_to(self.inner.by_ref())?;
                 amf::amf0::Value::ECMAArray(value.clone()).write_to(self.inner.by_ref())?;
             }

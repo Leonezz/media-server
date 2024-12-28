@@ -13,6 +13,7 @@ pub mod audio_tag_header;
 pub mod audio_tag_header_info;
 pub mod encryption;
 pub mod enhanced;
+pub mod on_meta_data;
 pub mod reader;
 pub mod video_tag_header;
 pub mod video_tag_header_info;
@@ -23,7 +24,7 @@ pub mod writer;
 pub enum FLVTagType {
     Audio = 8,
     Video = 9,
-    Meta = 18,
+    Script = 18,
 }
 
 impl Into<u8> for FLVTagType {
@@ -38,7 +39,7 @@ impl TryFrom<u8> for FLVTagType {
         match value {
             8 => Ok(FLVTagType::Audio),
             9 => Ok(FLVTagType::Video),
-            18 => Ok(FLVTagType::Meta),
+            18 => Ok(FLVTagType::Script),
             _ => Err(FLVError::UnknownFLVTagType(value)),
         }
     }
@@ -80,7 +81,7 @@ pub enum FLVTagBody {
         header: Either<VideoTagHeader, ExVideoTagHeader>,
         body: BytesMut,
     },
-    Meta {
+    Script {
         /// Method or object name.
         /// SCRIPTDATAVALUE.Type = 2 (String)
         name: String,
@@ -103,7 +104,7 @@ impl Debug for FLVTagBody {
                 header,
                 body.len()
             )),
-            FLVTagBody::Meta { name, value } => f.write_fmt(format_args!(
+            FLVTagBody::Script { name, value } => f.write_fmt(format_args!(
                 "Meta tag body, name: {}, value: {:?}",
                 name, value
             )),

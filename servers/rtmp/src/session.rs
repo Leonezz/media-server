@@ -34,7 +34,7 @@ use rtmp_formats::{
 };
 use stream_center::{
     events::SubscribeResponse,
-    frame_info::{MediaMessageRuntimeStat, MetaMeta},
+    frame_info::{MediaMessageRuntimeStat, ScriptMeta},
     gop::FLVMediaFrame,
 };
 use tokio::{
@@ -66,7 +66,7 @@ use super::{
 pub struct SessionStat {
     video_frame_cnt: u64,
     audio_frame_cnt: u64,
-    meta_frame_cnt: u64,
+    script_frame_cnt: u64,
     aggregate_frame_cnt: u64,
 
     failed_video_frame_cnt: u64,
@@ -277,7 +277,6 @@ impl RtmpSession {
             match self.read_chunk().await {
                 Ok(maybe_chunk) => match maybe_chunk {
                     Some(message) => {
-                        tracing::trace!("got message: {:?}", message);
                         self.process_message(message).await?;
                     }
                     None => match &self.runtime_handle {
@@ -440,16 +439,17 @@ impl RtmpSession {
                                     handle.stat.audio_frame_cnt += 1;
                                 }
                             }
-                            FLVMediaFrame::Meta {
+                            FLVMediaFrame::Script {
                                 runtime_stat,
                                 pts,
                                 payload,
+                                on_meta_data: _,
                             } => {
                                 runtime_stat.play_time_ns = get_timestamp_ns().unwrap_or(0);
 
                                 self.chunk_writer.write_meta(payload.clone(), *pts as u32)?;
                                 //TODO -
-                                handle.stat.meta_frame_cnt += 1;
+                                handle.stat.script_frame_cnt += 1;
                             }
                         }
                         self.flush_chunk().await?;
@@ -602,7 +602,7 @@ impl RtmpSession {
     async fn process_meta(
         &mut self,
         header: ChunkMessageCommonHeader,
-        meta: BytesMut,
+        payload: BytesMut,
     ) -> RtmpServerResult<()> {
         let _ = match &mut self.runtime_handle {
             SessionRuntime::Publish(handle) => {
@@ -610,8 +610,8 @@ impl RtmpSession {
 
                 let res = handle
                     .stream_data_producer
-                    .send(ChunkFrameData::Meta {
-                        meta: MetaMeta {
+                    .send(ChunkFrameData::Script {
+                        meta: ScriptMeta {
                             pts: header.timestamp as u64,
                             runtime_stat: MediaMessageRuntimeStat {
                                 read_time_ns: header.runtime_stat.read_time_ns,
@@ -620,7 +620,7 @@ impl RtmpSession {
                                 ..Default::default()
                             },
                         },
-                        payload: meta,
+                        payload,
                     })
                     .await
                     .map_err(|err| {
@@ -632,14 +632,14 @@ impl RtmpSession {
                 if res.is_err() {
                     handle.stat.failed_meta_frame_cnt += 1;
                 } else {
-                    handle.stat.meta_frame_cnt += 1;
+                    handle.stat.script_frame_cnt += 1;
                 }
                 res?;
             }
             _ => {
                 tracing::error!(
                     "got meta data while stream not published, value: {:?}",
-                    meta
+                    payload
                 );
             }
         };

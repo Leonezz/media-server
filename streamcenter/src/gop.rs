@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use flv::tag::{
-    audio_tag_header_info::AudioTagHeaderWithoutMultiTrack,
+    audio_tag_header_info::AudioTagHeaderWithoutMultiTrack, on_meta_data::OnMetaData,
     video_tag_header_info::VideoTagHeaderWithoutMultiTrack,
 };
 use tokio_util::bytes::BytesMut;
@@ -24,9 +24,12 @@ pub enum FLVMediaFrame {
         header: AudioTagHeaderWithoutMultiTrack,
         payload: BytesMut,
     },
-    Meta {
+    Script {
         runtime_stat: MediaMessageRuntimeStat,
         pts: u64,
+        // onMetaData should be the content of payload,
+        // note the payload still holds all the bytes
+        on_meta_data: Option<OnMetaData>,
         payload: BytesMut,
     },
 }
@@ -61,10 +64,11 @@ impl FLVMediaFrame {
     #[inline]
     pub fn is_script(&self) -> bool {
         match self {
-            FLVMediaFrame::Meta {
+            FLVMediaFrame::Script {
                 runtime_stat: _,
                 pts: _,
                 payload: _,
+                on_meta_data: _,
             } => true,
             _ => false,
         }
@@ -170,10 +174,11 @@ impl Gop {
                 payload: _,
                 runtime_stat: _,
             } => self.audio_tag_cnt += 1,
-            &FLVMediaFrame::Meta {
+            &FLVMediaFrame::Script {
                 pts: _,
                 payload: _,
                 runtime_stat: _,
+                on_meta_data: _,
             } => self.meta_tag_cnt += 1,
         }
 
@@ -185,6 +190,7 @@ impl Gop {
 pub struct GopQueue {
     pub video_sequence_header: Option<FLVMediaFrame>,
     pub audio_sequence_header: Option<FLVMediaFrame>,
+    pub script_frame: Option<FLVMediaFrame>,
     pub gops: VecDeque<Gop>,
     total_frame_cnt: u64,
     max_duration_ms: u64,
@@ -199,6 +205,7 @@ impl GopQueue {
         Self {
             video_sequence_header: None,
             audio_sequence_header: None,
+            script_frame: None,
             gops: VecDeque::new(),
             max_duration_ms,
             max_frame_cnt,
@@ -287,7 +294,12 @@ impl GopQueue {
                     self.gops.push_back(Gop::new());
                 }
             }
-            _ => {}
+            &FLVMediaFrame::Script {
+                runtime_stat: _,
+                pts: _,
+                on_meta_data: _,
+                payload: _,
+            } => self.script_frame = Some(frame.clone()),
         }
 
         if self.gops.is_empty() && is_video {

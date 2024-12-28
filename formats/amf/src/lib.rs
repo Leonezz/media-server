@@ -258,3 +258,48 @@ where
         Version::Amf3 => Value::AMF3Value(amf3::bool(t)),
     }
 }
+
+pub trait AmfComplexObject {
+    fn extract_bool_field(&self, key: &str) -> Option<bool>;
+    fn extract_number_field(&self, key: &str) -> Option<f64>;
+    fn extract_string_field(&self, key: &str) -> Option<String>;
+    fn extract_array_field(&self, key: &str) -> Option<Box<dyn Iterator<Item = Value>>>;
+    fn extract_object_field(&self, key: &str) -> Option<Box<dyn Iterator<Item = (String, Value)>>>;
+}
+
+impl AmfComplexObject for HashMap<String, Value> {
+    fn extract_bool_field(&self, key: &str) -> Option<bool> {
+        match self.get(key) {
+            Some(value) => value.try_as_bool(),
+            None => None,
+        }
+    }
+
+    fn extract_number_field(&self, key: &str) -> Option<f64> {
+        match self.get(key) {
+            Some(value) => value.try_as_f64(),
+            None => None,
+        }
+    }
+
+    fn extract_string_field(&self, key: &str) -> Option<String> {
+        match self.get(key) {
+            Some(value) => value.try_as_str().map(|s| s.to_string()),
+            None => None,
+        }
+    }
+
+    fn extract_array_field(&self, key: &str) -> Option<Box<dyn Iterator<Item = Value>>> {
+        match self.get(key).cloned() {
+            Some(v) => v.try_into_values().map_or_else(|_| None, |v| Some(v)),
+            None => None,
+        }
+    }
+
+    fn extract_object_field(&self, key: &str) -> Option<Box<dyn Iterator<Item = (String, Value)>>> {
+        match self.get(key).cloned() {
+            Some(v) => v.try_into_pairs().map_or_else(|_| None, |v| Some(v)),
+            None => None,
+        }
+    }
+}

@@ -3,7 +3,7 @@ use stream_center::stream_center;
 use time::macros::format_description;
 use tokio::signal;
 use tracing::{self, Dispatch, Level};
-use tracing_subscriber::{self, fmt::time::LocalTime};
+use tracing_subscriber::{self, EnvFilter, fmt::time::LocalTime};
 
 #[tokio::main]
 async fn main() {
@@ -22,6 +22,7 @@ async fn main() {
         .with_thread_names(true)
         // display the event's target (module path)
         .with_target(true)
+        .with_env_filter(EnvFilter::from_env("LOG_LEVEL"))
         // Build the subscriber
         .finish();
     tracing::dispatcher::set_global_default(Dispatch::new(subscriber)).unwrap();

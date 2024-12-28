@@ -6,7 +6,7 @@ use std::{
     sync::Arc,
 };
 
-use flv::tag::{FLVTag, FLVTagType};
+use flv::tag::{FLVTag, FLVTagType, on_meta_data::OnMetaData};
 use tokio::sync::{RwLock, mpsc};
 use tokio_util::bytes::{Buf, BytesMut};
 use utils::system::time::get_timestamp_ns;
@@ -15,7 +15,7 @@ use uuid::Uuid;
 use crate::{
     errors::{StreamCenterError, StreamCenterResult},
     frame_info::{
-        AggregateMeta, AudioMeta, ChunkFrameData, MediaMessageRuntimeStat, MetaMeta, VideoMeta,
+        AggregateMeta, AudioMeta, ChunkFrameData, MediaMessageRuntimeStat, ScriptMeta, VideoMeta,
     },
     gop::{FLVMediaFrame, GopQueue},
     signal::StreamSignal,
@@ -89,11 +89,11 @@ pub struct PlayStat {
     first_key_frame_sent: bool,
     video_frames_sent: u64,
     audio_frames_sent: u64,
-    meta_frames_sent: u64,
+    script_frames_sent: u64,
 
     video_frame_send_fail_cnt: u64,
     audio_frame_send_fail_cnt: u64,
-    meta_frame_send_fail_cnt: u64,
+    script_frame_send_fail_cnt: u64,
 }
 
 #[derive(Debug)]
@@ -228,9 +228,9 @@ impl StreamSource {
                         payload: body_bytes,
                     });
                 }
-                FLVTagType::Meta => {
-                    result.push(ChunkFrameData::Meta {
-                        meta: MetaMeta {
+                FLVTagType::Script => {
+                    result.push(ChunkFrameData::Script {
+                        meta: ScriptMeta {
                             pts: aggregate_meta.pts + timestamp_delta.expect("this cannot be none"),
                             runtime_stat: MediaMessageRuntimeStat {
                                 read_time_ns: aggregate_meta.read_time_ns,
@@ -292,18 +292,23 @@ impl StreamSource {
                     payload,
                 }])
             }
-            ChunkFrameData::Meta {
+            ChunkFrameData::Script {
                 mut meta,
                 ref payload,
             } => {
                 meta.runtime_stat.stream_source_received_time_ns = get_timestamp_ns().unwrap_or(0);
                 meta.runtime_stat.stream_source_parse_time_ns = get_timestamp_ns().unwrap_or(0);
-                tracing::trace!("got meta, I don't see anything need to do");
+                let mut cursor = Cursor::new(payload);
+                let on_meta_data: Option<OnMetaData> =
+                    OnMetaData::read_from(&mut cursor, amf::Version::Amf0);
 
-                Ok(vec![FLVMediaFrame::Meta {
+                tracing::trace!("got script tag, onMetaData: {:?}", on_meta_data);
+
+                Ok(vec![FLVMediaFrame::Script {
                     runtime_stat: meta.runtime_stat,
                     pts: meta.pts,
                     payload: payload.clone(),
+                    on_meta_data,
                 }])
             }
             ChunkFrameData::Aggregate { meta, data } => {
@@ -334,8 +339,8 @@ impl StreamSource {
                 stat.audio_frame_send_fail_cnt += <bool as Into<u64>>::into(fail);
                 stat.audio_frames_sent += <bool as Into<u64>>::into(!fail);
             } else {
-                stat.meta_frame_send_fail_cnt += <bool as Into<u64>>::into(fail);
-                stat.meta_frames_sent += <bool as Into<u64>>::into(!fail)
+                stat.script_frame_send_fail_cnt += <bool as Into<u64>>::into(fail);
+                stat.script_frames_sent += <bool as Into<u64>>::into(!fail)
             }
         };
 
@@ -372,6 +377,16 @@ impl StreamSource {
                 self.gop_cache.get_audio_frame_cut() > 0;
             self.stream_dynamic_info.write().await.has_video =
                 self.gop_cache.get_video_frame_cnt() > 0;
+        }
+
+        if let Some(script) = &self.gop_cache.script_frame {
+            let res = handler.data_sender.try_send(script.clone());
+            if res.is_err() {
+                tracing::error!("distribute script frame data to {} failed: {:?}", key, res);
+                handler.stat.script_frame_send_fail_cnt += 1;
+            } else {
+                handler.stat.script_frames_sent += 1;
+            }
         }
         if let Some(video_sh) = &self.gop_cache.video_sequence_header {
             let res = handler.data_sender.try_send(video_sh.clone());
