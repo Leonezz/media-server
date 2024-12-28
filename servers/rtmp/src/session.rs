@@ -163,7 +163,7 @@ impl RtmpSession {
 
     async fn read_chunk(&mut self) -> RtmpServerResult<Option<ChunkMessage>> {
         loop {
-            let mut buf = Cursor::new(&self.read_buffer[..]);
+            let mut buf = Cursor::new(&self.read_buffer);
             match self.chunk_reader.read(&mut buf, true) {
                 Ok(Some(chunk_message)) => {
                     self.read_buffer.advance(buf.position() as usize);

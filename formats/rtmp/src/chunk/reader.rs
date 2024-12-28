@@ -74,7 +74,7 @@ impl Reader {
     }
     pub fn read(
         &mut self,
-        reader: &mut Cursor<&[u8]>,
+        reader: &mut Cursor<&BytesMut>,
         c2s: bool,
     ) -> ChunkMessageResult<Option<ChunkMessage>> {
         let common_header = self.read_to_common_header(reader)?;
@@ -165,7 +165,7 @@ impl Reader {
 
     fn read_chunk_body(
         &mut self,
-        reader: &mut Cursor<&[u8]>,
+        reader: &mut Cursor<&BytesMut>,
         csid: u32,
     ) -> ChunkMessageResult<Option<BytesMut>> {
         let ctx = self.context.get_mut(&csid);
@@ -206,7 +206,7 @@ impl Reader {
 
     fn read_to_common_header(
         &mut self,
-        reader: &mut Cursor<&[u8]>,
+        reader: &mut Cursor<&BytesMut>,
     ) -> ChunkMessageResult<Option<ChunkMessageCommonHeader>> {
         let basic_header = self.read_basic_header(reader)?;
         if basic_header.is_none() {
@@ -291,7 +291,7 @@ impl Reader {
 
     fn read_basic_header(
         &mut self,
-        reader: &mut Cursor<&[u8]>,
+        reader: &mut Cursor<&BytesMut>,
     ) -> ChunkMessageResult<Option<ChunkBasicHeader>> {
         if !reader.has_remaining() {
             return Ok(None);
@@ -340,7 +340,7 @@ impl Reader {
 
     fn read_message_header(
         &mut self,
-        reader: &mut Cursor<&[u8]>,
+        reader: &mut Cursor<&BytesMut>,
         fmt: u8,
     ) -> ChunkMessageResult<Option<ChunkMessageHeader>> {
         match fmt {
@@ -378,7 +378,7 @@ impl Reader {
 
     fn read_message_header_type0(
         &mut self,
-        reader: &mut Cursor<&[u8]>,
+        reader: &mut Cursor<&BytesMut>,
     ) -> ChunkMessageResult<ChunkMessageHeaderType0> {
         let mut header0 = ChunkMessageHeaderType0 {
             timestamp: reader.read_u24::<BigEndian>()?,
@@ -394,7 +394,7 @@ impl Reader {
 
     fn read_message_header_type1(
         &mut self,
-        reader: &mut Cursor<&[u8]>,
+        reader: &mut Cursor<&BytesMut>,
     ) -> ChunkMessageResult<ChunkMessageHeaderType1> {
         let mut header1 = ChunkMessageHeaderType1 {
             timestamp_delta: reader.read_u24::<BigEndian>()?,
@@ -409,7 +409,7 @@ impl Reader {
 
     fn read_message_header_type2(
         &mut self,
-        reader: &mut Cursor<&[u8]>,
+        reader: &mut Cursor<&BytesMut>,
     ) -> ChunkMessageResult<ChunkMessageHeaderType2> {
         let mut header2 = ChunkMessageHeaderType2 {
             timestamp_delta: reader.read_u24::<BigEndian>()?,
