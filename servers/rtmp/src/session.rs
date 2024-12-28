@@ -13,16 +13,16 @@ use ::stream_center::{
     frame_info::{AggregateMeta, AudioMeta, ChunkFrameData, VideoMeta},
     stream_source::{StreamIdentifier, StreamType},
 };
-use flv::errors::FLVResult;
 use rtmp_formats::{
     chunk::{
         self, ChunkMessage, ChunkMessageCommonHeader, RtmpChunkMessageBody,
         errors::ChunkMessageError,
     },
     commands::{
-        CallCommandRequest, ConnectCommandRequest, CreateStreamCommandRequest, DeleteStreamCommand,
-        PauseCommand, Play2Command, PlayCommand, PublishCommand, ReceiveAudioCommand,
-        ReceiveVideoCommand, RtmpC2SCommands, SeekCommand, consts::RESPONSE_STREAM_ID,
+        CallCommandRequest, ConnectCommandRequest, ConnectCommandRequestObject,
+        CreateStreamCommandRequest, DeleteStreamCommand, PauseCommand, Play2Command, PlayCommand,
+        PublishCommand, ReceiveAudioCommand, ReceiveVideoCommand, RtmpC2SCommands, SeekCommand,
+        consts::RESPONSE_STREAM_ID,
     },
     handshake,
     message::RtmpUserMessageBody,
@@ -104,10 +104,6 @@ enum SessionRuntime {
 struct StreamProperties {
     stream_name: String,
     app: String,
-    tc_url: String,
-    swf_url: String,
-    page_url: String,
-    amf_version: amf::Version,
 
     stream_type: StreamType,
 
@@ -124,6 +120,7 @@ pub struct RtmpSession {
     runtime_handle: SessionRuntime,
 
     stream_properties: StreamProperties,
+    connect_info: ConnectCommandRequestObject,
 
     ack_window_size_read: Option<u32>,
     ack_window_size_write: Option<SetPeerBandwidth>,
@@ -149,6 +146,8 @@ impl RtmpSession {
             chunk_writer: chunk::writer::Writer::new(),
 
             stream_properties: StreamProperties::default(),
+            connect_info: Default::default(),
+
             runtime_handle: SessionRuntime::Unknown,
 
             ack_window_size_read: None,
@@ -731,6 +730,10 @@ impl RtmpSession {
             .write_set_peer_bandwidth(4096, SetPeerBandWidthLimitType::Dynamic)?;
         self.flush_chunk().await?;
 
+        self.stream_properties.app = request.command_object.app.clone();
+
+        self.connect_info = request.command_object;
+
         self.chunk_writer.write_connect_response(
             true,
             request.transaction_id.into(),
@@ -739,15 +742,11 @@ impl RtmpSession {
             super::consts::response_code::NET_CONNECTION_CONNECT_SUCCESS,
             super::consts::response_level::STATUS,
             "Connection Succeeded.",
-            amf::Version::Amf0,
+            self.connect_info.object_encoding,
         )?;
         self.flush_chunk().await?;
 
-        self.stream_properties.app = request.command_object.app;
-        self.stream_properties.tc_url = request.command_object.tc_url;
-        self.stream_properties.swf_url = request.command_object.swf_url;
-        self.stream_properties.page_url = request.command_object.page_url;
-        self.stream_properties.amf_version = request.command_object.object_encoding;
+        tracing::info!("connect done, connect_info: {:?}", self.connect_info,);
 
         Ok(())
     }
@@ -775,11 +774,35 @@ impl RtmpSession {
             response_level::STATUS,
             response_code::NET_STREAM_PUBLISH_START_SUCCESS,
             "publish start",
-            self.stream_properties.amf_version,
+            self.connect_info.object_encoding,
+            None,
         )?;
         self.flush_chunk().await?;
 
         tracing::info!("process publish command success");
+        Ok(())
+    }
+
+    ///! for enhanced rtmp reconnect command, might not be useful
+    #[allow(dead_code)]
+    async fn write_reconnect_command(
+        &mut self,
+        new_tc_url: &str,
+        description: Option<&str>,
+    ) -> RtmpServerResult<()> {
+        let mut tc_url_arg = HashMap::new();
+        tc_url_arg.insert(
+            "tcUrl".to_string(),
+            amf::string(new_tc_url, self.connect_info.object_encoding),
+        );
+        self.chunk_writer.write_on_status_response(
+            response_level::STATUS,
+            response_code::NET_CONNECTION_CONNECT_RECONNECT_REQUEST,
+            description.unwrap_or("The streaming server is undergoing updates."),
+            self.connect_info.object_encoding,
+            Some(tc_url_arg),
+        )?;
+        self.flush_chunk().await?;
         Ok(())
     }
 
@@ -852,7 +875,8 @@ impl RtmpSession {
             response_level::STATUS,
             response_code::NET_STREAM_DELETE_SUCCESS,
             "delete stream success",
-            self.stream_properties.amf_version,
+            self.connect_info.object_encoding,
+            None,
         )?;
 
         self.flush_chunk().await?;
@@ -1245,7 +1269,8 @@ impl RtmpSession {
                     response_level::ERROR,
                     response_code::NET_STREAM_PLAY_NOT_FOUND,
                     "stream not found",
-                    self.stream_properties.amf_version,
+                    self.connect_info.object_encoding,
+                    None,
                 )?;
             }
             Ok(response) => {
@@ -1263,14 +1288,16 @@ impl RtmpSession {
                         response_level::STATUS,
                         response_code::NET_STREAM_PLAY_RESET,
                         "reset stream",
-                        self.stream_properties.amf_version,
+                        self.connect_info.object_encoding,
+                        None,
                     )?;
                 }
                 self.chunk_writer.write_on_status_response(
                     response_level::STATUS,
                     response_code::NET_STREAM_PLAY_START,
                     "play start",
-                    self.stream_properties.amf_version,
+                    self.connect_info.object_encoding,
+                    None,
                 )?;
             }
         }

@@ -622,11 +622,15 @@ impl Writer {
         code: &str,
         description: &str,
         encoding: amf::Version,
+        additional: Option<HashMap<String, amf::Value>>,
     ) -> ChunkMessageResult<()> {
         let mut info_object = HashMap::new();
         info_object.insert("level".into(), amf::string(level, encoding));
         info_object.insert("code".into(), amf::string(code, encoding));
         info_object.insert("description".into(), amf::string(description, encoding));
+        if let Some(additional) = additional {
+            info_object.extend(additional);
+        }
         self.write(
             ChunkMessage {
                 header: Self::make_command_common_header()?,

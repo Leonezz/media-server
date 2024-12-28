@@ -1,4 +1,4 @@
-pub const FMSVER: &str = "FMS/3,0,1,123";
+pub const FMSVER: &str = "zhuwenq/media-server";
 pub const FMS_CAPABILITIES: f64 = 31.0;
 
 pub mod response_code {

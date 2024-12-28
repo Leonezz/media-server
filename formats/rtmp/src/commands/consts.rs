@@ -53,7 +53,20 @@ pub mod video_codecs {
 }
 
 pub mod function_flags {
-    pub const SUPPORT_VID_CLIENT_SEEK: u8 = 1; // Indicates that the client can perform frame-accurate seeks
+    // Indicates that the client can perform frame-accurate seeks
+    pub const SUPPORT_VID_CLIENT_SEEK: u8 = 0x0001;
+    ///! the below are from enhanced rtmp
+    // Indicates that the client has support for HDR video.
+    // Note: Implies support for colorInfo Object within VideoPacketType.Metadata.
+    pub const SUPPORT_VID_CLIENT_HDR: u8 = 0x0002;
+    //Indicates that the client has support for VideoPacketType.Metadata.
+    // See Metadata Frame section for more detail.
+    pub const SUPPORT_VID_CLIENT_VIDEO_PACKET_TYPE_METADATA: u8 = 0x0004;
+    // The large-scale tile allows the decoder to extract only an interesting section
+    // in a frame without the need to decompress the entire frame.
+    // Support for this feature is not required and is assumed to not be
+    // implemented by the client unless this property is present and set to true.
+    pub const SUPPORT_VID_CLIENT_LARGE_SCALE_TILE: u8 = 0x0008;
 }
 
 pub const RESPONSE_STREAM_ID: u8 = 1;

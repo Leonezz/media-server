@@ -98,10 +98,10 @@ impl HttpFlvSession {
                 Some(frame) => {
                     match &frame {
                         FLVMediaFrame::Video {
-                            runtime_stat,
-                            pts,
+                            runtime_stat: _,
+                            pts: _,
                             header,
-                            payload,
+                            payload: _,
                         } => {
                             if header.is_sequence_header() {
                                 has_video_sequence_header = true;
@@ -109,10 +109,10 @@ impl HttpFlvSession {
                             }
                         }
                         FLVMediaFrame::Audio {
-                            runtime_stat,
-                            pts,
+                            runtime_stat: _,
+                            pts: _,
                             header,
-                            payload,
+                            payload: _,
                         } => {
                             if header.is_sequence_header() {
                                 has_audio_sequence_header = true;

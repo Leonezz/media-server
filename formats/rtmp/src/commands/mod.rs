@@ -9,8 +9,120 @@ pub mod errors;
 pub mod reader;
 pub mod writer;
 
+/// The [audio|video]FourCcInfoMap properties are designed to enable setting capability flags
+/// for each supported codec in the context of E-RTMP streaming.
+/// A FourCC key is a four-character code used to specify a video or audio codec.
+/// The names of the object properties are strings that correspond to these FourCC keys.
+/// Each object property holds a numeric value that represents a set of capability flags.
+/// These flags can be combined using a Bitwise OR operation.
+/// Capability flags define specific functionalities, such as the ability to decode, encode, or forward.
+/// A FourCC key set to the wildcard character "*" acts as a catch-all for any codec.
+/// When this wildcard key exists, it overrides the flags set on properties for specific codecs.
+/// For example, if the flag for the "*" property is set to FourCcInfoMask.CanForward,
+/// all codecs will be forwarded regardless of individual flags set on their specific properties.
+pub mod four_cc_info_mask {
+    pub const CAN_DECODE: u8 = 0x01;
+    pub const CAN_ENCODE: u8 = 0x02;
+    pub const CAN_FORWARD: u8 = 0x04;
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct FourCCInfo {
+    pub can_decode: bool,
+    pub can_encode: bool,
+    pub can_forward: bool,
+}
+
+impl From<u8> for FourCCInfo {
+    fn from(value: u8) -> Self {
+        Self {
+            can_decode: (value & four_cc_info_mask::CAN_DECODE) == four_cc_info_mask::CAN_DECODE,
+            can_encode: (value & four_cc_info_mask::CAN_ENCODE) == four_cc_info_mask::CAN_ENCODE,
+            can_forward: (value & four_cc_info_mask::CAN_FORWARD) == four_cc_info_mask::CAN_FORWARD,
+        }
+    }
+}
+
+impl Into<u8> for FourCCInfo {
+    fn into(self) -> u8 {
+        (if self.can_decode {
+            four_cc_info_mask::CAN_DECODE
+        } else {
+            0
+        } | if self.can_encode {
+            four_cc_info_mask::CAN_ENCODE
+        } else {
+            0
+        } | if self.can_forward {
+            four_cc_info_mask::CAN_FORWARD
+        } else {
+            0
+        })
+    }
+}
+
+///
+/// The value represents capability flags which can be combined via a Bitwise OR to indicate
+/// which extended set of capabilities (i.e., beyond the legacy [RTMP] specification) are supported via E-RTMP.
+/// See enum CapsExMask for the enumerated values representing the assigned bits.
+/// If the extended capabilities are expressed elsewhere they will not appear here
+/// (e.g., FourCC, HDR or VideoPacketType.Metadata support is not expressed in this property).
+/// When a specific flag is encountered:
+/// - The implementation might fully handle the feature by applying the appropriate logic.
+/// - Alternatively, if full support is not available, the implementation can still parse the bitstream correctly,
+///     ensuring graceful degradation.
+/// This allows continued operation, even with reduced functionality.
+pub mod caps_ex_mask {
+    pub const RECONNECT: u8 = 0x01; // Support for reconnection
+    pub const MULTI_TRACK: u8 = 0x02; // Support for multitrack
+    pub const MOD_EX: u8 = 0x04; // Can parse ModEx signal
+    pub const TIMESTAMP_NANO_OFFSET: u8 = 0x08; // Support for nano offset
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct CapsExInfo {
+    pub support_reconnect: bool,
+    pub support_mod_ex: bool,
+    pub support_multi_track: bool,
+    pub support_timestamp_nano: bool,
+}
+
+impl From<u8> for CapsExInfo {
+    fn from(value: u8) -> Self {
+        Self {
+            support_reconnect: (value & caps_ex_mask::RECONNECT) == caps_ex_mask::RECONNECT,
+            support_mod_ex: (value & caps_ex_mask::MOD_EX) == caps_ex_mask::MOD_EX,
+            support_multi_track: (value & caps_ex_mask::MULTI_TRACK) == caps_ex_mask::MULTI_TRACK,
+            support_timestamp_nano: (value & caps_ex_mask::TIMESTAMP_NANO_OFFSET)
+                == caps_ex_mask::TIMESTAMP_NANO_OFFSET,
+        }
+    }
+}
+
+impl Into<u8> for CapsExInfo {
+    fn into(self) -> u8 {
+        (if self.support_reconnect {
+            caps_ex_mask::RECONNECT
+        } else {
+            0
+        } | if self.support_mod_ex {
+            caps_ex_mask::MOD_EX
+        } else {
+            0
+        } | if self.support_multi_track {
+            caps_ex_mask::MULTI_TRACK
+        } else {
+            0
+        } | if self.support_timestamp_nano {
+            caps_ex_mask::TIMESTAMP_NANO_OFFSET
+        } else {
+            0
+        })
+    }
+}
+
 ///! @see: 7.2.1.1. connect
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ConnectCommandRequestObject {
     pub app: String,
     pub flash_version: String,
@@ -22,6 +134,11 @@ pub struct ConnectCommandRequestObject {
     pub video_function: u16,
     pub page_url: String,
     pub object_encoding: amf::Version,
+    ///! the below are from enhanced rtmp
+    pub caps_ex_info: Option<CapsExInfo>,
+    pub four_cc_list: Option<Vec<String>>,
+    pub video_four_cc_info: Option<HashMap<String, FourCCInfo>>,
+    pub audio_four_cc_info: Option<HashMap<String, FourCCInfo>>,
 }
 
 impl TryFrom<HashMap<String, amf::Value>> for ConnectCommandRequestObject {
@@ -44,6 +161,7 @@ impl TryFrom<HashMap<String, amf::Value>> for ConnectCommandRequestObject {
                 });
             }
         };
+
         let extract_bool_field = |key: &str| match value.get(key) {
             Some(value) => match value.try_as_bool() {
                 Some(v) => Ok(v),
@@ -80,6 +198,73 @@ impl TryFrom<HashMap<String, amf::Value>> for ConnectCommandRequestObject {
             }
         };
 
+        let extract_array_field = |key: &str| match value.get(key) {
+            Some(v) => match v.clone().try_into_values() {
+                Ok(values) => return Ok(values),
+                Err(err) => {
+                    return Err(ChunkMessageError::UnexpectedAmfType {
+                        amf_type: format!("expect array type, got {:?} instead", err),
+                        backtrace: Backtrace::capture(),
+                    });
+                }
+            },
+            None => {
+                return Err(ChunkMessageError::UnexpectedAmfType {
+                    amf_type: format!("expect {} field", key),
+                    backtrace: Backtrace::capture(),
+                });
+            }
+        };
+
+        let extract_string_array_field = |key: &str| match extract_array_field(key) {
+            Ok(values) => {
+                let mut result = vec![];
+                for v in values {
+                    if let Some(str_value) = v.try_as_str() {
+                        result.push(str_value.to_string());
+                    } else {
+                        return Err(ChunkMessageError::UnexpectedAmfType {
+                            amf_type: format!("expect a string in array, got {:?} instead", v),
+                            backtrace: Backtrace::capture(),
+                        });
+                    }
+                }
+                Ok(result)
+            }
+            Err(err) => Err(err),
+        };
+
+        let extract_object_field = |key: &str| match value.get(key) {
+            Some(v) => match v.clone().try_into_pairs() {
+                Ok(pairs) => Ok(pairs),
+                Err(err) => Err(ChunkMessageError::UnexpectedAmfType {
+                    amf_type: format!("expect key-value pairs type, got {:?} instead", err),
+                    backtrace: Backtrace::capture(),
+                }),
+            },
+            None => {
+                return Err(ChunkMessageError::UnexpectedAmfType {
+                    amf_type: format!("expect {} field", key),
+                    backtrace: Backtrace::capture(),
+                });
+            }
+        };
+
+        let extract_four_cc_info = |key: &str| {
+            extract_object_field(key).map_or_else(
+                |_| None,
+                |pairs| {
+                    let mut info: HashMap<String, FourCCInfo> = HashMap::new();
+                    for (k, v) in pairs {
+                        if let Some(flag) = v.try_as_f64() {
+                            info.insert(k, (flag as u8).into());
+                        }
+                    }
+                    Some(info)
+                },
+            )
+        };
+
         let command_object = ConnectCommandRequestObject {
             app: extract_string_field("app").unwrap_or("default".into()),
             flash_version: extract_string_field("flashver").unwrap_or("default".into()),
@@ -98,6 +283,12 @@ impl TryFrom<HashMap<String, amf::Value>> for ConnectCommandRequestObject {
                 3 => amf::Version::Amf3,
                 v => return Err(ChunkMessageError::UnknownAmfVersion(v as u8)),
             },
+            four_cc_list: extract_string_array_field("fourCcList")
+                .map_or_else(|_| None, |v| Some(v)),
+            video_four_cc_info: extract_four_cc_info("videoFourCcInfoMap"),
+            audio_four_cc_info: extract_four_cc_info("audioFourCcInfoMap"),
+            caps_ex_info: extract_number_field("capsEx")
+                .map_or_else(|_| None, |v| Some((v as u8).into())),
         };
 
         Ok(command_object)
