@@ -127,6 +127,8 @@ pub struct AudioTagHeaderWithoutMultiTrack {
     pub legacy_info: Option<LegacyAudioHeaderInfo>,
     pub timestamp_nano: Option<u32>,
     pub track_type: Option<AvMultiTrackType>,
+    // for debug
+    pub is_enhanced_rtmp: bool,
 }
 
 impl TryInto<audio_tag_header::AudioTagHeader> for AudioTagHeaderWithoutMultiTrack {
@@ -187,6 +189,7 @@ impl From<audio_tag_header::AudioTagHeader> for AudioTagHeaderWithoutMultiTrack 
             }),
             timestamp_nano: None,
             track_type: None,
+            is_enhanced_rtmp: false,
         }
     }
 }
@@ -209,6 +212,7 @@ impl TryFrom<ExAudioTagHeader> for AudioTagHeaderWithoutMultiTrack {
             legacy_info: None,
             timestamp_nano: value.packet_mod_ex.timestamp_nano,
             track_type: value.track_type,
+            is_enhanced_rtmp: true,
         })
     }
 }

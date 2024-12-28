@@ -54,6 +54,7 @@ impl From<video_tag_header::CodecID> for VideoCodecCommon {
             video_tag_header::CodecID::ScreenVideoV2 => Self::ScreenVideoV2,
             video_tag_header::CodecID::AVC => Self::AVC,
             video_tag_header::CodecID::HEVC => Self::HEVC,
+            video_tag_header::CodecID::AV1 => Self::AV1,
         }
     }
 }
@@ -96,6 +97,8 @@ pub struct VideoTagHeaderWithoutMultiTrack {
     pub composition_time: Option<u32>,
     pub timestamp_nano: Option<u32>,
     pub track_type: Option<AvMultiTrackType>,
+    // for debug
+    pub is_enhanced_rtmp: bool,
 }
 
 impl TryInto<video_tag_header::VideoTagHeader> for VideoTagHeaderWithoutMultiTrack {
@@ -103,7 +106,10 @@ impl TryInto<video_tag_header::VideoTagHeader> for VideoTagHeaderWithoutMultiTra
     fn try_into(self) -> Result<video_tag_header::VideoTagHeader, Self::Error> {
         let codec_id: video_tag_header::CodecID = self.codec_id.try_into()?;
         let mut avc_packet_type = None;
-        if self.codec_id == VideoCodecCommon::AVC || self.codec_id == VideoCodecCommon::HEVC {
+        if self.codec_id == VideoCodecCommon::AVC
+            || self.codec_id == VideoCodecCommon::HEVC
+            || self.codec_id == VideoCodecCommon::AV1
+        {
             match self.packet_type {
                 VideoPacketType::SequenceStart => {
                     avc_packet_type = Some(video_tag_header::AVCPacketType::SequenceHeader);
@@ -165,6 +171,7 @@ impl From<video_tag_header::VideoTagHeader> for VideoTagHeaderWithoutMultiTrack 
             timestamp_nano: None,
             track_type: None,
             composition_time: value.composition_time,
+            is_enhanced_rtmp: false,
         }
     }
 }
@@ -188,6 +195,7 @@ impl TryFrom<ExVideoTagHeader> for VideoTagHeaderWithoutMultiTrack {
             composition_time: track_info.composition_time,
             timestamp_nano: value.packet_mod_ex.timestamp_nano,
             track_type: value.track_type,
+            is_enhanced_rtmp: true,
         })
     }
 }

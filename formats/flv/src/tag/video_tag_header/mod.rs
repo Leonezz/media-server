@@ -62,7 +62,10 @@ pub enum CodecID {
     ScreenVideoV2 = 6,
     #[default]
     AVC = 7,
-    HEVC = 12, // not standard, but used a lot
+    // not standard, but used a lot in china, @see: https://github.com/CDN-Union/H265
+    HEVC = 12,
+    // not standard, but used a lot in china, @see: https://mp.weixin.qq.com/s/H3qI7zsON5sdf4oDJ9qlkg
+    AV1 = 13,
 }
 
 impl Into<u8> for CodecID {
@@ -81,6 +84,8 @@ impl TryFrom<u8> for CodecID {
             5 => Ok(Self::On2VP6WithAlpha),
             6 => Ok(Self::ScreenVideoV2),
             7 => Ok(Self::AVC),
+            12 => Ok(Self::HEVC),
+            13 => Ok(Self::AV1),
             _ => Err(FLVError::UnknownCodecID(value)),
         }
     }
@@ -172,22 +177,17 @@ impl VideoTagHeader {
     }
 
     #[inline]
-    pub fn get_avc_packet_type(&self) -> Option<AVCPacketType> {
+    pub fn get_packet_type(&self) -> Option<AVCPacketType> {
         self.avc_packet_type
     }
 
     #[inline]
-    pub fn is_avc(&self) -> bool {
-        self.avc_packet_type.is_some()
-    }
-
-    #[inline]
-    pub fn is_avc_key_frame(&self) -> bool {
+    pub fn is_key_frame(&self) -> bool {
         self.frame_type == FrameType::KeyFrame
     }
 
     #[inline]
-    pub fn is_avc_sequence_header(&self) -> bool {
+    pub fn is_sequence_header(&self) -> bool {
         match self.avc_packet_type {
             None => false,
             Some(packet_type) => packet_type == AVCPacketType::SequenceHeader,
@@ -200,24 +200,6 @@ impl VideoTagHeader {
             None => false,
             Some(packet_type) => packet_type == AVCPacketType::NALU,
         }
-    }
-
-    #[inline]
-    pub fn is_sequence_header(&self) -> bool {
-        if self.is_avc() {
-            return self.is_avc_sequence_header();
-        }
-        // TODO - more codecs
-        return false;
-    }
-
-    #[inline]
-    pub fn is_key_frame(&self) -> bool {
-        if self.is_avc() {
-            return self.is_avc_key_frame();
-        }
-        // TODO - more codecs
-        return false;
     }
 }
 

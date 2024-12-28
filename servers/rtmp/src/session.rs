@@ -272,6 +272,7 @@ impl RtmpSession {
                         tracing::info!("play session end with err: {:?}", err);
                     }
                 }
+                return Ok(());
             }
 
             match self.read_chunk().await {
@@ -392,13 +393,24 @@ impl RtmpSession {
                             FLVMediaFrame::Video {
                                 runtime_stat,
                                 pts,
-                                header: _,
+                                header,
                                 payload,
                             } => {
                                 runtime_stat.play_time_ns = get_timestamp_ns().unwrap_or(0);
+                                let timestamp =
+                                    *pts + if let Some(cts) = header.composition_time {
+                                        cts as u64
+                                    } else {
+                                        0
+                                    } + if let Some(cts_nano) = header.timestamp_nano {
+                                        cts_nano as u64
+                                    } else {
+                                        0
+                                    };
 
-                                let res =
-                                    self.chunk_writer.write_video(payload.clone(), *pts as u32);
+                                let res = self
+                                    .chunk_writer
+                                    .write_video(payload.clone(), timestamp as u32);
                                 if res.is_err() {
                                     tracing::error!(
                                         "write video message to rtmp chunk failed, err: {:?}",

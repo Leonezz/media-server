@@ -28,7 +28,7 @@ impl VideoTagHeader {
 
         let mut avc_packet_type = None;
         let mut composition_time = None;
-        if codec_id == CodecID::AVC {
+        if codec_id == CodecID::AVC || codec_id == CodecID::HEVC || codec_id == CodecID::AV1 {
             let packet_type = reader.read_u8()?;
             avc_packet_type = Some(packet_type.try_into()?);
 

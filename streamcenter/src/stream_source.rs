@@ -1,5 +1,5 @@
 use std::{
-    cmp::min,
+    cmp::{max, min},
     collections::HashMap,
     fmt::Display,
     io::{Cursor, Read},
@@ -291,10 +291,6 @@ impl StreamSource {
                     header: tag_header.try_into()?,
                     payload,
                 }])
-
-                // if let Some(time) = tag_header.composition_time {
-                //     meta.pts = time.into();
-                // }
             }
             ChunkFrameData::Meta {
                 mut meta,
@@ -408,11 +404,19 @@ impl StreamSource {
 
         let total_gop_cnt = self.gop_cache.get_gops_cnt();
 
-        let gop_consumer_cnt = match handler.gop_cache_consume_param {
-            ConsumeGopCache::All => total_gop_cnt,
-            ConsumeGopCache::GopCount(cnt) => min(total_gop_cnt, cnt as usize),
-            ConsumeGopCache::None => 0,
-        };
+        if total_gop_cnt == 0 {
+            tracing::info!("got new consumer {} but no gop cached", key);
+            return Ok(());
+        }
+
+        let gop_consumer_cnt = max(
+            match handler.gop_cache_consume_param {
+                ConsumeGopCache::All => total_gop_cnt,
+                ConsumeGopCache::GopCount(cnt) => min(total_gop_cnt, cnt as usize),
+                ConsumeGopCache::None => 0,
+            },
+            1, // always send at least one gop
+        );
 
         tracing::info!(
             "dump {} gops for play id: {}, total gop cnt: {}",

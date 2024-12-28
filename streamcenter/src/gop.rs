@@ -282,7 +282,6 @@ impl GopQueue {
                 if header.is_sequence_header() {
                     tracing::info!("video header: {:?}", header);
                     self.video_sequence_header = Some(frame.clone());
-                    tracing::info!("{:?}", header);
                     is_sequence_header = true;
                 } else if header.is_key_frame() {
                     self.gops.push_back(Gop::new());

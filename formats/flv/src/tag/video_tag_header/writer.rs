@@ -20,7 +20,9 @@ where
     }
 
     pub fn write(&mut self, header: &VideoTagHeader) -> FLVResult<()> {
-        if header.codec_id == CodecID::AVC
+        if (header.codec_id == CodecID::AVC
+            || header.codec_id == CodecID::HEVC
+            || header.codec_id == CodecID::AV1)
             && (header.avc_packet_type.is_none() || header.composition_time.is_none())
         {
             return Err(FLVError::InconsistentHeader(format!(
@@ -49,7 +51,10 @@ where
             self.inner.write_u8(command)?;
         }
 
-        if header.codec_id == CodecID::AVC {
+        if header.codec_id == CodecID::AVC
+            || header.codec_id == CodecID::HEVC
+            || header.codec_id == CodecID::AV1
+        {
             let avc_packet_type_u8: u8 =
                 header.avc_packet_type.expect("this cannot be none").into();
             self.inner.write_u8(avc_packet_type_u8)?;

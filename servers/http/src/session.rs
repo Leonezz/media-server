@@ -154,14 +154,14 @@ impl HttpFlvSession {
     ) -> HttpFlvServerResult<()> {
         fn write_tag(
             tag_type: FLVTagType,
-            pts: u32,
+            timestamp: u32,
             payload: &BytesMut,
             bytes_buffer: &mut Vec<u8>,
         ) -> FLVResult<()> {
             let flv_tag_header = FLVTagHeader {
                 tag_type,
                 data_size: payload.len() as u32,
-                timestamp: pts,
+                timestamp,
                 filter_enabled: false,
             };
 
@@ -183,7 +183,7 @@ impl HttpFlvSession {
             FLVMediaFrame::Video {
                 runtime_stat,
                 pts,
-                header: _,
+                header,
                 payload,
             } => {
                 if !self.has_video {
@@ -192,7 +192,18 @@ impl HttpFlvSession {
                 runtime_stat.play_time_ns = get_timestamp_ns().expect("this cannot be error");
                 self.runtime_stat.video_frame_sent += 1;
 
-                write_tag(FLVTagType::Video, *pts as u32, payload, bytes_buffer)?;
+                let timestamp =
+                    *pts + if let Some(cts) = header.composition_time {
+                        cts as u64
+                    } else {
+                        0
+                    } + if let Some(cts_nano) = header.timestamp_nano {
+                        cts_nano as u64
+                    } else {
+                        0
+                    };
+
+                write_tag(FLVTagType::Video, timestamp as u32, payload, bytes_buffer)?;
             }
             FLVMediaFrame::Audio {
                 runtime_stat,
