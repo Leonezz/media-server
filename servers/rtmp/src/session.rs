@@ -51,6 +51,7 @@ use tokio_util::{
     bytes::{Buf, BytesMut},
     either::Either,
 };
+use url::Url;
 use utils::system::time::get_timestamp_ns;
 use uuid::Uuid;
 
@@ -107,7 +108,7 @@ struct StreamProperties {
 
     stream_type: StreamType,
 
-    stream_context: HashMap<String, serde_json::Value>,
+    stream_context: HashMap<String, String>,
 }
 
 #[derive(Debug)]
@@ -996,7 +997,9 @@ impl RtmpSession {
         };
 
         if stream_name.is_empty() {
-            return Err(RtmpServerError::InvalidStreamParam);
+            return Err(RtmpServerError::InvalidStreamParam(format!(
+                "stream publish need at least stream_name, got empty"
+            )));
         }
 
         self.stream_properties.stream_name = stream_name.to_string();
@@ -1124,6 +1127,7 @@ impl RtmpSession {
         &self,
         stream_name: &str,
         app: &str,
+        context: HashMap<String, String>,
     ) -> RtmpServerResult<SubscribeResponse> {
         let (tx, rx) = oneshot::channel();
         self.stream_center_event_sender
@@ -1132,6 +1136,7 @@ impl RtmpSession {
                     stream_name: stream_name.to_string(),
                     app: app.to_string(),
                 },
+                context,
                 result_sender: tx,
             })
             .map_err(|err| {
@@ -1240,14 +1245,46 @@ impl RtmpSession {
         header: ChunkMessageCommonHeader,
     ) -> RtmpServerResult<()> {
         tracing::info!("got play request: {:?}", request);
-        let stream_name = request.stream_name;
+        let stream_play_path = format!("rtmp://fake_host/{}", request.stream_name);
+        let url = Url::parse(&stream_play_path).map_err(|err| {
+            return RtmpServerError::InvalidStreamParam(format!(
+                "stream play code parse failed: {:?}, should be url path format, got: {}",
+                err, request.stream_name
+            ));
+        })?;
+
+        let stream_name = url.path_segments();
+        if stream_name.is_none() {
+            return Err(RtmpServerError::InvalidStreamParam(format!(
+                "stream play code parse failed, no stream_name: {}",
+                request.stream_name
+            )));
+        }
+        let stream_name = stream_name.unwrap().collect::<Vec<&str>>().get(0).cloned();
+        if stream_name.is_none() {
+            return Err(RtmpServerError::InvalidStreamParam(format!(
+                "stream play code parse failed, no stream_name: {}",
+                request.stream_name
+            )));
+        }
+        let stream_name = stream_name.unwrap();
+        for (k, v) in url.query_pairs() {
+            self.stream_properties
+                .stream_context
+                .insert(k.to_string(), v.to_string());
+        }
+
         let start = request.start; // this might by useful
         let duration = request.duration; // this might by useful
         let reset = request.reset; // this should be ignored
 
-        self.stream_properties.stream_name = stream_name.clone();
+        self.stream_properties.stream_name = stream_name.to_string();
         let subscribe_result = self
-            .subscribe_from_stream_center(stream_name.as_str(), &self.stream_properties.app.clone())
+            .subscribe_from_stream_center(
+                stream_name,
+                &self.stream_properties.app.clone(),
+                self.stream_properties.stream_context.clone(),
+            )
             .await;
 
         self.chunk_writer

@@ -75,11 +75,21 @@ impl HttpFlvSession {
     }
 
     pub async fn serve_pull_request(&mut self) -> HttpFlvServerResult<()> {
-        let mut response = self.subscribe_from_stream_center().await?;
+        let mut response: SubscribeResponse = self.subscribe_from_stream_center().await?;
         self.stream_properties.stream_type = response.stream_type;
         self.play_id = Some(response.subscribe_id);
-        self.has_audio = response.has_audio;
-        self.has_video = response.has_video;
+        self.has_video = self
+            .stream_properties
+            .stream_context
+            .get("audioOnly")
+            .map_or_else(|| true, |_| false)
+            && response.has_video;
+        self.has_audio = self
+            .stream_properties
+            .stream_context
+            .get("videoOnly")
+            .map_or_else(|| true, |_| false)
+            && response.has_audio;
 
         let mut bytes = Vec::with_capacity(4096);
 
@@ -186,9 +196,6 @@ impl HttpFlvSession {
                 header,
                 payload,
             } => {
-                if !self.has_video {
-                    return Ok(());
-                }
                 runtime_stat.play_time_ns = get_timestamp_ns().expect("this cannot be error");
                 self.runtime_stat.video_frame_sent += 1;
 
@@ -211,9 +218,6 @@ impl HttpFlvSession {
                 header: _,
                 payload,
             } => {
-                if !self.has_audio {
-                    return Ok(());
-                }
                 runtime_stat.play_time_ns = get_timestamp_ns().expect("this cannot be error");
                 self.runtime_stat.audio_frame_sent += 1;
 
@@ -292,6 +296,7 @@ impl HttpFlvSession {
                 stream_name: self.stream_properties.stream_name.clone(),
                 app: self.stream_properties.app.clone(),
             },
+            context: self.stream_properties.stream_context.clone(),
             result_sender: tx,
         };
         let res = self.stream_center_event_sender.send(event);

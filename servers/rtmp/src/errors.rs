@@ -16,8 +16,8 @@ pub enum RtmpServerError {
     StreamCenterError(#[from] StreamCenterError),
     #[error("channel send data failed, {backtrace}")]
     ChannelSendFailed { backtrace: Backtrace },
-    #[error("invalid stream param")]
-    InvalidStreamParam,
+    #[error("invalid stream param: {0}")]
+    InvalidStreamParam(String),
     #[error("stream is gone")]
     StreamIsGone,
 }

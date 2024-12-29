@@ -13,7 +13,8 @@ use crate::{
     frame_info::ChunkFrameData,
     signal::StreamSignal,
     stream_source::{
-        ConsumeGopCache, StreamIdentifier, StreamSource, StreamType, SubscribeHandler,
+        ConsumeGopCache, ParsedContext, StreamIdentifier, StreamSource, StreamType,
+        SubscribeHandler,
     },
 };
 
@@ -88,8 +89,9 @@ impl StreamCenter {
             StreamCenterEvent::Subscribe {
                 stream_id,
                 result_sender,
+                context,
             } => {
-                self.process_subscribe_event(stream_id, result_sender)
+                self.process_subscribe_event(stream_id, result_sender, context)
                     .await?
             }
             StreamCenterEvent::Unsubscribe {
@@ -108,7 +110,7 @@ impl StreamCenter {
         &mut self,
         stream_type: StreamType,
         stream_id: StreamIdentifier,
-        context: HashMap<String, serde_json::Value>,
+        context: HashMap<String, String>,
         result_sender: oneshot::Sender<StreamCenterResult<mpsc::Sender<ChunkFrameData>>>,
     ) -> StreamCenterResult<()> {
         if self.streams.contains_key(&stream_id) {
@@ -134,7 +136,6 @@ impl StreamCenter {
             &stream_id.stream_name,
             &stream_id.app,
             stream_type,
-            context.clone(),
             frame_receiver,
             signal_receiver,
             Arc::clone(&data_distributer),
@@ -225,6 +226,7 @@ impl StreamCenter {
         &mut self,
         stream_id: StreamIdentifier,
         result_sender: oneshot::Sender<StreamCenterResult<SubscribeResponse>>,
+        context: HashMap<String, String>,
     ) -> StreamCenterResult<()> {
         if !self.streams.contains_key(&stream_id) {
             return result_sender
@@ -238,29 +240,36 @@ impl StreamCenter {
                 });
         }
 
-        let (tx, rx) = mpsc::channel(1280);
+        let (tx, rx) = mpsc::channel(100_000);
         let uuid = Uuid::now_v7();
         let stream_type;
+        let source_has_video;
+        let source_has_audio;
         {
+            let parsed_context: ParsedContext = (&context).into();
             let stream = self.streams.get_mut(&stream_id).expect("this must exist");
             stream
                 .data_distributer
                 .write()
                 .await
                 .insert(uuid.clone(), SubscribeHandler {
-                    gop_cache_consume_param: ConsumeGopCache::None,
+                    context,
+                    parsed_context,
                     data_sender: tx,
                     stat: Default::default(),
                 });
             stream_type = stream.stream_type;
+            let info = stream.stream_dynamic_info.read().await;
+            source_has_video = info.has_video;
+            source_has_audio = info.has_audio;
         }
 
         result_sender
             .send(Ok(SubscribeResponse {
                 subscribe_id: uuid,
                 stream_type: stream_type,
-                has_video: true,
-                has_audio: true,
+                has_video: source_has_video,
+                has_audio: source_has_audio,
                 media_receiver: rx,
             }))
             .map_err(|err| {

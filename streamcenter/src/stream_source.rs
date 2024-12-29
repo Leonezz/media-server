@@ -98,9 +98,33 @@ pub struct PlayStat {
 
 #[derive(Debug)]
 pub struct SubscribeHandler {
-    pub gop_cache_consume_param: ConsumeGopCache,
+    pub context: HashMap<String, String>,
+    pub parsed_context: ParsedContext,
     pub data_sender: mpsc::Sender<FLVMediaFrame>,
     pub stat: PlayStat,
+}
+
+#[derive(Debug)]
+pub struct ParsedContext {
+    // videoOnly
+    pub video_only: bool,
+    // audioOnly
+    pub audio_only: bool,
+    // backtrackGopCnt
+    pub backtrack_gop_cnt: ConsumeGopCache,
+}
+
+impl From<&HashMap<String, String>> for ParsedContext {
+    fn from(value: &HashMap<String, String>) -> Self {
+        Self {
+            video_only: value.contains_key("videoOnly"),
+            audio_only: value.contains_key("audioOnly"),
+            backtrack_gop_cnt: value.get("backtrackGopCnt").map_or_else(
+                || ConsumeGopCache::GopCount(1),
+                |s| ConsumeGopCache::GopCount(s.parse().unwrap_or(0)),
+            ),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -108,7 +132,6 @@ pub struct StreamSource {
     pub identifier: StreamIdentifier,
     pub stream_type: StreamType,
 
-    context: HashMap<String, serde_json::Value>,
     data_receiver: mpsc::Receiver<ChunkFrameData>,
     data_distributer: Arc<RwLock<HashMap<Uuid, SubscribeHandler>>>,
     stream_dynamic_info: Arc<RwLock<StreamSourceDynamicInfo>>,
@@ -123,7 +146,6 @@ impl StreamSource {
         stream_name: &str,
         app: &str,
         stream_type: StreamType,
-        context: HashMap<String, serde_json::Value>,
         data_receiver: mpsc::Receiver<ChunkFrameData>,
         signal_receiver: mpsc::Receiver<StreamSignal>,
         data_distributer: Arc<RwLock<HashMap<Uuid, SubscribeHandler>>>,
@@ -135,12 +157,11 @@ impl StreamSource {
                 app: app.to_string(),
             },
             stream_type,
-            context,
             data_receiver,
             data_distributer,
             stream_dynamic_info,
             // data_consumer: rx,
-            gop_cache: GopQueue::new(100_1000, 1000),
+            gop_cache: GopQueue::new(600_000, 100_000),
             status: StreamStatus::NotStarted,
             signal_receiver,
         }
@@ -345,10 +366,15 @@ impl StreamSource {
         };
 
         for (key, handler) in &mut self.data_distributer.write().await.iter_mut() {
-            if !handler.stat.audio_sh_sent || !handler.stat.video_sh_sent {
+            if (!handler.stat.audio_sh_sent) || (!handler.stat.video_sh_sent) {
                 self.on_new_consumer(key, handler, update_stat).await?;
             }
-
+            if handler.parsed_context.audio_only && frame.is_video() {
+                continue;
+            }
+            if handler.parsed_context.video_only && frame.is_audio() {
+                continue;
+            }
             let res = handler.data_sender.try_send(frame.clone());
             if res.is_err() {
                 tracing::error!("distribute frame data to {} failed: {:?}", key, res);
@@ -424,13 +450,16 @@ impl StreamSource {
             return Ok(());
         }
 
-        let gop_consumer_cnt = max(
-            match handler.gop_cache_consume_param {
-                ConsumeGopCache::All => total_gop_cnt,
-                ConsumeGopCache::GopCount(cnt) => min(total_gop_cnt, cnt as usize),
-                ConsumeGopCache::None => 0,
-            },
-            1, // always send at least one gop
+        let gop_consumer_cnt = min(
+            max(
+                match handler.parsed_context.backtrack_gop_cnt {
+                    ConsumeGopCache::All => total_gop_cnt,
+                    ConsumeGopCache::GopCount(cnt) => cnt as usize,
+                    ConsumeGopCache::None => 0,
+                },
+                1, // always send at least one gop
+            ),
+            total_gop_cnt,
         );
 
         tracing::info!(
@@ -449,6 +478,12 @@ impl StreamSource {
                 gop.flv_frames.len()
             );
             for frame in &gop.flv_frames {
+                if handler.parsed_context.audio_only && frame.is_video() {
+                    continue;
+                }
+                if handler.parsed_context.video_only && frame.is_audio() {
+                    continue;
+                }
                 let res = handler.data_sender.try_send(frame.clone());
                 if let Err(err) = &res {
                     tracing::error!(

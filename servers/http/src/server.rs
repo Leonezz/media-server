@@ -12,7 +12,6 @@ use hyper_util::rt::TokioIo;
 use stream_center::events::StreamCenterEvent;
 use tokio::sync::mpsc::{self};
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use url::Url;
 
 use crate::{
     config::{HttpFlvServerConfig, HttpFlvSessionConfig},
@@ -103,44 +102,22 @@ impl Service<Request<Incoming>> for HttpFlvServer {
         }
 
         let uri = req.uri();
-        let mut host: Option<&str> = uri.host();
-        if host.is_none() {
-            host = req
-                .headers()
-                .get("host")
-                .map(|v| v.to_str().unwrap_or("0.0.0.0"));
+
+        let path_segments: Vec<&str> = uri.path().split('/').filter(|v| !v.is_empty()).collect();
+        if path_segments.len() != 2 || !path_segments[1].ends_with(".flv") {
+            return Box::pin(async { make_response(StatusCode::BAD_REQUEST) });
         }
+        let app = path_segments[0];
+        let stream_name = path_segments[1].strip_suffix(".flv").unwrap();
 
-        let uri = format!("http://{}{}", host.unwrap_or("0.0.0.0"), uri.path());
-        let url = Url::parse(uri.as_str()).expect("Could I get a bad url from hyper?");
-
-        let app;
-        let mut stream_name;
-        if let Some(path) = url.path_segments() {
-            let path_params: Vec<&str> = path.collect();
-            {
-                if path_params.len() != 2 || !path_params[1].ends_with(".flv") {
-                    let res = make_response(StatusCode::BAD_REQUEST);
-                    return Box::pin(async { res });
-                }
-            }
-
-            app = path_params.get(0).expect("this cannot be none").to_string();
-            stream_name = path_params.get(1).expect("this cannot be none").to_string();
-
-            stream_name = stream_name
-                .strip_suffix(".flv")
-                .expect("this cannot be none")
-                .to_string();
-        } else {
-            let res = make_response(StatusCode::BAD_REQUEST);
-            return Box::pin(async { res });
-        }
-
-        let mut query_map = HashMap::new();
-        for (key, value) in url.query_pairs() {
-            query_map.insert(key.to_string(), value.to_string());
-        }
+        let query_map: HashMap<String, String> = uri
+            .query()
+            .map(|v| {
+                url::form_urlencoded::parse(v.as_bytes())
+                    .into_owned()
+                    .collect()
+            })
+            .unwrap_or_else(HashMap::new);
 
         let mut session = HttpFlvSession::new(
             HttpFlvSessionConfig {
@@ -150,8 +127,8 @@ impl Service<Request<Incoming>> for HttpFlvServer {
             },
             self.stream_center_event_sender.clone(),
             StreamProperties {
-                app,
-                stream_name,
+                app: app.to_string(),
+                stream_name: stream_name.to_string(),
                 stream_type: Default::default(),
                 stream_context: query_map,
             },

@@ -15,7 +15,7 @@ pub enum StreamCenterEvent {
     Publish {
         stream_type: StreamType,
         stream_id: StreamIdentifier,
-        context: HashMap<String, serde_json::Value>,
+        context: HashMap<String, String>,
         result_sender: oneshot::Sender<StreamCenterResult<mpsc::Sender<ChunkFrameData>>>, // success or not
     },
     Unpublish {
@@ -24,6 +24,7 @@ pub enum StreamCenterEvent {
     },
     Subscribe {
         stream_id: StreamIdentifier,
+        context: HashMap<String, String>,
         result_sender: oneshot::Sender<StreamCenterResult<SubscribeResponse>>,
     },
     Unsubscribe {
