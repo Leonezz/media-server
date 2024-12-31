@@ -7,7 +7,8 @@ edition = "2024"
 tracing = { version = "0.1.41" }
 tokio = { version = "1.42.0", features = ["full"] }
 rtmp-server = { path = "../servers/rtmp" }
-httpflv-server = { path = "../servers/http" }
+http-server = { path = "../servers/http" }
+rocket = { version = "0.5.1" }
 stream-center = { path = "../streamcenter" }
 tracing-subscriber = { version = "0.3.19", features = [
   "time",

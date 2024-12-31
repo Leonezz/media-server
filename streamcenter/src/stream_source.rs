@@ -119,7 +119,7 @@ impl From<&HashMap<String, String>> for ParsedContext {
         Self {
             video_only: value.contains_key("videoOnly"),
             audio_only: value.contains_key("audioOnly"),
-            backtrack_gop_cnt: value.get("backtrackGopCnt").map_or_else(
+            backtrack_gop_cnt: value.get("backtraceGopCnt").map_or_else(
                 || ConsumeGopCache::GopCount(1),
                 |s| ConsumeGopCache::GopCount(s.parse().unwrap_or(0)),
             ),
