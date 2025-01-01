@@ -46,6 +46,7 @@ impl HttpServer {
         let res = rocket::custom(figment)
             .manage(self.context.clone())
             .mount("/", routes![routes::httpflv::serve])
+            .mount("/rest/v1/", routes![routes::api::version::get_version])
             .launch()
             .await;
         tracing::info!("{:?}", res);

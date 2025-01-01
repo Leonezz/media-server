@@ -21,7 +21,7 @@ async fn main() {
         // Display the thread name an event was recorded on
         .with_thread_names(true)
         // display the event's target (module path)
-        .with_target(true)
+        .with_target(false)
         .with_env_filter(EnvFilter::from_env("LOG_LEVEL"))
         // Build the subscriber
         .finish();
