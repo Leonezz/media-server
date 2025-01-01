@@ -1,4 +1,4 @@
-use std::{collections::HashMap, convert::Infallible, io::Write};
+use std::{collections::HashMap, io::Write};
 
 use byteorder::{BigEndian, WriteBytesExt};
 
@@ -7,7 +7,6 @@ use flv::{
     header::FLVHeader,
     tag::{FLVTagHeader, FLVTagType},
 };
-use hyper::body::{Bytes, Frame};
 use stream_center::{
     events::{StreamCenterEvent, SubscribeResponse},
     gop::FLVMediaFrame,
@@ -18,10 +17,16 @@ use tokio_util::bytes::BytesMut;
 use utils::system::time::get_timestamp_ns;
 use uuid::Uuid;
 
-use crate::{
-    config::HttpFlvSessionConfig,
-    errors::{HttpFlvServerError, HttpFlvServerResult},
-};
+use crate::sessions::httpflv::errors::HttpFlvSessionError;
+
+use super::errors::HttpFlvSessionResult;
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct HttpFlvSessionConfig {
+    pub chunk_size: u32,
+    pub write_timeout_ms: u64,
+    pub read_timeout_ms: u64,
+}
 
 #[derive(Debug, Default)]
 pub struct StreamProperties {
@@ -32,7 +37,7 @@ pub struct StreamProperties {
 }
 
 #[derive(Debug, Default)]
-pub struct HttpFlvRuntimeStat {
+pub struct HttpFlvSessionRuntimeStat {
     video_sequence_header_sent: bool,
     audio_sequence_header_sent: bool,
     video_frame_sent: u64,
@@ -47,9 +52,9 @@ pub struct HttpFlvSession {
     stream_center_event_sender: mpsc::UnboundedSender<StreamCenterEvent>,
     stream_properties: StreamProperties,
     play_id: Option<Uuid>,
-    http_response_bytes_sender: mpsc::UnboundedSender<Result<Frame<Bytes>, Infallible>>,
+    http_response_bytes_sender: mpsc::UnboundedSender<BytesMut>,
 
-    runtime_stat: HttpFlvRuntimeStat,
+    runtime_stat: HttpFlvSessionRuntimeStat,
     has_video: bool,
     has_audio: bool,
 }
@@ -59,7 +64,7 @@ impl HttpFlvSession {
         config: HttpFlvSessionConfig,
         stream_center_event_sender: mpsc::UnboundedSender<StreamCenterEvent>,
         stream_properties: StreamProperties,
-        http_response_bytes_sender: mpsc::UnboundedSender<Result<Frame<Bytes>, Infallible>>,
+        http_response_bytes_sender: mpsc::UnboundedSender<BytesMut>,
     ) -> Self {
         Self {
             config: config.clone(),
@@ -74,8 +79,10 @@ impl HttpFlvSession {
         }
     }
 
-    pub async fn serve_pull_request(&mut self) -> HttpFlvServerResult<()> {
-        let mut response: SubscribeResponse = self.subscribe_from_stream_center().await?;
+    pub async fn serve_pull_request(
+        &mut self,
+        mut response: SubscribeResponse,
+    ) -> HttpFlvSessionResult<()> {
         self.stream_properties.stream_type = response.stream_type;
         self.play_id = Some(response.subscribe_id);
         self.has_video = self
@@ -141,7 +148,7 @@ impl HttpFlvSession {
 
                     let res = self
                         .http_response_bytes_sender
-                        .send(Ok(Frame::data(Bytes::from(bytes.clone()))));
+                        .send(BytesMut::from(&bytes[..]));
                     bytes.clear();
                     if res.is_err() {
                         tracing::error!(
@@ -161,7 +168,7 @@ impl HttpFlvSession {
         &mut self,
         mut frame: FLVMediaFrame,
         bytes_buffer: &mut Vec<u8>,
-    ) -> HttpFlvServerResult<()> {
+    ) -> HttpFlvSessionResult<()> {
         fn write_tag(
             tag_type: FLVTagType,
             timestamp: u32,
@@ -237,7 +244,7 @@ impl HttpFlvSession {
         Ok(())
     }
 
-    pub async fn unsubscribe_from_stream_center(&self) -> HttpFlvServerResult<()> {
+    pub async fn unsubscribe_from_stream_center(&self) -> HttpFlvSessionResult<()> {
         if self.play_id.is_none() {
             return Ok(());
         }
@@ -257,7 +264,7 @@ impl HttpFlvSession {
                 "unsubscribe from stream center failed, stream: {:?}",
                 self.stream_properties
             );
-            return Err(HttpFlvServerError::StreamEventSendFailed(Some(
+            return Err(HttpFlvSessionError::StreamEventSendFailed(Some(
                 res.expect_err("this must be error").0,
             )));
         }
@@ -268,7 +275,7 @@ impl HttpFlvSession {
                     "channel closed while trying receive unsubscribe result, stream: {:?}",
                     self.stream_properties
                 );
-                return Err(HttpFlvServerError::StreamEventSendFailed(None));
+                return Err(HttpFlvSessionError::StreamEventSendFailed(None));
             }
             Ok(Err(err)) => {
                 tracing::error!(
@@ -289,7 +296,7 @@ impl HttpFlvSession {
         }
     }
 
-    pub async fn subscribe_from_stream_center(&self) -> HttpFlvServerResult<SubscribeResponse> {
+    pub async fn subscribe_from_stream_center(&self) -> HttpFlvSessionResult<SubscribeResponse> {
         let (tx, rx) = oneshot::channel();
         let event = StreamCenterEvent::Subscribe {
             stream_id: StreamIdentifier {
@@ -306,7 +313,7 @@ impl HttpFlvSession {
                 "subscribe from stream center failed, stream: {:?}",
                 self.stream_properties,
             );
-            return Err(HttpFlvServerError::StreamEventSendFailed(Some(
+            return Err(HttpFlvSessionError::StreamEventSendFailed(Some(
                 res.expect_err("this must be an error").0,
             )));
         }
@@ -317,7 +324,7 @@ impl HttpFlvSession {
                     "channel closed while trying receive subscribe result, stream: {:?}",
                     self.stream_properties,
                 );
-                return Err(HttpFlvServerError::StreamEventSendFailed(None));
+                return Err(HttpFlvSessionError::StreamEventSendFailed(None));
             }
             Ok(Err(err)) => {
                 tracing::error!(

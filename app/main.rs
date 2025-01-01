@@ -1,4 +1,4 @@
-use httpflv_server::config::HttpFlvServerConfig;
+use http_server::{config::HttpServerConfig, server::HttpServer};
 use stream_center::stream_center;
 use time::macros::format_description;
 use tokio::signal;
@@ -8,7 +8,7 @@ use tracing_subscriber::{self, EnvFilter, fmt::time::LocalTime};
 #[tokio::main]
 async fn main() {
     let subscriber = tracing_subscriber::fmt()
-        .with_max_level(Level::DEBUG)
+        .with_max_level(Level::TRACE)
         .with_timer(LocalTime::new(format_description!(
             "[year]-[month]-[day] [hour]:[minute]:[second] [unix_timestamp precision:nanosecond]"
         )))
@@ -40,15 +40,13 @@ async fn main() {
     };
     let mut rtmp_server =
         rtmp_server::server::RtmpServer::new(&rtmp_server_config, stream_center.get_event_sender());
-    let httpflv_server_config = HttpFlvServerConfig {
-        ip: "0.0.0.0".to_string(),
-        port: 8000,
-        chunk_size: 60000,
-        write_timeout_ms: 10000,
-        read_timeout_ms: 10000,
-    };
-    let mut http_pull_server = httpflv_server::server::HttpFlvServer::new(
-        &httpflv_server_config,
+
+    let mut http_server = HttpServer::new(
+        HttpServerConfig {
+            address: "0.0.0.0".to_string(),
+            port: 8888,
+            workers: 16,
+        },
         stream_center.get_event_sender(),
     );
 
@@ -56,8 +54,9 @@ async fn main() {
     tokio::spawn(async move {
         let _ = rtmp_server.run().await;
     });
+
     tokio::spawn(async move {
-        let _ = http_pull_server.run().await;
+        let _ = http_server.run().await;
     });
 
     let _ = signal::ctrl_c().await;
