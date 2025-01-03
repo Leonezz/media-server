@@ -10,6 +10,8 @@ use crate::{
     sessions::httpflv::session::{HttpFlvSession, HttpFlvSessionConfig, StreamProperties},
 };
 
+use super::ext::FlvStreamName;
+
 pub struct HttpFlvStream {
     receiver: UnboundedReceiver<BytesMut>,
     bytes_buffer: Option<Cursor<BytesMut>>,
@@ -69,29 +71,24 @@ pub struct HttpFlvPullRequest {
 }
 
 #[get("/<app>/<stream>?<params>")]
-pub async fn serve(
+pub(crate) async fn serve(
     ctx: &State<HttpServerContext>,
     app: &str,
-    stream: &str,
+    stream: FlvStreamName<'_>,
     params: Option<HttpFlvPullRequest>,
 ) -> HttpServerResult<HttpFlvStream> {
+    let stream = stream.0;
     tracing::info!(
         "get http flv pull request, app: {}, stream: {}, params: {:?}",
         app,
         stream,
         params
     );
-    if app.len() == 0 || stream.len() < 5 {
+    if app.len() == 0 {
         return Err(HttpServerError::BadRequest(format!(
             "bad app and stream, app: {}, stream: {}",
             app, stream
         )));
-    }
-
-    if !stream.ends_with(".flv") {
-        return Err(HttpServerError::BadRequest(
-            "stream_name should end with .flv".to_string(),
-        ));
     }
 
     let mut ctx_params: HashMap<String, String> = HashMap::new();
@@ -119,7 +116,7 @@ pub async fn serve(
         ctx.stream_center_event_sender.clone(),
         StreamProperties {
             app: app.to_string(),
-            stream_name: stream.strip_suffix(".flv").unwrap().to_string(),
+            stream_name: stream.to_string(),
             stream_type: Default::default(),
             stream_context: ctx_params,
         },
