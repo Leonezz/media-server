@@ -1,14 +1,13 @@
-use crate::errors::RtpResult;
+use crate::errors::{RtpError, RtpResult};
 use byteorder::{BigEndian, WriteBytesExt};
+use packet_traits::writer::WriteTo;
 use std::io;
 
 use super::{RtpHeader, RtpHeaderExtension};
 
-impl RtpHeader {
-    pub fn write_to<W>(&self, mut writer: W) -> RtpResult<()>
-    where
-        W: io::Write,
-    {
+impl<W: io::Write> WriteTo<W> for RtpHeader {
+    type Error = RtpError;
+    fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
         let first_byte = ((self.version & 0b11) << 6)
             | ((self.padding as u8) << 5)
             | ((self.extension as u8) << 4)
@@ -30,11 +29,9 @@ impl RtpHeader {
     }
 }
 
-impl RtpHeaderExtension {
-    pub fn write_to<W>(&self, mut writer: W) -> RtpResult<()>
-    where
-        W: io::Write,
-    {
+impl<W: io::Write> WriteTo<W> for RtpHeaderExtension {
+    type Error = RtpError;
+    fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
         writer.write_u16::<BigEndian>(self.profile_defined)?;
         writer.write_u16::<BigEndian>(self.length)?;
         writer.write_all(&self.bytes)?;
