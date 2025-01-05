@@ -5,11 +5,14 @@ use packet_traits::{
     dynamic_sized_packet::DynamicSizedPacket, fixed_packet::FixedPacket, reader::ReadRemainingFrom,
     writer::WriteTo,
 };
-use tokio_util::bytes::BytesMut;
+use tokio_util::bytes::Bytes;
 
-use crate::errors::RtpError;
+use crate::{
+    errors::RtpError,
+    util::padding::{rtp_get_padding_size, rtp_make_padding_bytes},
+};
 
-use super::{common_header::RtcpCommonHeader, payload_types::RtcpPayloadType};
+use super::{RtcpPacketTrait, common_header::RtcpCommonHeader, payload_types::RtcpPayloadType};
 
 ///! @see: RFC 3550 6.7 APP: Application-Defined RTCP Packet
 ///  0                   1                   2                   3
@@ -29,15 +32,25 @@ pub struct RtcpAppPacket {
     header: RtcpCommonHeader,
     ssrc: u32,
     name: [u8; 4],
-    payload: BytesMut,
+    payload: Bytes,
+}
+
+impl RtcpPacketTrait for RtcpAppPacket {
+    fn get_packet_bytes_count_without_padding(&self) -> usize {
+        RtcpCommonHeader::bytes_count() // header
+         + 4 // ssrc
+         + 4 // name
+         + self.payload.len()
+    }
+    fn get_header(&self) -> RtcpCommonHeader {
+        todo!()
+    }
 }
 
 impl DynamicSizedPacket for RtcpAppPacket {
     fn get_packet_bytes_count(&self) -> usize {
-        RtcpCommonHeader::bytes_count() // header 
-          + 4 // ssrc 
-          + 4 // name 
-          + self.payload.len() // app data
+        let raw_bytes_count = self.get_packet_bytes_count_without_padding();
+        raw_bytes_count + rtp_get_padding_size(raw_bytes_count)
     }
 }
 
@@ -59,7 +72,7 @@ impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpAppPacket {
             header,
             ssrc,
             name,
-            payload: BytesMut::from(&payload[..]),
+            payload: Bytes::from(payload),
         })
     }
 }
@@ -67,10 +80,14 @@ impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpAppPacket {
 impl<W: io::Write> WriteTo<W> for RtcpAppPacket {
     type Error = RtpError;
     fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
-        self.header.write_to(writer.by_ref())?;
+        let raw_size = self.get_packet_bytes_count_without_padding();
+        self.get_header().write_to(writer.by_ref())?;
         writer.write_u32::<BigEndian>(self.ssrc)?;
         writer.write_all(&self.name)?;
         writer.write_all(&self.payload)?;
+        if let Some(padding) = rtp_make_padding_bytes(raw_size) {
+            writer.write_all(&padding)?;
+        }
         Ok(())
     }
 }

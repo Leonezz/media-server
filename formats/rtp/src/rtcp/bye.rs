@@ -4,11 +4,14 @@ use packet_traits::{
     writer::WriteTo,
 };
 use std::io;
-use tokio_util::bytes::BytesMut;
+use tokio_util::bytes::Bytes;
 
-use crate::errors::RtpError;
+use crate::{
+    errors::RtpError,
+    util::padding::{rtp_get_padding_size, rtp_make_padding_bytes, rtp_need_padding},
+};
 
-use super::{common_header::RtcpCommonHeader, payload_types::RtcpPayloadType};
+use super::{RtcpPacketTrait, common_header::RtcpCommonHeader, payload_types::RtcpPayloadType};
 
 ///! @see: RFC 3550 6.6 BYE: Goodbye RTCP Packet
 ///        0                   1                   2                   3
@@ -28,14 +31,31 @@ use super::{common_header::RtcpCommonHeader, payload_types::RtcpPayloadType};
 pub struct RtcpByePacket {
     header: RtcpCommonHeader,
     ssrc_list: Vec<u32>,
-    leave_reason: Option<BytesMut>,
+    leave_reason: Option<Bytes>,
 }
 
 impl DynamicSizedPacket for RtcpByePacket {
     fn get_packet_bytes_count(&self) -> usize {
+        let raw_bytes_count = self.get_packet_bytes_count_without_padding();
+        raw_bytes_count + rtp_get_padding_size(raw_bytes_count)
+    }
+}
+
+impl RtcpPacketTrait for RtcpByePacket {
+    fn get_packet_bytes_count_without_padding(&self) -> usize {
         RtcpCommonHeader::bytes_count() // header
-        + self.ssrc_list.len() * 4 // ssrc list
-        + self.leave_reason.as_ref().map_or_else(|| 0, |v| v.len() + 1) // reason for leaving and reason length
+          + self.ssrc_list.len() * 4 // ssrc list
+          + self.leave_reason.as_ref().map_or_else(|| 0, |v| v.len() + 1) // reason for leaving and reason length
+    }
+    fn get_header(&self) -> RtcpCommonHeader {
+        let raw_size = self.get_packet_bytes_count_without_padding();
+        RtcpCommonHeader {
+            version: 2,
+            padding: rtp_need_padding(raw_size),
+            count: self.ssrc_list.len() as u8,
+            payload_type: RtcpPayloadType::Bye,
+            length: (self.get_packet_bytes_count() / 4 - 1) as u16,
+        }
     }
 }
 
@@ -56,7 +76,7 @@ impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpByePacket {
         let mut buffer = Vec::new();
         reader.read_to_end(&mut buffer)?;
         let leave_reason = if !buffer.is_empty() {
-            Some(BytesMut::from(&buffer[..]))
+            Some(Bytes::from(buffer))
         } else {
             None
         };
@@ -72,13 +92,18 @@ impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpByePacket {
 impl<W: io::Write> WriteTo<W> for RtcpByePacket {
     type Error = RtpError;
     fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
-        self.header.write_to(writer.by_ref())?;
+        self.get_header().write_to(writer.by_ref())?;
         self.ssrc_list
             .iter()
             .try_for_each(|ssrc| writer.write_u32::<BigEndian>(ssrc.clone()))?;
 
         if let Some(buffer) = &self.leave_reason {
             writer.write_all(buffer)?;
+        }
+
+        if let Some(buffer) = rtp_make_padding_bytes(self.get_packet_bytes_count_without_padding())
+        {
+            writer.write_all(&buffer)?;
         }
         Ok(())
     }

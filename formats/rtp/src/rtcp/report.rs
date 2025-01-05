@@ -7,11 +7,15 @@ use packet_traits::{
     reader::{ReadFrom, ReadRemainingFrom},
     writer::WriteTo,
 };
-use tokio_util::bytes::BytesMut;
+use tokio_util::bytes::Bytes;
 
-use crate::errors::RtpError;
+use crate::{
+    errors::RtpError,
+    util::padding::{rtp_get_padding_size, rtp_make_padding_bytes, rtp_need_padding},
+};
 
 use super::{
+    RtcpPacketTrait,
     common_header::RtcpCommonHeader,
     payload_types::RtcpPayloadType,
     simple_ntp::{SimpleNtp, SimpleShortNtp},
@@ -163,16 +167,33 @@ pub struct RtcpSenderReport {
     sender_ssrc: u32,
     sender_info: SenderInfo,
     report_blocks: Vec<ReportBlock>,
-    profile_specific_extension: Option<BytesMut>,
+    profile_specific_extension: Option<Bytes>,
 }
 
 impl DynamicSizedPacket for RtcpSenderReport {
     fn get_packet_bytes_count(&self) -> usize {
+        let raw_bytes_count = self.get_packet_bytes_count_without_padding();
+        raw_bytes_count + rtp_get_padding_size(raw_bytes_count)
+    }
+}
+
+impl RtcpPacketTrait for RtcpSenderReport {
+    fn get_packet_bytes_count_without_padding(&self) -> usize {
         RtcpCommonHeader::bytes_count() // header
             + 4 // ssrc
             + SenderInfo::bytes_count() // sender info
             + self.report_blocks.len() * ReportBlock::bytes_count() // blocks
             + self.profile_specific_extension.as_ref().map_or_else(|| 0, |v| v.len()) // extension
+    }
+    fn get_header(&self) -> RtcpCommonHeader {
+        let raw_size = self.get_packet_bytes_count_without_padding();
+        RtcpCommonHeader {
+            version: 2,
+            padding: rtp_need_padding(raw_size),
+            count: self.report_blocks.len() as u8,
+            payload_type: RtcpPayloadType::SenderReport,
+            length: (self.get_packet_bytes_count() / 4 - 1) as u16,
+        }
     }
 }
 
@@ -198,7 +219,7 @@ impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpSenderReport {
         reader.read_to_end(&mut buffer)?;
 
         let profile_specific_extension = if !buffer.is_empty() {
-            Some(BytesMut::from(&buffer[..]))
+            Some(Bytes::from(buffer))
         } else {
             None
         };
@@ -216,7 +237,7 @@ impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpSenderReport {
 impl<W: io::Write> WriteTo<W> for RtcpSenderReport {
     type Error = RtpError;
     fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
-        self.header.write_to(writer.by_ref())?;
+        self.get_header().write_to(writer.by_ref())?;
         writer.write_u32::<BigEndian>(self.sender_ssrc)?;
         self.sender_info.write_to(writer.by_ref())?;
         self.report_blocks
@@ -225,6 +246,11 @@ impl<W: io::Write> WriteTo<W> for RtcpSenderReport {
 
         if let Some(buffer) = &self.profile_specific_extension {
             writer.write_all(&buffer)?;
+        }
+
+        if let Some(padding) = rtp_make_padding_bytes(self.get_packet_bytes_count_without_padding())
+        {
+            writer.write_all(&padding)?;
         }
         Ok(())
     }
@@ -235,15 +261,32 @@ pub struct RtcpReceiverReport {
     header: RtcpCommonHeader,
     sender_ssrc: u32,
     report_blocks: Vec<ReportBlock>,
-    profile_specific_extension: Option<BytesMut>,
+    profile_specific_extension: Option<Bytes>,
 }
 
 impl DynamicSizedPacket for RtcpReceiverReport {
     fn get_packet_bytes_count(&self) -> usize {
+        let raw_size = self.get_packet_bytes_count_without_padding();
+        raw_size + rtp_get_padding_size(raw_size)
+    }
+}
+
+impl RtcpPacketTrait for RtcpReceiverReport {
+    fn get_packet_bytes_count_without_padding(&self) -> usize {
         RtcpCommonHeader::bytes_count() // header
-        + 4 // sender ssrc
-        + self.report_blocks.len() * ReportBlock::bytes_count() // report blocks
-        + self.profile_specific_extension.as_ref().map_or_else(|| 0, |extension| extension.len()) // extension
+            + 4 // sender ssrc
+            + self.report_blocks.len() * ReportBlock::bytes_count() // report blocks
+            + self.profile_specific_extension.as_ref().map_or_else(|| 0, |extension| extension.len()) // extension
+    }
+    fn get_header(&self) -> RtcpCommonHeader {
+        let raw_size = self.get_packet_bytes_count_without_padding();
+        RtcpCommonHeader {
+            version: 2,
+            padding: rtp_need_padding(raw_size),
+            count: self.report_blocks.len() as u8,
+            payload_type: RtcpPayloadType::ReceiverReport,
+            length: (self.get_packet_bytes_count() / 4 - 1) as u16,
+        }
     }
 }
 
@@ -267,7 +310,7 @@ impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpReceiverReport 
         reader.read_to_end(&mut buffer)?;
 
         let profile_specific_extension = if !buffer.is_empty() {
-            Some(BytesMut::from(&buffer[..]))
+            Some(Bytes::from(buffer))
         } else {
             None
         };
@@ -284,7 +327,8 @@ impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpReceiverReport 
 impl<W: io::Write> WriteTo<W> for RtcpReceiverReport {
     type Error = RtpError;
     fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
-        self.header.write_to(writer.by_ref())?;
+        let raw_size = self.get_packet_bytes_count_without_padding();
+        self.get_header().write_to(writer.by_ref())?;
         writer.write_u32::<BigEndian>(self.sender_ssrc)?;
 
         self.report_blocks
@@ -294,6 +338,11 @@ impl<W: io::Write> WriteTo<W> for RtcpReceiverReport {
         if let Some(buffer) = &self.profile_specific_extension {
             writer.write_all(&buffer)?;
         }
+
+        if let Some(padding) = rtp_make_padding_bytes(raw_size) {
+            writer.write_all(&padding)?;
+        }
+
         Ok(())
     }
 }

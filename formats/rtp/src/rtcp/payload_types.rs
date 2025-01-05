@@ -1,8 +1,9 @@
 use crate::errors::RtpError;
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RtcpPayloadType {
+    #[default]
     SenderReport = 200,
     ReceiverReport = 201,
     SourceDescription = 202,

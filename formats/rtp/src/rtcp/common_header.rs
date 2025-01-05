@@ -6,7 +6,7 @@ use tokio_util::bytes::Buf;
 
 use super::payload_types::RtcpPayloadType;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct RtcpCommonHeader {
     pub version: u8,
     pub padding: bool,

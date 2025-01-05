@@ -4,6 +4,7 @@ use app::RtcpAppPacket;
 use bye::RtcpByePacket;
 use common_header::RtcpCommonHeader;
 use packet_traits::{
+    dynamic_sized_packet::DynamicSizedPacket,
     reader::{ReadRemainingFrom, TryReadRemainingFrom},
     writer::WriteTo,
 };
@@ -12,15 +13,21 @@ use report::{RtcpReceiverReport, RtcpSenderReport};
 use sdes::RtcpSourceDescriptionPacket;
 use tokio_util::bytes::Buf;
 
-use crate::errors::RtpError;
+use crate::{errors::RtpError, util::padding::rtp_get_padding_size};
 
 pub mod app;
 pub mod bye;
 pub mod common_header;
+pub mod compound_packet;
 pub mod payload_types;
 pub mod report;
 pub mod sdes;
 pub mod simple_ntp;
+
+pub trait RtcpPacketTrait: DynamicSizedPacket {
+    fn get_packet_bytes_count_without_padding(&self) -> usize;
+    fn get_header(&self) -> RtcpCommonHeader;
+}
 
 #[derive(Debug)]
 pub enum RtcpPacket {
@@ -29,6 +36,48 @@ pub enum RtcpPacket {
     SourceDescription(RtcpSourceDescriptionPacket),
     Bye(RtcpByePacket),
     App(RtcpAppPacket),
+}
+
+impl RtcpPacket {
+    pub fn payload_type(&self) -> RtcpPayloadType {
+        match self {
+            RtcpPacket::SenderReport(_) => RtcpPayloadType::SenderReport,
+            RtcpPacket::ReceiverReport(_) => RtcpPayloadType::ReceiverReport,
+            RtcpPacket::SourceDescription(_) => RtcpPayloadType::SourceDescription,
+            RtcpPacket::Bye(_) => RtcpPayloadType::Bye,
+            RtcpPacket::App(_) => RtcpPayloadType::App,
+        }
+    }
+}
+
+impl RtcpPacketTrait for RtcpPacket {
+    fn get_packet_bytes_count_without_padding(&self) -> usize {
+        match self {
+            RtcpPacket::SenderReport(packet) => packet.get_packet_bytes_count_without_padding(),
+            RtcpPacket::ReceiverReport(packet) => packet.get_packet_bytes_count_without_padding(),
+            RtcpPacket::SourceDescription(packet) => {
+                packet.get_packet_bytes_count_without_padding()
+            }
+            RtcpPacket::Bye(packet) => packet.get_packet_bytes_count_without_padding(),
+            RtcpPacket::App(packet) => packet.get_packet_bytes_count_without_padding(),
+        }
+    }
+    fn get_header(&self) -> RtcpCommonHeader {
+        match self {
+            RtcpPacket::SenderReport(packet) => packet.get_header(),
+            RtcpPacket::ReceiverReport(packet) => packet.get_header(),
+            RtcpPacket::SourceDescription(packet) => packet.get_header(),
+            RtcpPacket::Bye(packet) => packet.get_header(),
+            RtcpPacket::App(packet) => packet.get_header(),
+        }
+    }
+}
+
+impl DynamicSizedPacket for RtcpPacket {
+    fn get_packet_bytes_count(&self) -> usize {
+        let raw_size = self.get_packet_bytes_count_without_padding();
+        raw_size + rtp_get_padding_size(raw_size)
+    }
 }
 
 impl<R: AsRef<[u8]>> TryReadRemainingFrom<RtcpCommonHeader, R> for RtcpPacket {
