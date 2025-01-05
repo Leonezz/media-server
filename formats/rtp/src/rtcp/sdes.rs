@@ -7,9 +7,12 @@ use packet_traits::{
 };
 use std::io::{self};
 
-use crate::errors::RtpError;
+use crate::{
+    errors::RtpError,
+    util::padding::{rtp_get_padding_size, rtp_make_padding_bytes, rtp_need_padding},
+};
 
-use super::{common_header::RtcpCommonHeader, payload_types::RtcpPayloadType};
+use super::{RtcpPacketTrait, common_header::RtcpCommonHeader, payload_types::RtcpPayloadType};
 
 ///! @see: RFC 3550 6.5 SDES: Source Description RTCP Packet
 ///         0                   1                   2                   3
@@ -197,11 +200,28 @@ pub struct RtcpSourceDescriptionPacket {
 
 impl DynamicSizedPacket for RtcpSourceDescriptionPacket {
     fn get_packet_bytes_count(&self) -> usize {
+        let raw_size = self.get_packet_bytes_count_without_padding();
+        raw_size + rtp_get_padding_size(raw_size)
+    }
+}
+
+impl RtcpPacketTrait for RtcpSourceDescriptionPacket {
+    fn get_packet_bytes_count_without_padding(&self) -> usize {
         RtcpCommonHeader::bytes_count()
             + self
                 .chunks
                 .iter()
                 .fold(0, |sum, v| v.get_packet_bytes_count() + sum)
+    }
+    fn get_header(&self) -> RtcpCommonHeader {
+        let raw_size = self.get_packet_bytes_count_without_padding();
+        RtcpCommonHeader {
+            version: 2,
+            padding: rtp_need_padding(raw_size),
+            count: self.chunks.len() as u8,
+            payload_type: RtcpPayloadType::SourceDescription,
+            length: (self.get_packet_bytes_count() / 4 - 1) as u16,
+        }
     }
 }
 
@@ -227,11 +247,30 @@ impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpSourceDescripti
 impl<W: io::Write> WriteTo<W> for RtcpSourceDescriptionPacket {
     type Error = RtpError;
     fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
-        self.header.write_to(writer.by_ref())?;
+        let raw_size = self.get_packet_bytes_count_without_padding();
+        self.get_header().write_to(writer.by_ref())?;
         self.chunks
             .iter()
             .try_for_each(|chunk| chunk.write_to(writer.by_ref()))?;
 
+        if let Some(padding) = rtp_make_padding_bytes(raw_size) {
+            writer.write_all(&padding)?;
+        }
         Ok(())
+    }
+}
+
+impl RtcpSourceDescriptionPacket {
+    pub fn get_cname(&self) -> Option<String> {
+        let mut result = None;
+        for chunk in &self.chunks {
+            for item in &chunk.items {
+                if item.item_type == SDESItemType::CNAME {
+                    result = Some(item.item_body.value.clone());
+                    break;
+                }
+            }
+        }
+        return result;
     }
 }
