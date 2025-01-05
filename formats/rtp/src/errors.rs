@@ -14,6 +14,18 @@ pub enum RtpError {
     UnknownSdesType(u8),
     #[error("invalid utf8 data: {0}")]
     InvalidUtf8(#[from] string::FromUtf8Error),
+    #[error("invalid compound packet: empty")]
+    EmptyCompoundPacket,
+    #[error("invalid compound packet: the first rtcp packet must be sr or rr")]
+    BadFirstPacket,
+    #[error("invalid compound packet: missing cname")]
+    MissingCname,
+    #[error("invalid compound packet: cmake should be at front")]
+    BadCnamePosition,
+    #[error("rtp payload is empty")]
+    EmptyPayload,
+    #[error("Bad padding size: {0}")]
+    BadPaddingSize(usize),
 }
 
 pub type RtpResult<T> = Result<T, RtpError>;
