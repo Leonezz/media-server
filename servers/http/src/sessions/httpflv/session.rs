@@ -17,7 +17,10 @@ use tokio_util::bytes::BytesMut;
 use utils::system::time::get_timestamp_ns;
 use uuid::Uuid;
 
-use crate::sessions::httpflv::errors::HttpFlvSessionError;
+use crate::{
+    routes::params::{AUDIO_ONLY_KEY, VIDEO_ONLY_KEY},
+    sessions::httpflv::errors::HttpFlvSessionError,
+};
 
 use super::errors::HttpFlvSessionResult;
 
@@ -88,13 +91,13 @@ impl HttpFlvSession {
         self.has_video = self
             .stream_properties
             .stream_context
-            .get("audioOnly")
+            .get(AUDIO_ONLY_KEY)
             .map_or_else(|| true, |_| false)
             && response.has_video;
         self.has_audio = self
             .stream_properties
             .stream_context
-            .get("videoOnly")
+            .get(VIDEO_ONLY_KEY)
             .map_or_else(|| true, |_| false)
             && response.has_audio;
 

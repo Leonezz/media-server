@@ -105,6 +105,30 @@ impl FLVMediaFrame {
             _ => false,
         }
     }
+
+    #[inline]
+    pub fn get_frame_pts(&self) -> u64 {
+        match self {
+            FLVMediaFrame::Audio {
+                runtime_stat: _,
+                pts,
+                header: _,
+                payload: _,
+            }
+            | FLVMediaFrame::Video {
+                runtime_stat: _,
+                pts,
+                header: _,
+                payload: _,
+            }
+            | FLVMediaFrame::Script {
+                runtime_stat: _,
+                pts,
+                on_meta_data: _,
+                payload: _,
+            } => pts.clone(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -296,10 +320,13 @@ impl GopQueue {
             }
             &FLVMediaFrame::Script {
                 runtime_stat: _,
-                pts: _,
-                on_meta_data: _,
+                pts,
+                ref on_meta_data,
                 payload: _,
-            } => self.script_frame = Some(frame.clone()),
+            } => {
+                self.script_frame = Some(frame.clone());
+                tracing::info!("meta, pts: {}, data: {:?}", pts, on_meta_data);
+            }
         }
 
         if self.gops.is_empty() && is_video {

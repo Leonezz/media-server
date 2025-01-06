@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 use crate::{
     config::HttpServerConfig,
     errors::HttpServerResult,
-    routes::{self},
+    routes::{self, hello::hello},
 };
 
 #[derive(Clone)]
@@ -45,7 +45,8 @@ impl HttpServer {
 
         let res = rocket::custom(figment)
             .manage(self.context.clone())
-            .mount("/", routes![routes::httpflv::serve])
+            .mount("/rest/v1", routes![hello])
+            .mount("/live_stream/v1", routes![routes::httpflv::serve])
             .launch()
             .await;
         tracing::info!("{:?}", res);
