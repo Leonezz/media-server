@@ -40,6 +40,24 @@ pub struct RtpHeader {
     pub header_extension: Option<RtpHeaderExtension>,
 }
 
+impl Default for RtpHeader {
+    fn default() -> Self {
+        Self {
+            version: 2,
+            padding: false,
+            extension: false,
+            csrc_count: 0,
+            marker: false,
+            payload_type: 0,
+            sequence_number: 0,
+            timestamp: 0,
+            ssrc: 0,
+            csrc_list: Vec::new(),
+            header_extension: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct RtpHeaderExtension {
     profile_defined: u16,
