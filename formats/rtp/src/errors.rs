@@ -26,6 +26,8 @@ pub enum RtpError {
     EmptyPayload,
     #[error("Bad padding size: {0}")]
     BadPaddingSize(usize),
+    #[error("too many csrc for a rtp header, exceeds 31")]
+    TooManyCSRC,
 }
 
 pub type RtpResult<T> = Result<T, RtpError>;
