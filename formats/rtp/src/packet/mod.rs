@@ -1,5 +1,9 @@
+pub mod builder;
+pub mod header;
+
 use std::io::{self, Read};
 
+use builder::RtpPacketBuilder;
 use header::RtpHeader;
 use packet_traits::{
     dynamic_sized_packet::DynamicSizedPacket, reader::TryReadFrom, writer::WriteTo,
@@ -11,7 +15,6 @@ use crate::{
     util::padding::{rtp_get_padding_size, rtp_make_padding_bytes, rtp_need_padding},
 };
 
-pub mod header;
 pub trait RtpPacketTrait: DynamicSizedPacket {
     fn get_packet_bytes_count_without_padding(&self) -> usize;
     fn get_header(&self) -> RtpHeader;
@@ -21,6 +24,12 @@ pub trait RtpPacketTrait: DynamicSizedPacket {
 pub struct RtpPacket {
     header: RtpHeader,
     payload: Bytes,
+}
+
+impl RtpPacket {
+    pub fn builder() -> RtpPacketBuilder {
+        Default::default()
+    }
 }
 
 impl DynamicSizedPacket for RtpPacket {

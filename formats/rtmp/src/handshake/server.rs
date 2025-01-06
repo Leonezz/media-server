@@ -138,7 +138,7 @@ where
     async fn write_s1(&mut self) -> HandshakeResult<()> {
         let mut bytes = BytesMut::with_capacity(RTMP_HANDSHAKE_SIZE);
         let mut random_bytes: [u8; 1528] = [0; 1528];
-        utils::system::time::random_fill(&mut random_bytes);
+        utils::random::random_fill(&mut random_bytes);
         C1S1PacketCodec.encode(
             C1S1Packet {
                 timestamp: SystemTime::now().duration_since(UNIX_EPOCH)?,
@@ -244,7 +244,7 @@ where
         let mut bytes = BytesMut::with_capacity(RTMP_HANDSHAKE_SIZE);
         let mut random_bytes: [u8; 1528] = [0; 1528];
 
-        utils::system::time::random_fill(&mut random_bytes);
+        utils::random::random_fill(&mut random_bytes);
         C1S1PacketCodec.encode(
             C1S1Packet {
                 timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap(),
@@ -264,7 +264,7 @@ where
         let mut bytes = BytesMut::with_capacity(RTMP_HANDSHAKE_SIZE);
         let mut random_bytes: [u8; 1528] = [0; 1528];
 
-        utils::system::time::random_fill(&mut random_bytes);
+        utils::random::random_fill(&mut random_bytes);
         C2S2PacketCodec.encode(
             C2S2Packet {
                 timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap(),
