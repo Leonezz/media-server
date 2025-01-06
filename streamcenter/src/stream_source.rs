@@ -361,12 +361,14 @@ impl StreamSource {
                 stat.audio_frames_sent += <bool as Into<u64>>::into(!fail);
             } else {
                 stat.script_frame_send_fail_cnt += <bool as Into<u64>>::into(fail);
-                stat.script_frames_sent += <bool as Into<u64>>::into(!fail)
+                stat.script_frames_sent += <bool as Into<u64>>::into(!fail);
             }
         };
 
         for (key, handler) in &mut self.data_distributer.write().await.iter_mut() {
-            if (!handler.stat.audio_sh_sent) || (!handler.stat.video_sh_sent) {
+            if (!handler.stat.audio_sh_sent && !handler.parsed_context.video_only)
+                || (!handler.stat.video_sh_sent && !handler.parsed_context.audio_only)
+            {
                 self.on_new_consumer(key, handler, update_stat).await?;
             }
             if handler.parsed_context.audio_only && frame.is_video() {
@@ -415,31 +417,35 @@ impl StreamSource {
             }
         }
         if let Some(video_sh) = &self.gop_cache.video_sequence_header {
-            let res = handler.data_sender.try_send(video_sh.clone());
-            if res.is_err() {
-                tracing::error!(
-                    "distribute video sh frame data to {} failed: {:?}",
-                    key,
-                    res
-                );
-                handler.stat.video_frame_send_fail_cnt += 1;
-            } else {
-                handler.stat.video_sh_sent = true;
-                handler.stat.video_frames_sent += 1;
+            if !handler.parsed_context.audio_only {
+                let res = handler.data_sender.try_send(video_sh.clone());
+                if res.is_err() {
+                    tracing::error!(
+                        "distribute video sh frame data to {} failed: {:?}",
+                        key,
+                        res
+                    );
+                    handler.stat.video_frame_send_fail_cnt += 1;
+                } else {
+                    handler.stat.video_sh_sent = true;
+                    handler.stat.video_frames_sent += 1;
+                }
             }
         }
         if let Some(audio_sh) = &self.gop_cache.audio_sequence_header {
-            let res = handler.data_sender.try_send(audio_sh.clone());
-            if res.is_err() {
-                tracing::error!(
-                    "distribute audio sh frame data to {} failed: {:?}",
-                    key,
-                    res
-                );
-                handler.stat.audio_frame_send_fail_cnt += 1;
-            } else {
-                handler.stat.audio_sh_sent = true;
-                handler.stat.audio_frames_sent += 1;
+            if !handler.parsed_context.video_only {
+                let res = handler.data_sender.try_send(audio_sh.clone());
+                if res.is_err() {
+                    tracing::error!(
+                        "distribute audio sh frame data to {} failed: {:?}",
+                        key,
+                        res
+                    );
+                    handler.stat.audio_frame_send_fail_cnt += 1;
+                } else {
+                    handler.stat.audio_sh_sent = true;
+                    handler.stat.audio_frames_sent += 1;
+                }
             }
         }
 

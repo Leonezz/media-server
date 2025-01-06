@@ -1,6 +1,11 @@
 use std::{collections::HashMap, io::Cursor};
 
-use rocket::{FromForm, Request, Response, State, get, http::ContentType, response::Responder};
+use rocket::{
+    FromForm, Request, Response, State,
+    get,
+    http::ContentType,
+    response::Responder,
+};
 use tokio::sync::mpsc::{self, UnboundedReceiver};
 use tokio_util::bytes::BytesMut;
 
@@ -60,22 +65,28 @@ impl<'r> Responder<'r, 'r> for HttpFlvStream {
 
 #[derive(Debug, FromForm)]
 pub struct HttpFlvPullRequest {
-    #[field(name = "audioOnly", default = false)]
-    audioOnly: bool,
-    #[field(name = "videoOnly", default = false)]
-    videoOnly: bool,
-    #[field(name = "backtrackGopCnt", default = 0)]
-    backtrackGopCnt: usize,
-    #[field(name = "ctx", default = None)]
+    #[field(name = uncased("audioOnly"))]
+    #[field(name = uncased("audio_only"))]
+    #[field(name = uncased("audio-only"))]
+    audio_only: Option<bool>,
+    #[field(name = uncased("videoOnly"))]
+    #[field(name = uncased("video_only"))]
+    #[field(name = uncased("video-only"))]
+    video_only: Option<bool>,
+    #[field(name = uncased("backtrackGopCnt"))]
+    #[field(name = uncased("backtrack-gop-cnt"))]
+    #[field(name = uncased("backtrack_gop_cnt"))]
+    backtrack_gop_cnt: Option<usize>,
+    #[field(name = "ctx")]
     ctx: Option<String>,
 }
 
-#[get("/<app>/<stream>?<params>")]
+#[get("/<app>/<stream>?<params..>")]
 pub(crate) async fn serve(
     ctx: &State<HttpServerContext>,
     app: &str,
     stream: FlvStreamName<'_>,
-    params: Option<HttpFlvPullRequest>,
+    params: HttpFlvPullRequest,
 ) -> HttpServerResult<HttpFlvStream> {
     let stream = stream.0;
     tracing::info!(
@@ -92,16 +103,17 @@ pub(crate) async fn serve(
     }
 
     let mut ctx_params: HashMap<String, String> = HashMap::new();
-    if let Some(params) = params {
-        if params.audioOnly {
-            ctx_params.insert(super::params::AUDIO_ONLY_KEY.to_string(), "".to_string());
-        }
-        if params.videoOnly {
-            ctx_params.insert(super::params::VIDEO_ONLY_KEY.to_string(), "".to_string());
-        }
+
+    if params.audio_only.unwrap_or(false) {
+        ctx_params.insert(super::params::AUDIO_ONLY_KEY.to_string(), "".to_string());
+    }
+    if params.video_only.unwrap_or(false) {
+        ctx_params.insert(super::params::VIDEO_ONLY_KEY.to_string(), "".to_string());
+    }
+    if let Some(cnt) = params.backtrack_gop_cnt {
         ctx_params.insert(
             super::params::BACKTRACK_GOP_KEY.to_string(),
-            params.backtrackGopCnt.to_string(),
+            cnt.to_string(),
         );
     }
 
