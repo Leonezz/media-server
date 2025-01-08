@@ -43,6 +43,7 @@ impl From<u8> for ExtensionType {
     }
 }
 
+// skip all but reserved data
 #[derive(Debug)]
 pub enum ExtensionData {
     ExtFill,
@@ -60,19 +61,34 @@ impl ExtensionData {
     ) -> AacResult<(Self, usize)> {
         let extension_type: ExtensionType = reader.read::<u8>(4)?.into();
         match extension_type {
-            ExtensionType::Fill => todo!(),
-            ExtensionType::FillData => todo!(),
-            ExtensionType::DynamicRange => todo!(),
-            ExtensionType::SBREnhancement => todo!(),
-            ExtensionType::SBREnhancementWithCRC => todo!(),
+            ExtensionType::Fill => {
+                reader.skip(count as u32 * 8 - 4)?;
+                Ok((Self::ExtFill, count as usize))
+            }
+            ExtensionType::FillData => {
+                reader.skip(count as u32 * 8 - 4)?;
+                Ok((Self::ExtFillData, count as usize))
+            }
+            ExtensionType::DynamicRange => {
+                reader.skip(count as u32 * 8 - 4)?;
+                Ok((Self::ExtDynamicRange, count as usize))
+            }
+            ExtensionType::SBREnhancement => {
+                reader.skip(count as u32 * 8 - 4)?;
+                Ok((Self::ExtSBREnhancement, count as usize))
+            }
+            ExtensionType::SBREnhancementWithCRC => {
+                reader.skip(count as u32 * 8 - 4)?;
+                Ok((Self::ExtSBREnhancementWithCRC, count as usize))
+            }
             ExtensionType::Reserved => {
-                let (bytes, cnt) = Self::read_reserved_from(count, reader)?;
+                let (bytes, cnt) = Self::read_bytes_from(count, reader)?;
                 Ok((Self::Reserved(bytes), cnt))
             }
         }
     }
 
-    fn read_reserved_from<R: io::Read>(
+    fn read_bytes_from<R: io::Read>(
         count: u16,
         reader: &mut BitReader<R, BigEndian>,
     ) -> AacResult<(Bytes, usize)> {
