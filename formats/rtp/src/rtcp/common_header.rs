@@ -1,8 +1,8 @@
 use crate::errors::RtpError;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use packet_traits::{fixed_packet::FixedPacket, reader::TryReadFrom, writer::WriteTo};
 use std::io::{self, Cursor};
 use tokio_util::bytes::Buf;
+use utils::traits::{fixed_packet::FixedPacket, reader::TryReadFrom, writer::WriteTo};
 
 use super::payload_types::RtcpPayloadType;
 
