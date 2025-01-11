@@ -1,5 +1,6 @@
 use std::{io, string};
 
+use h264_codec::errors::H264CodecError;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -15,19 +16,23 @@ pub enum RtpError {
     #[error("invalid utf8 data: {0}")]
     InvalidUtf8(#[from] string::FromUtf8Error),
     #[error("invalid compound packet: empty")]
-    EmptyCompoundPacket,
+    EmptyRtcpCompoundPacket,
     #[error("invalid compound packet: the first rtcp packet must be sr or rr")]
-    BadFirstPacket,
+    BadFirstPacketInRtcpCompound,
     #[error("invalid compound packet: missing cname")]
-    MissingCname,
+    MissingCnameInRtcpCompound,
     #[error("invalid compound packet: cmake should be at front")]
-    BadCnamePosition,
+    BadCnamePositionInRtcpCompound,
     #[error("rtp payload is empty")]
     EmptyPayload,
     #[error("Bad padding size: {0}")]
     BadPaddingSize(usize),
     #[error("too many csrc for a rtp header, exceeds 31")]
     TooManyCSRC,
+    #[error("invalid packet type for h264: {0}")]
+    InvalidH264PacketType(u8),
+    #[error("h264 codec error: {0:?}")]
+    CodecErrorH264(#[from] H264CodecError),
 }
 
 pub type RtpResult<T> = Result<T, RtpError>;

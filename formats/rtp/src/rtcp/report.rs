@@ -1,13 +1,13 @@
 use std::io::{self};
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use packet_traits::{
+use tokio_util::bytes::Bytes;
+use utils::traits::{
     dynamic_sized_packet::DynamicSizedPacket,
     fixed_packet::FixedPacket,
     reader::{ReadFrom, ReadRemainingFrom},
     writer::WriteTo,
 };
-use tokio_util::bytes::Bytes;
 
 use crate::{
     errors::RtpError,

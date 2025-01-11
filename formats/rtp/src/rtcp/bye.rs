@@ -1,10 +1,10 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use packet_traits::{
+use std::io;
+use tokio_util::bytes::Bytes;
+use utils::traits::{
     dynamic_sized_packet::DynamicSizedPacket, fixed_packet::FixedPacket, reader::ReadRemainingFrom,
     writer::WriteTo,
 };
-use std::io;
-use tokio_util::bytes::Bytes;
 
 use crate::{
     errors::RtpError,

@@ -22,3 +22,8 @@ pub trait TryReadRemainingFrom<Header, R: AsRef<[u8]>>: Sized {
         reader: &mut Cursor<R>,
     ) -> Result<Option<Self>, Self::Error>;
 }
+
+pub trait ReadExactFrom<R: io::Read>: Sized {
+    type Error;
+    fn read_exact_from(length: usize, reader: R) -> Result<Self, Self::Error>;
+}
