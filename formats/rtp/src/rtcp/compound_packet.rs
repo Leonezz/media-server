@@ -3,7 +3,7 @@ use std::{
     io::{self, Read},
 };
 
-use packet_traits::{
+use utils::traits::{
     dynamic_sized_packet::DynamicSizedPacket,
     reader::{TryReadFrom, TryReadRemainingFrom},
     writer::WriteTo,
@@ -106,7 +106,7 @@ impl CompoundPacket {
 
     pub fn validate(&self) -> RtpResult<()> {
         if self.0.is_empty() {
-            return Err(RtpError::EmptyCompoundPacket);
+            return Err(RtpError::EmptyRtcpCompoundPacket);
         }
 
         {
@@ -114,7 +114,7 @@ impl CompoundPacket {
             if payload_type != RtcpPayloadType::SenderReport
                 && payload_type != RtcpPayloadType::ReceiverReport
             {
-                return Err(RtpError::BadFirstPacket);
+                return Err(RtpError::BadFirstPacketInRtcpCompound);
             }
         }
 
@@ -124,12 +124,12 @@ impl CompoundPacket {
             }
             if let RtcpPacket::SourceDescription(pkt) = packet {
                 if pkt.get_cname().is_none() {
-                    return Err(RtpError::MissingCname);
+                    return Err(RtpError::MissingCnameInRtcpCompound);
                 } else {
                     return Ok(());
                 }
             } else {
-                return Err(RtpError::BadCnamePosition);
+                return Err(RtpError::BadCnamePositionInRtcpCompound);
             }
         }
         Ok(())
