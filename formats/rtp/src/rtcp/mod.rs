@@ -3,15 +3,15 @@ use std::io::{self, Cursor, Read};
 use app::RtcpAppPacket;
 use bye::RtcpByePacket;
 use common_header::RtcpCommonHeader;
-use packet_traits::{
-    dynamic_sized_packet::DynamicSizedPacket,
-    reader::{ReadRemainingFrom, TryReadRemainingFrom},
-    writer::WriteTo,
-};
 use payload_types::RtcpPayloadType;
 use report::{RtcpReceiverReport, RtcpSenderReport};
 use sdes::RtcpSourceDescriptionPacket;
 use tokio_util::bytes::Buf;
+use utils::traits::{
+    dynamic_sized_packet::DynamicSizedPacket,
+    reader::{ReadRemainingFrom, TryReadRemainingFrom},
+    writer::WriteTo,
+};
 
 use crate::{errors::RtpError, util::padding::rtp_get_padding_size};
 
