@@ -1,10 +1,9 @@
 pub mod builder;
-pub mod header;
 
 use std::io::{self, Read};
 
-use builder::RtpPacketBuilder;
-use header::RtpHeader;
+use builder::RtpTrivialPacketBuilder;
+
 use tokio_util::bytes::{Buf, Bytes};
 use utils::traits::{
     dynamic_sized_packet::DynamicSizedPacket, reader::TryReadFrom, writer::WriteTo,
@@ -12,34 +11,33 @@ use utils::traits::{
 
 use crate::{
     errors::RtpError,
-    util::padding::{rtp_get_padding_size, rtp_make_padding_bytes, rtp_need_padding},
+    header::RtpHeader,
+    util::{
+        RtpPacketTrait,
+        padding::{rtp_get_padding_size, rtp_make_padding_bytes, rtp_need_padding},
+    },
 };
 
-pub trait RtpPacketTrait: DynamicSizedPacket {
-    fn get_packet_bytes_count_without_padding(&self) -> usize;
-    fn get_header(&self) -> RtpHeader;
-}
-
 #[derive(Debug)]
-pub struct RtpPacket {
+pub struct RtpTrivialPacket {
     header: RtpHeader,
     payload: Bytes,
 }
 
-impl RtpPacket {
-    pub fn builder() -> RtpPacketBuilder {
+impl RtpTrivialPacket {
+    pub fn builder() -> RtpTrivialPacketBuilder {
         Default::default()
     }
 }
 
-impl DynamicSizedPacket for RtpPacket {
+impl DynamicSizedPacket for RtpTrivialPacket {
     fn get_packet_bytes_count(&self) -> usize {
         let raw_size = self.get_packet_bytes_count_without_padding();
         raw_size + rtp_get_padding_size(raw_size)
     }
 }
 
-impl RtpPacketTrait for RtpPacket {
+impl RtpPacketTrait for RtpTrivialPacket {
     fn get_packet_bytes_count_without_padding(&self) -> usize {
         self.header.get_packet_bytes_count() + self.payload.len()
     }
@@ -61,7 +59,7 @@ impl RtpPacketTrait for RtpPacket {
     }
 }
 
-impl<R: AsRef<[u8]>> TryReadFrom<R> for RtpPacket {
+impl<R: AsRef<[u8]>> TryReadFrom<R> for RtpTrivialPacket {
     type Error = RtpError;
     fn try_read_from(reader: &mut std::io::Cursor<R>) -> Result<Option<Self>, Self::Error> {
         let header = RtpHeader::try_read_from(reader.by_ref())?;
@@ -92,7 +90,7 @@ impl<R: AsRef<[u8]>> TryReadFrom<R> for RtpPacket {
     }
 }
 
-impl<W: io::Write> WriteTo<W> for RtpPacket {
+impl<W: io::Write> WriteTo<W> for RtpTrivialPacket {
     type Error = RtpError;
     fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
         let raw_size = self.get_packet_bytes_count_without_padding();

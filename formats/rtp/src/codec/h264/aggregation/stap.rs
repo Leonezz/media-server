@@ -26,12 +26,12 @@ use crate::{codec::h264::util, errors::RtpError};
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
 #[derive(Debug)]
-pub struct StapAPacket {
+pub struct StapAFormat {
     pub header: u8,
     pub nal_units: Vec<NalUnit>,
 }
 
-impl<R: io::Read> ReadRemainingFrom<u8, R> for StapAPacket {
+impl<R: io::Read> ReadRemainingFrom<u8, R> for StapAFormat {
     type Error = RtpError;
     fn read_remaining_from(header: u8, reader: R) -> Result<Self, Self::Error> {
         let nal_units = util::read_aggregated_trivial_nal_units(reader)?;
@@ -40,7 +40,7 @@ impl<R: io::Read> ReadRemainingFrom<u8, R> for StapAPacket {
     }
 }
 
-impl<W: io::Write> WriteTo<W> for StapAPacket {
+impl<W: io::Write> WriteTo<W> for StapAFormat {
     type Error = RtpError;
     fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
         writer.write_u8(self.header)?;
@@ -73,13 +73,13 @@ impl<W: io::Write> WriteTo<W> for StapAPacket {
 /// |                               :...OPTIONAL RTP padding        |
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 #[derive(Debug)]
-pub struct StapBPacket {
+pub struct StapBFormat {
     pub header: u8,
     pub decode_order_number: u16,
     pub nal_units: Vec<NalUnit>,
 }
 
-impl<R: io::Read> ReadRemainingFrom<u8, R> for StapBPacket {
+impl<R: io::Read> ReadRemainingFrom<u8, R> for StapBFormat {
     type Error = RtpError;
     fn read_remaining_from(header: u8, mut reader: R) -> Result<Self, Self::Error> {
         let decode_order_number = reader.read_u16::<BigEndian>()?;
@@ -92,7 +92,7 @@ impl<R: io::Read> ReadRemainingFrom<u8, R> for StapBPacket {
     }
 }
 
-impl<W: io::Write> WriteTo<W> for StapBPacket {
+impl<W: io::Write> WriteTo<W> for StapBFormat {
     type Error = RtpError;
     fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
         writer.write_u8(self.header)?;

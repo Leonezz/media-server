@@ -23,13 +23,13 @@ impl<T: Into<u32>> From<(NalUnit, u8, T)> for MtapNalUnit<T> {
 }
 
 #[derive(Debug)]
-pub struct Mtap16Packet {
+pub struct Mtap16Format {
     pub header: u8,
     pub decode_order_number_base: u16,
     pub nal_units: Vec<MtapNalUnit<u16>>,
 }
 
-impl<R: io::Read> ReadRemainingFrom<u8, R> for Mtap16Packet {
+impl<R: io::Read> ReadRemainingFrom<u8, R> for Mtap16Format {
     type Error = RtpError;
     fn read_remaining_from(header: u8, mut reader: R) -> Result<Self, Self::Error> {
         let decode_order_number_base = reader.read_u16::<BigEndian>()?;
@@ -52,7 +52,7 @@ impl<R: io::Read> ReadRemainingFrom<u8, R> for Mtap16Packet {
     }
 }
 
-impl<W: io::Write> WriteTo<W> for Mtap16Packet {
+impl<W: io::Write> WriteTo<W> for Mtap16Format {
     type Error = RtpError;
     fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
         writer.write_u8(self.header)?;
@@ -70,13 +70,13 @@ impl<W: io::Write> WriteTo<W> for Mtap16Packet {
 }
 
 #[derive(Debug)]
-pub struct Mtap24Packet {
+pub struct Mtap24Format {
     pub header: u8,
     pub decode_order_number_base: u16,
     pub nal_units: Vec<MtapNalUnit<u32>>,
 }
 
-impl<R: io::Read> ReadRemainingFrom<u8, R> for Mtap24Packet {
+impl<R: io::Read> ReadRemainingFrom<u8, R> for Mtap24Format {
     type Error = RtpError;
     fn read_remaining_from(header: u8, mut reader: R) -> Result<Self, Self::Error> {
         let decode_order_number_base = reader.read_u16::<BigEndian>()?;
@@ -98,7 +98,7 @@ impl<R: io::Read> ReadRemainingFrom<u8, R> for Mtap24Packet {
     }
 }
 
-impl<W: io::Write> WriteTo<W> for Mtap24Packet {
+impl<W: io::Write> WriteTo<W> for Mtap24Format {
     type Error = RtpError;
     fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
         writer.write_u8(self.header)?;
