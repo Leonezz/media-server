@@ -1,13 +1,14 @@
 pub mod aggregation;
 pub mod fragmented;
+pub mod packet;
 pub mod single_nalu;
 pub(crate) mod util;
 use std::io;
 
-use aggregation::{AggregationPacket, AggregationPacketType};
+use aggregation::{AggregationNalUnits, AggregationPacketType};
 use byteorder::{ReadBytesExt, WriteBytesExt};
-use fragmented::{FUPacket, FragmentationUnitPacketType};
-use single_nalu::SingleNaluPacket;
+use fragmented::{FragmentationUnitPacketType, FragmentedUnit};
+use single_nalu::SingleNalUnit;
 use utils::traits::{
     reader::{ReadFrom, ReadRemainingFrom},
     writer::WriteTo,
@@ -49,16 +50,16 @@ impl TryFrom<u8> for PayloadStructureType {
 }
 
 #[derive(Debug)]
-pub enum H264RtpPacket {
-    SingleNalu(SingleNaluPacket),
-    Aggregated(AggregationPacket),
-    Fragmented(FUPacket),
+pub enum H264RtpNalUnit {
+    SingleNalu(SingleNalUnit),
+    Aggregated(AggregationNalUnits),
+    Fragmented(FragmentedUnit),
 }
 
 #[derive(Debug)]
 pub struct H264RtpPayload {
     pub payload_structure: PayloadStructureType,
-    pub packet: H264RtpPacket,
+    pub packet: H264RtpNalUnit,
 }
 
 impl<R: io::Read> ReadFrom<R> for H264RtpPayload {
@@ -66,16 +67,16 @@ impl<R: io::Read> ReadFrom<R> for H264RtpPayload {
     fn read_from(mut reader: R) -> Result<Self, Self::Error> {
         let first_byte = reader.read_u8()?;
         let payload_structure: PayloadStructureType = first_byte.try_into()?;
-        let packet: H264RtpPacket = match payload_structure {
-            PayloadStructureType::SingleNALUPacket(header) => H264RtpPacket::SingleNalu(
-                SingleNaluPacket::read_remaining_from(header.into(), reader)?,
+        let packet: H264RtpNalUnit = match payload_structure {
+            PayloadStructureType::SingleNALUPacket(header) => H264RtpNalUnit::SingleNalu(
+                SingleNalUnit::read_remaining_from(header.into(), reader)?,
             ),
-            PayloadStructureType::AggregationPacket(header) => H264RtpPacket::Aggregated(
-                AggregationPacket::read_remaining_from(header.into(), reader)?,
+            PayloadStructureType::AggregationPacket(header) => H264RtpNalUnit::Aggregated(
+                AggregationNalUnits::read_remaining_from(header.into(), reader)?,
             ),
-            PayloadStructureType::FragmentationUnit(header) => {
-                H264RtpPacket::Fragmented(FUPacket::read_remaining_from(header.into(), reader)?)
-            }
+            PayloadStructureType::FragmentationUnit(header) => H264RtpNalUnit::Fragmented(
+                FragmentedUnit::read_remaining_from(header.into(), reader)?,
+            ),
         };
 
         Ok(Self {
@@ -90,9 +91,9 @@ impl<W: io::Write> WriteTo<W> for H264RtpPayload {
     fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
         writer.write_u8(self.payload_structure.into())?;
         match &self.packet {
-            H264RtpPacket::SingleNalu(packet) => packet.write_to(writer),
-            H264RtpPacket::Aggregated(packet) => packet.write_to(writer),
-            H264RtpPacket::Fragmented(packet) => packet.write_to(writer),
+            H264RtpNalUnit::SingleNalu(packet) => packet.write_to(writer),
+            H264RtpNalUnit::Aggregated(packet) => packet.write_to(writer),
+            H264RtpNalUnit::Fragmented(packet) => packet.write_to(writer),
         }
     }
 }

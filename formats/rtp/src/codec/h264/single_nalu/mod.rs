@@ -19,9 +19,9 @@ use crate::errors::RtpError;
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
 #[derive(Debug)]
-pub struct SingleNaluPacket(NalUnit);
+pub struct SingleNalUnit(NalUnit);
 
-impl<R: io::Read> ReadRemainingFrom<u8, R> for SingleNaluPacket {
+impl<R: io::Read> ReadRemainingFrom<u8, R> for SingleNalUnit {
     type Error = RtpError;
     fn read_remaining_from(header: u8, reader: R) -> Result<Self, Self::Error> {
         let nal_header: NaluHeader = header.try_into()?;
@@ -29,7 +29,7 @@ impl<R: io::Read> ReadRemainingFrom<u8, R> for SingleNaluPacket {
     }
 }
 
-impl<W: io::Write> WriteTo<W> for SingleNaluPacket {
+impl<W: io::Write> WriteTo<W> for SingleNalUnit {
     type Error = RtpError;
     fn write_to(&self, writer: W) -> Result<(), Self::Error> {
         self.0.write_to(writer)?;
