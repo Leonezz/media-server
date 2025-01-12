@@ -6,10 +6,11 @@ pub(crate) mod util;
 use std::io;
 
 use aggregation::{AggregationNalUnits, AggregationPacketType};
-use byteorder::{ReadBytesExt, WriteBytesExt};
+use byteorder::ReadBytesExt;
 use fragmented::{FragmentationUnitPacketType, FragmentedUnit};
 use single_nalu::SingleNalUnit;
 use utils::traits::{
+    dynamic_sized_packet::DynamicSizedPacket,
     reader::{ReadFrom, ReadRemainingFrom},
     writer::WriteTo,
 };
@@ -50,50 +51,68 @@ impl TryFrom<u8> for PayloadStructureType {
 }
 
 #[derive(Debug)]
-pub enum H264RtpNalUnit {
+pub enum RtpH264NalUnit {
     SingleNalu(SingleNalUnit),
     Aggregated(AggregationNalUnits),
     Fragmented(FragmentedUnit),
 }
 
-#[derive(Debug)]
-pub struct H264RtpPayload {
-    pub payload_structure: PayloadStructureType,
-    pub packet: H264RtpNalUnit,
+impl RtpH264NalUnit {
+    pub fn first_byte(&self) -> u8 {
+        match self {
+            Self::SingleNalu(nalu) => nalu.0.header.into(),
+            Self::Aggregated(nalu) => match nalu {
+                AggregationNalUnits::StapA(packet) => packet.header,
+                AggregationNalUnits::StapB(packet) => packet.header,
+                AggregationNalUnits::Mtap16(packet) => packet.header,
+                AggregationNalUnits::Mtap24(packet) => packet.header,
+            },
+            Self::Fragmented(nalu) => match nalu {
+                FragmentedUnit::FuA(packet) => packet.indicator,
+                FragmentedUnit::FuB(packet) => packet.indicator,
+            },
+        }
+    }
 }
 
-impl<R: io::Read> ReadFrom<R> for H264RtpPayload {
+impl<R: io::Read> ReadFrom<R> for RtpH264NalUnit {
     type Error = RtpError;
     fn read_from(mut reader: R) -> Result<Self, Self::Error> {
         let first_byte = reader.read_u8()?;
         let payload_structure: PayloadStructureType = first_byte.try_into()?;
-        let packet: H264RtpNalUnit = match payload_structure {
-            PayloadStructureType::SingleNALUPacket(header) => H264RtpNalUnit::SingleNalu(
+        let packet: RtpH264NalUnit = match payload_structure {
+            PayloadStructureType::SingleNALUPacket(header) => RtpH264NalUnit::SingleNalu(
                 SingleNalUnit::read_remaining_from(header.into(), reader)?,
             ),
-            PayloadStructureType::AggregationPacket(header) => H264RtpNalUnit::Aggregated(
+            PayloadStructureType::AggregationPacket(header) => RtpH264NalUnit::Aggregated(
                 AggregationNalUnits::read_remaining_from(header.into(), reader)?,
             ),
-            PayloadStructureType::FragmentationUnit(header) => H264RtpNalUnit::Fragmented(
+            PayloadStructureType::FragmentationUnit(header) => RtpH264NalUnit::Fragmented(
                 FragmentedUnit::read_remaining_from(header.into(), reader)?,
             ),
         };
 
-        Ok(Self {
-            payload_structure,
-            packet,
-        })
+        Ok(packet)
     }
 }
 
-impl<W: io::Write> WriteTo<W> for H264RtpPayload {
+impl<W: io::Write> WriteTo<W> for RtpH264NalUnit {
     type Error = RtpError;
-    fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
-        writer.write_u8(self.payload_structure.into())?;
-        match &self.packet {
-            H264RtpNalUnit::SingleNalu(packet) => packet.write_to(writer),
-            H264RtpNalUnit::Aggregated(packet) => packet.write_to(writer),
-            H264RtpNalUnit::Fragmented(packet) => packet.write_to(writer),
+    fn write_to(&self, writer: W) -> Result<(), Self::Error> {
+        match &self {
+            RtpH264NalUnit::SingleNalu(packet) => packet.write_to(writer),
+            RtpH264NalUnit::Aggregated(packet) => packet.write_to(writer),
+            RtpH264NalUnit::Fragmented(packet) => packet.write_to(writer),
+        }
+    }
+}
+
+impl DynamicSizedPacket for RtpH264NalUnit {
+    fn get_packet_bytes_count(&self) -> usize {
+        match &self {
+            RtpH264NalUnit::SingleNalu(packet) => packet.get_packet_bytes_count(),
+            RtpH264NalUnit::Aggregated(packet) => packet.get_packet_bytes_count(),
+            RtpH264NalUnit::Fragmented(packet) => packet.get_packet_bytes_count(),
         }
     }
 }

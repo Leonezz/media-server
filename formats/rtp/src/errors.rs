@@ -33,6 +33,10 @@ pub enum RtpError {
     InvalidH264PacketType(u8),
     #[error("h264 codec error: {0:?}")]
     CodecErrorH264(#[from] H264CodecError),
+    #[error("rtp sequencing h264 nal from fu packets failed: {0}")]
+    SequenceFUPacketsFailed(String),
+    #[error("MTU is too small: {0}")]
+    MTUTooSmall(usize),
 }
 
 pub type RtpResult<T> = Result<T, RtpError>;
