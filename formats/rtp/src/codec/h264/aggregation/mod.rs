@@ -2,7 +2,9 @@ use std::io;
 
 use mtap::{Mtap16Format, Mtap24Format};
 use stap::{StapAFormat, StapBFormat};
-use utils::traits::{reader::ReadRemainingFrom, writer::WriteTo};
+use utils::traits::{
+    dynamic_sized_packet::DynamicSizedPacket, reader::ReadRemainingFrom, writer::WriteTo,
+};
 
 use crate::errors::RtpError;
 
@@ -78,6 +80,17 @@ impl<W: io::Write> WriteTo<W> for AggregationNalUnits {
             Self::StapB(packet) => packet.write_to(writer),
             Self::Mtap16(packet) => packet.write_to(writer),
             Self::Mtap24(packet) => packet.write_to(writer),
+        }
+    }
+}
+
+impl DynamicSizedPacket for AggregationNalUnits {
+    fn get_packet_bytes_count(&self) -> usize {
+        match self {
+            Self::StapA(packet) => packet.get_packet_bytes_count(),
+            Self::StapB(packet) => packet.get_packet_bytes_count(),
+            Self::Mtap16(packet) => packet.get_packet_bytes_count(),
+            Self::Mtap24(packet) => packet.get_packet_bytes_count(),
         }
     }
 }

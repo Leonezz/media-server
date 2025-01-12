@@ -1,6 +1,6 @@
 use tokio_util::bytes::BytesMut;
 
-use crate::{header::RtpHeader, util};
+use crate::header::RtpHeader;
 
 use super::RtpTrivialPacket;
 
@@ -25,13 +25,7 @@ impl RtpTrivialPacketBuilder {
         self
     }
 
-    pub fn build(mut self) -> RtpTrivialPacket {
-        let payload_size = self.payload.len();
-        self.header.padding = util::padding::rtp_need_padding(payload_size);
-
-        RtpTrivialPacket {
-            header: self.header,
-            payload: self.payload.freeze(),
-        }
+    pub fn build(self) -> RtpTrivialPacket {
+        RtpTrivialPacket::new(self.header, self.payload.freeze())
     }
 }

@@ -28,7 +28,7 @@ use crate::errors::{RtpError, RtpResult};
 /// |             contributing source (CSRC) identifiers            |
 /// |                               ....                            |
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RtpHeader {
     pub version: u8,
     pub padding: bool,
@@ -87,6 +87,48 @@ impl DynamicSizedPacket for RtpHeader {
           } else {
             0
           }
+    }
+}
+
+impl<R: io::Read> ReadFrom<R> for RtpHeader {
+    type Error = RtpError;
+    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+        let first_byte = reader.read_u8()?;
+        let version = (first_byte >> 6) & 0b11;
+        let padding = ((first_byte >> 5) & 0b1) == 0b1;
+        let extension = ((first_byte >> 4) & 0b1) == 0b1;
+        let csrc_count = first_byte & 0b1111;
+
+        let second_byte = reader.read_u8()?;
+        let marker = ((second_byte >> 7) & 0b1) == 0b1;
+        let payload_type = first_byte & 0b0111_1111;
+
+        let sequence_number = reader.read_u16::<BigEndian>()?;
+        let timestamp = reader.read_u32::<BigEndian>()?;
+        let ssrc = reader.read_u32::<BigEndian>()?;
+
+        let mut csrc_list = Vec::with_capacity(csrc_count as usize);
+        for _ in 0..csrc_count {
+            csrc_list.push(reader.read_u32::<BigEndian>()?);
+        }
+
+        Ok(Self {
+            version,
+            padding,
+            extension,
+            csrc_count,
+            marker,
+            payload_type,
+            sequence_number,
+            timestamp,
+            ssrc,
+            csrc_list,
+            header_extension: if !extension {
+                None
+            } else {
+                Some(RtpHeaderExtension::read_from(reader)?)
+            },
+        })
     }
 }
 
