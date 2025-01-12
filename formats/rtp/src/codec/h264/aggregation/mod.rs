@@ -1,7 +1,7 @@
 use std::io;
 
-use mtap::{Mtap16Packet, Mtap24Packet};
-use stap::{StapAPacket, StapBPacket};
+use mtap::{Mtap16Format, Mtap24Format};
+use stap::{StapAFormat, StapBFormat};
 use utils::traits::{reader::ReadRemainingFrom, writer::WriteTo};
 
 use crate::errors::RtpError;
@@ -13,8 +13,8 @@ pub mod stap;
 #[repr(u8)]
 #[derive(Debug, Clone, Copy)]
 pub enum AggregationPacketType {
-    STAPA = 24, // Single-Time Aggregation Packet type A
-    STAPB = 25, // Single-Time Aggregation Packet type B
+    STAPA = 24,  // Single-Time Aggregation Packet type A
+    STAPB = 25,  // Single-Time Aggregation Packet type B
     MTAP16 = 26, // Multi-Time Aggregation Packet (MTAP) with 16-bit offset
     MTAP24 = 27, // Multi-Time Aggregation Packet (MTAP) with 24-bit offset
 }
@@ -39,30 +39,30 @@ impl TryFrom<u8> for AggregationPacketType {
 }
 
 #[derive(Debug)]
-pub enum AggregationPacket {
-    StapA(StapAPacket),
-    StapB(StapBPacket),
-    Mtap16(Mtap16Packet),
-    Mtap24(Mtap24Packet),
+pub enum AggregationNalUnits {
+    StapA(StapAFormat),
+    StapB(StapBFormat),
+    Mtap16(Mtap16Format),
+    Mtap24(Mtap24Format),
 }
 
-impl<R: io::Read> ReadRemainingFrom<AggregationPacketType, R> for AggregationPacket {
+impl<R: io::Read> ReadRemainingFrom<AggregationPacketType, R> for AggregationNalUnits {
     type Error = RtpError;
     fn read_remaining_from(header: AggregationPacketType, reader: R) -> Result<Self, Self::Error> {
         match header {
-            AggregationPacketType::STAPA => Ok(Self::StapA(StapAPacket::read_remaining_from(
+            AggregationPacketType::STAPA => Ok(Self::StapA(StapAFormat::read_remaining_from(
                 header.into(),
                 reader,
             )?)),
-            AggregationPacketType::STAPB => Ok(Self::StapB(StapBPacket::read_remaining_from(
+            AggregationPacketType::STAPB => Ok(Self::StapB(StapBFormat::read_remaining_from(
                 header.into(),
                 reader,
             )?)),
-            AggregationPacketType::MTAP16 => Ok(Self::Mtap16(Mtap16Packet::read_remaining_from(
+            AggregationPacketType::MTAP16 => Ok(Self::Mtap16(Mtap16Format::read_remaining_from(
                 header.into(),
                 reader,
             )?)),
-            AggregationPacketType::MTAP24 => Ok(Self::Mtap24(Mtap24Packet::read_remaining_from(
+            AggregationPacketType::MTAP24 => Ok(Self::Mtap24(Mtap24Format::read_remaining_from(
                 header.into(),
                 reader,
             )?)),
@@ -70,7 +70,7 @@ impl<R: io::Read> ReadRemainingFrom<AggregationPacketType, R> for AggregationPac
     }
 }
 
-impl<W: io::Write> WriteTo<W> for AggregationPacket {
+impl<W: io::Write> WriteTo<W> for AggregationNalUnits {
     type Error = RtpError;
     fn write_to(&self, writer: W) -> Result<(), Self::Error> {
         match self {
