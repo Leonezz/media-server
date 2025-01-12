@@ -1,7 +1,9 @@
 use std::io::{self};
 
 use h264_codec::nalu::{NalUnit, NaluHeader};
-use utils::traits::{reader::ReadRemainingFrom, writer::WriteTo};
+use utils::traits::{
+    dynamic_sized_packet::DynamicSizedPacket, reader::ReadRemainingFrom, writer::WriteTo,
+};
 
 use crate::errors::RtpError;
 
@@ -19,7 +21,7 @@ use crate::errors::RtpError;
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
 #[derive(Debug)]
-pub struct SingleNalUnit(NalUnit);
+pub struct SingleNalUnit(pub NalUnit);
 
 impl<R: io::Read> ReadRemainingFrom<u8, R> for SingleNalUnit {
     type Error = RtpError;
@@ -34,5 +36,11 @@ impl<W: io::Write> WriteTo<W> for SingleNalUnit {
     fn write_to(&self, writer: W) -> Result<(), Self::Error> {
         self.0.write_to(writer)?;
         Ok(())
+    }
+}
+
+impl DynamicSizedPacket for SingleNalUnit {
+    fn get_packet_bytes_count(&self) -> usize {
+        self.0.get_packet_bytes_count()
     }
 }
