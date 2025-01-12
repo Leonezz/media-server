@@ -28,6 +28,13 @@ impl RtpTrivialPacket {
     pub fn builder() -> RtpTrivialPacketBuilder {
         Default::default()
     }
+
+    pub fn new(header: RtpHeader, payload: Bytes) -> Self {
+        let mut result = Self { header, payload };
+        let raw_size = result.get_packet_bytes_count_without_padding();
+        result.header.padding = rtp_need_padding(raw_size);
+        result
+    }
 }
 
 impl DynamicSizedPacket for RtpTrivialPacket {

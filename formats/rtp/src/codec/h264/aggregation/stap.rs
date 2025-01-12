@@ -2,7 +2,9 @@ use std::io::{self};
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use h264_codec::nalu::NalUnit;
-use utils::traits::{reader::ReadRemainingFrom, writer::WriteTo};
+use utils::traits::{
+    dynamic_sized_packet::DynamicSizedPacket, reader::ReadRemainingFrom, writer::WriteTo,
+};
 
 use crate::{codec::h264::util, errors::RtpError};
 
@@ -50,6 +52,19 @@ impl<W: io::Write> WriteTo<W> for StapAFormat {
             .try_for_each(|nalu| util::write_aggregated_stap_nal_unit(writer.by_ref(), nalu))?;
 
         Ok(())
+    }
+}
+
+impl DynamicSizedPacket for StapAFormat {
+    fn get_packet_bytes_count(&self) -> usize {
+        1 // STAP-A NAL HDR
+        + self.nal_units.iter().fold(
+            0,
+            |prev, cur| 
+                prev
+                    + 2 // nalu size
+                    + cur.get_packet_bytes_count()
+        )
     }
 }
 
@@ -103,5 +118,17 @@ impl<W: io::Write> WriteTo<W> for StapBFormat {
             .try_for_each(|nalu| util::write_aggregated_stap_nal_unit(writer.by_ref(), nalu))?;
 
         Ok(())
+    }
+}
+
+impl DynamicSizedPacket for StapBFormat {
+    fn get_packet_bytes_count(&self) -> usize {
+        1 // STAP-B NAL HDR
+        + 2 // don
+        + self.nal_units.iter().fold(0, |prev, cur| 
+            prev 
+            + 2 // nalu size
+            + cur.get_packet_bytes_count()
+        )
     }
 }

@@ -1,7 +1,10 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::io;
 use tokio_util::bytes::Bytes;
-use utils::traits::{reader::ReadRemainingFrom, writer::WriteTo};
+use utils::traits::{
+    dynamic_sized_packet::DynamicSizedPacket, fixed_packet::FixedPacket, reader::ReadRemainingFrom,
+    writer::WriteTo,
+};
 
 use crate::errors::RtpError;
 
@@ -63,6 +66,12 @@ impl From<u8> for FUHeader {
     }
 }
 
+impl FixedPacket for FUHeader {
+    fn bytes_count() -> usize {
+        1
+    }
+}
+
 ///! FU-A
 ///  0                   1                   2                   3
 ///  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
@@ -103,6 +112,14 @@ impl<W: io::Write> WriteTo<W> for FUAPacket {
         writer.write_u8(self.fu_header.into())?;
         writer.write_all(&self.payload)?;
         Ok(())
+    }
+}
+
+impl DynamicSizedPacket for FUAPacket {
+    fn get_packet_bytes_count(&self) -> usize {
+        1 // FU indicator
+        + FUHeader::bytes_count()
+        + self.payload.len()
     }
 }
 
@@ -153,6 +170,15 @@ impl<W: io::Write> WriteTo<W> for FUBPacket {
     }
 }
 
+impl DynamicSizedPacket for FUBPacket {
+    fn get_packet_bytes_count(&self) -> usize {
+        1 // FU indicator
+        + FUHeader::bytes_count()
+        + 2 // don
+        + self.payload.len()
+    }
+}
+
 #[derive(Debug)]
 pub enum FragmentedUnit {
     FuA(FUAPacket),
@@ -184,6 +210,15 @@ impl<W: io::Write> WriteTo<W> for FragmentedUnit {
         match self {
             Self::FuA(packet) => packet.write_to(writer),
             Self::FuB(packet) => packet.write_to(writer),
+        }
+    }
+}
+
+impl DynamicSizedPacket for FragmentedUnit {
+    fn get_packet_bytes_count(&self) -> usize {
+        match self {
+            Self::FuA(packet) => packet.get_packet_bytes_count(),
+            Self::FuB(packet) => packet.get_packet_bytes_count(),
         }
     }
 }

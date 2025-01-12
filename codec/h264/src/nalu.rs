@@ -1,18 +1,20 @@
 use std::io;
 
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{ReadBytesExt, WriteBytesExt};
 use tokio_util::bytes::Bytes;
 use utils::traits::{
+    dynamic_sized_packet::DynamicSizedPacket,
+    fixed_packet::FixedPacket,
     reader::{ReadExactFrom, ReadFrom, ReadRemainingFrom},
     writer::WriteTo,
 };
 
-use crate::errors::{H264CodecError, H264CodecResult};
+use crate::errors::H264CodecError;
 
 ///! @see: Recommendation  ITU-T H.264 (V15) (08/2024)   – Coding of moving video
 /// Table 7-1 – NAL unit type codes, syntax element categories, and NAL unit type classes
 #[repr(u8)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum NALUType {
     NonIDRSlice = 1,
     DataPartitionASlice = 2,
@@ -129,7 +131,13 @@ impl TryFrom<u8> for NaluHeader {
     }
 }
 
-#[derive(Debug)]
+impl FixedPacket for NaluHeader {
+    fn bytes_count() -> usize {
+        1
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct NalUnit {
     pub header: NaluHeader,
     // bytes in body does not include the header byte
@@ -198,5 +206,11 @@ impl<R: io::Read> ReadExactFrom<R> for NalUnit {
     fn read_exact_from(length: usize, mut reader: R) -> Result<Self, Self::Error> {
         let header: NaluHeader = reader.read_u8()?.try_into()?;
         Self::read_remaining_from((header, length - 1), reader)
+    }
+}
+
+impl DynamicSizedPacket for NalUnit {
+    fn get_packet_bytes_count(&self) -> usize {
+        NaluHeader::bytes_count() + self.body.len()
     }
 }
