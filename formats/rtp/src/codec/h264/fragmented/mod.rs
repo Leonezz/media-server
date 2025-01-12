@@ -154,12 +154,12 @@ impl<W: io::Write> WriteTo<W> for FUBPacket {
 }
 
 #[derive(Debug)]
-pub enum FUPacket {
+pub enum FragmentedUnit {
     FuA(FUAPacket),
     FuB(FUBPacket),
 }
 
-impl<R: io::Read> ReadRemainingFrom<FragmentationUnitPacketType, R> for FUPacket {
+impl<R: io::Read> ReadRemainingFrom<FragmentationUnitPacketType, R> for FragmentedUnit {
     type Error = RtpError;
     fn read_remaining_from(
         header: FragmentationUnitPacketType,
@@ -178,7 +178,7 @@ impl<R: io::Read> ReadRemainingFrom<FragmentationUnitPacketType, R> for FUPacket
     }
 }
 
-impl<W: io::Write> WriteTo<W> for FUPacket {
+impl<W: io::Write> WriteTo<W> for FragmentedUnit {
     type Error = RtpError;
     fn write_to(&self, writer: W) -> Result<(), Self::Error> {
         match self {

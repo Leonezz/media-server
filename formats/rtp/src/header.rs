@@ -2,13 +2,16 @@ use std::io::{self, Cursor};
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use tokio_util::bytes::{Buf, Bytes};
-use utils::traits::{
-    dynamic_sized_packet::DynamicSizedPacket,
-    reader::{ReadFrom, TryReadFrom},
-    writer::WriteTo,
+use utils::{
+    system::time::get_timestamp_ms,
+    traits::{
+        dynamic_sized_packet::DynamicSizedPacket,
+        reader::{ReadFrom, TryReadFrom},
+        writer::WriteTo,
+    },
 };
 
-use crate::errors::RtpError;
+use crate::errors::{RtpError, RtpResult};
 
 ///! @see: RFC 3550 5.1 RTP Fixed Header Fields
 /// this is not likely to useful
@@ -184,5 +187,64 @@ impl<W: io::Write> WriteTo<W> for RtpHeaderExtension {
         writer.write_u16::<BigEndian>(self.length)?;
         writer.write_all(&self.bytes)?;
         Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct RtpHeaderBuilder {
+    pub header: RtpHeader,
+}
+
+impl RtpHeaderBuilder {
+    pub fn version(mut self, version: u8) -> Self {
+        self.header.version = version;
+        self
+    }
+
+    pub fn csrc(mut self, csrc: u32) -> RtpResult<Self> {
+        if self.header.csrc_list.len() > 30 {
+            return Err(RtpError::TooManyCSRC);
+        }
+        self.header.csrc_list.push(csrc);
+        self.header.csrc_count = self.header.csrc_list.len() as u8;
+        Ok(self)
+    }
+
+    pub fn marker(mut self, marker: bool) -> Self {
+        self.header.marker = marker;
+        self
+    }
+
+    pub fn payload_type(mut self, payload_type: u8) -> Self {
+        self.header.payload_type = payload_type;
+        self
+    }
+
+    pub fn sequence_number(mut self, number: u16) -> Self {
+        self.header.sequence_number = number;
+        self
+    }
+
+    pub fn timestamp(mut self, timestamp: u32) -> Self {
+        self.header.timestamp = timestamp;
+        self
+    }
+
+    pub fn timestamp_now(self) -> Self {
+        self.timestamp(get_timestamp_ms().unwrap_or(0) as u32)
+    }
+
+    pub fn ssrc(mut self, ssrc: u32) -> Self {
+        self.header.ssrc = ssrc;
+        self
+    }
+
+    pub fn extension(mut self, extension: RtpHeaderExtension) -> Self {
+        self.header.header_extension = Some(extension);
+        self
+    }
+
+    pub fn build(self) -> RtpHeader {
+        self.header
     }
 }
