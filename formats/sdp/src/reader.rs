@@ -872,6 +872,12 @@ impl SessionDescriptionReader {
 
     fn parse_attribute(text: &str) -> SDPResult<SDPAttribute> {
         let fields: Vec<&str> = text.split(':').collect();
+        if fields.len() == 0 {
+            return Err(SDPError::SyntaxError(format!(
+                "invalid attribute line: {}",
+                text
+            )));
+        }
         if fields.len() == 1 {
             return Ok(SDPAttribute {
                 name: fields[0].to_owned(),
@@ -879,17 +885,10 @@ impl SessionDescriptionReader {
             });
         }
 
-        if fields.len() == 2 {
-            return Ok(SDPAttribute {
-                name: fields[0].to_owned(),
-                value: Some(fields[1].to_owned()),
-            });
-        }
-
-        return Err(SDPError::SyntaxError(format!(
-            "invalid attribute line: {}",
-            text
-        )));
+        return Ok(SDPAttribute {
+            name: fields[0].to_owned(),
+            value: Some(fields[1..].join(":").to_owned()),
+        });
     }
 
     fn read_attribute_line(
