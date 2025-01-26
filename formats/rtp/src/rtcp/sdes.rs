@@ -14,7 +14,7 @@ use crate::{
 
 use super::{RtcpPacketTrait, common_header::RtcpCommonHeader, payload_types::RtcpPayloadType};
 
-///! @see: RFC 3550 6.5 SDES: Source Description RTCP Packet
+// @see: RFC 3550 6.5 SDES: Source Description RTCP Packet
 ///         0                   1                   2                   3
 ///         0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 ///        +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -31,7 +31,6 @@ use super::{RtcpPacketTrait, common_header::RtcpCommonHeader, payload_types::Rtc
 ///        |                                ...                            |
 ///        +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
 ///
-
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SDESItemType {
@@ -45,9 +44,9 @@ pub enum SDESItemType {
     PRIV = 8,
 }
 
-impl Into<u8> for SDESItemType {
-    fn into(self) -> u8 {
-        self as u8
+impl From<SDESItemType> for u8 {
+    fn from(value: SDESItemType) -> Self {
+        value as u8
     }
 }
 
@@ -84,7 +83,7 @@ impl<R: io::Read> ReadFrom<R> for SDESBody {
     type Error = RtpError;
     fn read_from(mut reader: R) -> Result<Self, Self::Error> {
         let length = reader.read_u8()?;
-        let mut str_bytes = vec![0 as u8; length as usize];
+        let mut str_bytes = vec![0_u8; length as usize];
         reader.read_exact(&mut str_bytes)?;
         Ok(Self {
             length,
@@ -194,7 +193,7 @@ impl<W: io::Write> WriteTo<W> for SDESChunk {
 
 #[derive(Debug)]
 pub struct RtcpSourceDescriptionPacket {
-    header: RtcpCommonHeader,
+    _header: RtcpCommonHeader,
     chunks: Vec<SDESChunk>,
 }
 
@@ -240,7 +239,10 @@ impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpSourceDescripti
             chunks.push(SDESChunk::read_from(reader.by_ref())?);
         }
 
-        Ok(Self { header, chunks })
+        Ok(Self {
+            _header: header,
+            chunks,
+        })
     }
 }
 
@@ -271,6 +273,6 @@ impl RtcpSourceDescriptionPacket {
                 }
             }
         }
-        return result;
+        result
     }
 }

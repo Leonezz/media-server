@@ -1,6 +1,6 @@
 use crate::errors::RtpError;
 
-///! @see: RFC 3551 6. Payload Type Definitions
+// @see: RFC 3551 6. Payload Type Definitions
 #[repr(u8)]
 #[derive(Debug)]
 pub enum AvpAudioPayloadType {
@@ -25,27 +25,27 @@ pub enum AvpAudioPayloadType {
     Unassigned(u8), // 20 - 23
 }
 
-impl Into<u8> for AvpAudioPayloadType {
-    fn into(self) -> u8 {
-        match self {
-            Self::Reserved(v) | Self::Unassigned(v) => v,
-            Self::PCMU => 0,
-            Self::GSM => 3,
-            Self::G723 => 4,
-            Self::DVI4_8000 => 5,
-            Self::DVI4_16000 => 6,
-            Self::LPC => 7,
-            Self::PCMA => 8,
-            Self::G722 => 9,
-            Self::L16Channel2 => 10,
-            Self::L16Channel1 => 11,
-            Self::QCELP => 12,
-            Self::CN => 13,
-            Self::MPA => 14,
-            Self::G728 => 15,
-            Self::DVI4_11025 => 16,
-            Self::DVI4_22050 => 17,
-            Self::G729 => 18,
+impl From<AvpAudioPayloadType> for u8 {
+    fn from(value: AvpAudioPayloadType) -> Self {
+        match value {
+            AvpAudioPayloadType::Reserved(v) | AvpAudioPayloadType::Unassigned(v) => v,
+            AvpAudioPayloadType::PCMU => 0,
+            AvpAudioPayloadType::GSM => 3,
+            AvpAudioPayloadType::G723 => 4,
+            AvpAudioPayloadType::DVI4_8000 => 5,
+            AvpAudioPayloadType::DVI4_16000 => 6,
+            AvpAudioPayloadType::LPC => 7,
+            AvpAudioPayloadType::PCMA => 8,
+            AvpAudioPayloadType::G722 => 9,
+            AvpAudioPayloadType::L16Channel2 => 10,
+            AvpAudioPayloadType::L16Channel1 => 11,
+            AvpAudioPayloadType::QCELP => 12,
+            AvpAudioPayloadType::CN => 13,
+            AvpAudioPayloadType::MPA => 14,
+            AvpAudioPayloadType::G728 => 15,
+            AvpAudioPayloadType::DVI4_11025 => 16,
+            AvpAudioPayloadType::DVI4_22050 => 17,
+            AvpAudioPayloadType::G729 => 18,
         }
     }
 }
@@ -55,7 +55,7 @@ impl TryFrom<u8> for AvpAudioPayloadType {
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             v if v == 1 || v == 2 || v == 19 => Ok(Self::Reserved(v)),
-            v if v >= 20 && v <= 24 => Ok(Self::Unassigned(v)),
+            v if (20..=24).contains(&v) => Ok(Self::Unassigned(v)),
             0 => Ok(Self::PCMU),
             3 => Ok(Self::GSM),
             4 => Ok(Self::G723),
@@ -93,16 +93,16 @@ pub enum AvpVideoPayloadType {
     H263 = 34,
 }
 
-impl Into<u8> for AvpVideoPayloadType {
-    fn into(self) -> u8 {
-        match self {
-            Self::Unassigned(v) => v,
-            Self::CelB => 25,
-            Self::JPEG => 26,
-            Self::NV => 28,
-            Self::H261 => 31,
-            Self::MPV => 32,
-            Self::H263 => 34,
+impl From<AvpVideoPayloadType> for u8 {
+    fn from(value: AvpVideoPayloadType) -> Self {
+        match value {
+            AvpVideoPayloadType::Unassigned(v) => v,
+            AvpVideoPayloadType::CelB => 25,
+            AvpVideoPayloadType::JPEG => 26,
+            AvpVideoPayloadType::NV => 28,
+            AvpVideoPayloadType::H261 => 31,
+            AvpVideoPayloadType::MPV => 32,
+            AvpVideoPayloadType::H263 => 34,
         }
     }
 }
@@ -111,7 +111,7 @@ impl TryFrom<u8> for AvpVideoPayloadType {
     type Error = RtpError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            v if [24 as u8, 27, 29, 30].contains(&v) => Ok(Self::Unassigned(v)),
+            v if [24_u8, 27, 29, 30].contains(&v) => Ok(Self::Unassigned(v)),
             25 => Ok(Self::CelB),
             26 => Ok(Self::JPEG),
             28 => Ok(Self::NV),
@@ -137,28 +137,30 @@ pub enum AvpPayloadType {
     Dynamic(u8),
 }
 
-impl Into<u8> for AvpPayloadType {
-    fn into(self) -> u8 {
-        match self {
-            Self::Audio(pt) => pt.into(),
-            Self::Video(pt) => pt.into(),
-            Self::MP2T => 33,
-            Self::Reserved(v) | Self::Unassigned(v) | Self::Dynamic(v) => v,
+impl From<AvpPayloadType> for u8 {
+    fn from(value: AvpPayloadType) -> Self {
+        match value {
+            AvpPayloadType::Audio(pt) => pt.into(),
+            AvpPayloadType::Video(pt) => pt.into(),
+            AvpPayloadType::MP2T => 33,
+            AvpPayloadType::Reserved(v)
+            | AvpPayloadType::Unassigned(v)
+            | AvpPayloadType::Dynamic(v) => v,
         }
     }
 }
 
 impl From<u8> for AvpPayloadType {
     fn from(value: u8) -> Self {
-        if (value >= 35 && value <= 71) || (value >= 77 && value <= 95) {
+        if (35..=71).contains(&value) || (77..=95).contains(&value) {
             return Self::Unassigned(value);
         }
 
-        if value >= 72 && value <= 76 {
+        if (72..=76).contains(&value) {
             return Self::Reserved(value);
         }
 
-        if value >= 96 && value <= 127 {
+        if (96..=127).contains(&value) {
             return Self::Dynamic(value);
         }
 
@@ -174,6 +176,6 @@ impl From<u8> for AvpPayloadType {
             return Self::Video(video);
         }
 
-        return Self::Dynamic(value);
+        Self::Dynamic(value)
     }
 }

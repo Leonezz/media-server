@@ -11,7 +11,7 @@ use utils::traits::{
 
 use crate::errors::H264CodecError;
 
-///! @see: Recommendation  ITU-T H.264 (V15) (08/2024)   – Coding of moving video
+// @see: Recommendation  ITU-T H.264 (V15) (08/2024)   – Coding of moving video
 /// Table 7-1 – NAL unit type codes, syntax element categories, and NAL unit type classes
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -39,29 +39,29 @@ pub enum NALUType {
     Reserved(u8),
 }
 
-impl Into<u8> for NALUType {
-    fn into(self) -> u8 {
-        match self {
-            Self::NonIDRSlice => 1,
-            Self::DataPartitionASlice => 2,
-            Self::DataPartitionBSlice => 3,
-            Self::DataPartitionCSlice => 4,
-            Self::IDRSlice => 5,
-            Self::SEI => 6,
-            Self::SPS => 7,
-            Self::PPS => 8,
-            Self::AccessUnitDelimiter => 9,
-            Self::EndOfSequence => 10,
-            Self::EndOfStream => 11,
-            Self::FillerData => 12,
-            Self::SPSExtension => 13,
-            Self::PrefixNALU => 14,
-            Self::SubsetSPS => 15,
-            Self::DPS => 16,
-            Self::SliceWithoutPartitioning => 19,
-            Self::SliceExtension => 20,
-            Self::SliceExtensionForDepthViewOr3DAVCTextureView => 21,
-            Self::Unspecified(v) | Self::Reserved(v) => v,
+impl From<NALUType> for u8 {
+    fn from(value: NALUType) -> Self {
+        match value {
+            NALUType::NonIDRSlice => 1,
+            NALUType::DataPartitionASlice => 2,
+            NALUType::DataPartitionBSlice => 3,
+            NALUType::DataPartitionCSlice => 4,
+            NALUType::IDRSlice => 5,
+            NALUType::SEI => 6,
+            NALUType::SPS => 7,
+            NALUType::PPS => 8,
+            NALUType::AccessUnitDelimiter => 9,
+            NALUType::EndOfSequence => 10,
+            NALUType::EndOfStream => 11,
+            NALUType::FillerData => 12,
+            NALUType::SPSExtension => 13,
+            NALUType::PrefixNALU => 14,
+            NALUType::SubsetSPS => 15,
+            NALUType::DPS => 16,
+            NALUType::SliceWithoutPartitioning => 19,
+            NALUType::SliceExtension => 20,
+            NALUType::SliceExtensionForDepthViewOr3DAVCTextureView => 21,
+            NALUType::Unspecified(v) | NALUType::Reserved(v) => v,
         }
     }
 }
@@ -91,8 +91,8 @@ impl TryFrom<u8> for NALUType {
             19 => Ok(Self::SliceWithoutPartitioning),
             20 => Ok(Self::SliceExtension),
             21 => Ok(Self::SliceExtensionForDepthViewOr3DAVCTextureView),
-            v if v == 0 || (v >= 24 && v <= 31) => Ok(Self::Unspecified(v)),
-            v if (v >= 17 && v <= 18) || (v >= 22 && v <= 23) => Ok(Self::Reserved(v)),
+            v if v == 0 || (24..=31).contains(&v) => Ok(Self::Unspecified(v)),
+            v if (17..=18).contains(&v) || (22..=23).contains(&v) => Ok(Self::Reserved(v)),
             v => Err(H264CodecError::UnknownNaluType(v)),
         }
     }
@@ -108,11 +108,11 @@ pub struct NaluHeader {
     pub nal_unit_type: NALUType,
 }
 
-impl Into<u8> for NaluHeader {
-    fn into(self) -> u8 {
-        let mut result: u8 = self.nal_unit_type.into();
-        result |= self.nal_ref_idc << 5;
-        result |= (self.forbidden_zero_bit as u8) << 7;
+impl From<NaluHeader> for u8 {
+    fn from(value: NaluHeader) -> Self {
+        let mut result: u8 = value.nal_unit_type.into();
+        result |= value.nal_ref_idc << 5;
+        result |= (value.forbidden_zero_bit as u8) << 7;
         result
     }
 }
@@ -174,8 +174,7 @@ impl<R: io::Read> ReadRemainingFrom<(NaluHeader, usize), R> for NalUnit {
         mut reader: R,
     ) -> Result<Self, Self::Error> {
         let (header, body_size) = header;
-        let mut bytes = Vec::with_capacity(body_size);
-        bytes.resize(body_size, 0);
+        let mut bytes = vec![0; body_size];
         reader.read_exact(&mut bytes)?;
         Ok(Self {
             header,

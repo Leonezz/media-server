@@ -100,7 +100,7 @@ impl CompoundPacket {
                     return Ordering::Greater;
                 }
             }
-            return Ordering::Equal;
+            Ordering::Equal
         });
     }
 

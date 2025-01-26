@@ -13,9 +13,9 @@ use utils::{
 
 use crate::errors::{RtpError, RtpResult};
 
-///! @see: RFC 3550 5.1 RTP Fixed Header Fields
+// @see: RFC 3550 5.1 RTP Fixed Header Fields
 /// this is not likely to useful
-
+///
 ///  0                   1                   2                   3
 ///  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -186,8 +186,7 @@ impl<R: io::Read> ReadFrom<R> for RtpHeaderExtension {
     fn read_from(mut reader: R) -> Result<Self, Self::Error> {
         let profile_defined = reader.read_u16::<BigEndian>()?;
         let length = reader.read_u16::<BigEndian>()?;
-        let mut bytes = Vec::with_capacity(length as usize);
-        bytes.resize(length as usize, 0);
+        let mut bytes = vec![0; length as usize];
         reader.read_exact(&mut bytes)?;
 
         Ok(Self {
@@ -211,7 +210,7 @@ impl<W: io::Write> WriteTo<W> for RtpHeader {
         writer.write_u32::<BigEndian>(self.timestamp)?;
         writer.write_u32::<BigEndian>(self.ssrc)?;
         for csrc in &self.csrc_list {
-            writer.write_u32::<BigEndian>(csrc.clone())?;
+            writer.write_u32::<BigEndian>(*csrc)?;
         }
 
         if let Some(header_extension) = &self.header_extension {

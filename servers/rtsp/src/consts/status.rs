@@ -1,8 +1,7 @@
+//! @ses: RFC 7826 Table 4
 use std::fmt::Display;
 
 use crate::errors::RTSPMessageError;
-
-///! @ses: RFC 7826 Table 4
 
 pub mod status_description {
     pub const CONTINUE: &str = "Continue";
@@ -109,9 +108,9 @@ pub enum Status {
     ProxyUnavailable = 553,
 }
 
-impl Into<u16> for Status {
-    fn into(self) -> u16 {
-        self as u16
+impl From<Status> for u16 {
+    fn from(value: Status) -> Self {
+        value as u16
     }
 }
 
@@ -236,6 +235,6 @@ impl Display for Status {
             Self::OptionNotSupported => status_description::OPTION_NOT_SUPPORTED,
             Self::ProxyUnavailable => status_description::PROXY_UNAVAILABLE,
         };
-        f.write_str(format!("{} {}", Into::<u16>::into(self.clone()), description).as_str())
+        f.write_str(format!("{} {}", Into::<u16>::into(*self), description).as_str())
     }
 }

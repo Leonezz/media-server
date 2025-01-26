@@ -11,7 +11,7 @@ use crate::errors::RtpError;
 pub mod mtap;
 pub mod stap;
 
-///! @see: RFC 6184 5.2. Payload Structures
+// @see: RFC 6184 5.2. Payload Structures
 #[repr(u8)]
 #[derive(Debug, Clone, Copy)]
 pub enum AggregationPacketType {
@@ -21,9 +21,9 @@ pub enum AggregationPacketType {
     MTAP24 = 27, // Multi-Time Aggregation Packet (MTAP) with 24-bit offset
 }
 
-impl Into<u8> for AggregationPacketType {
-    fn into(self) -> u8 {
-        self as u8
+impl From<AggregationPacketType> for u8 {
+    fn from(value: AggregationPacketType) -> Self {
+        value as u8
     }
 }
 

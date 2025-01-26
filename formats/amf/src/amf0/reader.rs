@@ -233,7 +233,7 @@ where
 #[cfg(test)]
 mod tests {
     use core::{f64, time};
-    use std::io::{self};
+    use std::io;
 
     use crate::{
         amf0::{Value, amf0_marker},

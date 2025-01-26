@@ -91,13 +91,12 @@ impl<R: AsRef<[u8]>> TryReadRemainingFrom<RtcpCommonHeader, R> for RtcpPacket {
             return Ok(None);
         }
 
-        let mut remaining_bytes = Vec::new();
-        remaining_bytes.resize(bytes_remaining, 0 as u8);
+        let mut remaining_bytes = vec![0_u8; bytes_remaining];
         reader.read_exact(&mut remaining_bytes)?;
 
         // ignore padding bytes
         if header.padding && !remaining_bytes.is_empty() {
-            let padding_bytes = remaining_bytes.last().unwrap().clone();
+            let padding_bytes = *remaining_bytes.last().unwrap();
             remaining_bytes.truncate(padding_bytes as usize);
         }
 

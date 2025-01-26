@@ -15,9 +15,9 @@ pub enum FragmentationUnitPacketType {
     FUB = 29,
 }
 
-impl Into<u8> for FragmentationUnitPacketType {
-    fn into(self) -> u8 {
-        self as u8
+impl From<FragmentationUnitPacketType> for u8 {
+    fn from(value: FragmentationUnitPacketType) -> Self {
+        value as u8
     }
 }
 
@@ -32,7 +32,7 @@ impl TryFrom<u8> for FragmentationUnitPacketType {
     }
 }
 
-///! @see: RFC 6184 5.8. Fragmentation Units (FUs)
+// @see: RFC 6184 5.8. Fragmentation Units (FUs)
 /// +---------------+
 /// |0|1|2|3|4|5|6|7|
 /// +-+-+-+-+-+-+-+-+
@@ -46,12 +46,12 @@ pub struct FUHeader {
     pub nalu_type: u8,
 }
 
-impl Into<u8> for FUHeader {
-    fn into(self) -> u8 {
-        ((self.start_bit as u8) << 7)
-            | ((self.end_bit as u8) << 6)
-            | ((self.reserved_bit as u8) << 5)
-            | (self.nalu_type & 0b1111_1)
+impl From<FUHeader> for u8 {
+    fn from(value: FUHeader) -> Self {
+        ((value.start_bit as u8) << 7)
+            | ((value.end_bit as u8) << 6)
+            | ((value.reserved_bit as u8) << 5)
+            | (value.nalu_type & 0b1_1111)
     }
 }
 
@@ -61,7 +61,7 @@ impl From<u8> for FUHeader {
             start_bit: ((value >> 7) & 0b1) == 0b1,
             end_bit: ((value >> 6) & 0b1) == 0b1,
             reserved_bit: ((value >> 5) & 0b1) == 0b1,
-            nalu_type: value & 0b1111_1,
+            nalu_type: value & 0b1_1111,
         }
     }
 }
@@ -72,7 +72,7 @@ impl FixedPacket for FUHeader {
     }
 }
 
-///! FU-A
+// FU-A
 ///  0                   1                   2                   3
 ///  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -123,7 +123,7 @@ impl DynamicSizedPacket for FUAPacket {
     }
 }
 
-///! FU-B
+// FU-B
 ///  0                   1                   2                   3
 ///  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+

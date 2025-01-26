@@ -15,9 +15,9 @@ impl From<u64> for SimpleNtp {
     }
 }
 
-impl Into<u64> for SimpleNtp {
-    fn into(self) -> u64 {
-        ((self.seconds as u64) << 32) | (self.fraction as u64)
+impl From<SimpleNtp> for u64 {
+    fn from(value: SimpleNtp) -> Self {
+        ((value.seconds as u64) << 32) | (value.fraction as u64)
     }
 }
 
@@ -40,9 +40,9 @@ impl From<SystemTime> for SimpleNtp {
     }
 }
 
-impl Into<SystemTime> for SimpleNtp {
-    fn into(self) -> SystemTime {
-        let value: u64 = self.into();
+impl From<SimpleNtp> for SystemTime {
+    fn from(value: SimpleNtp) -> Self {
+        let value: u64 = value.into();
         let mut seconds = value >> 32;
         let mut fraction = value & 0xFFFF_FFFF;
         fraction *= 1_000_000_000;
@@ -74,17 +74,17 @@ impl From<u32> for SimpleShortNtp {
     }
 }
 
-impl Into<u32> for SimpleShortNtp {
-    fn into(self) -> u32 {
-        ((self.seconds as u32) << 16) | (self.fraction as u32)
+impl From<SimpleShortNtp> for u32 {
+    fn from(value: SimpleShortNtp) -> Self {
+        ((value.seconds as u32) << 16) | (value.fraction as u32)
     }
 }
 
-impl Into<SimpleNtp> for SimpleShortNtp {
-    fn into(self) -> SimpleNtp {
+impl From<SimpleShortNtp> for SimpleNtp {
+    fn from(value: SimpleShortNtp) -> Self {
         SimpleNtp {
-            seconds: self.seconds as u32,
-            fraction: self.fraction as u32,
+            seconds: value.seconds as u32,
+            fraction: value.fraction as u32,
         }
     }
 }
@@ -98,9 +98,9 @@ impl From<SystemTime> for SimpleShortNtp {
     }
 }
 
-impl Into<SystemTime> for SimpleShortNtp {
-    fn into(self) -> SystemTime {
-        let ntp: SimpleNtp = self.into();
+impl From<SimpleShortNtp> for SystemTime {
+    fn from(value: SimpleShortNtp) -> Self {
+        let ntp: SimpleNtp = value.into();
         ntp.into()
     }
 }

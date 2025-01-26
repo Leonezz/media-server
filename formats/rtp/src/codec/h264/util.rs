@@ -29,7 +29,7 @@ pub fn read_aggregated_trivial_nal_units<R: io::Read>(reader: R) -> RtpResult<Ve
         Ok(nal_unit)
     };
 
-    return read_aggregated_nal_units(reader, nal_reader);
+    read_aggregated_nal_units(reader, nal_reader)
 }
 
 pub fn read_aggregated_mtap16_nal_units<R: io::Read>(
@@ -43,7 +43,7 @@ pub fn read_aggregated_mtap16_nal_units<R: io::Read>(
         Ok((nal_unit, decode_order_number_diff, timestamp_offset))
     };
 
-    return read_aggregated_nal_units(reader, nal_reader);
+    read_aggregated_nal_units(reader, nal_reader)
 }
 
 pub fn read_aggregated_mtap24_nal_units<R: io::Read>(
@@ -57,7 +57,7 @@ pub fn read_aggregated_mtap24_nal_units<R: io::Read>(
         Ok((nal_unit, decode_order_number_diff, timestamp_offset))
     };
 
-    return read_aggregated_nal_units(reader, nal_reader);
+    read_aggregated_nal_units(reader, nal_reader)
 }
 
 pub fn write_aggregated_stap_nal_unit<W: io::Write>(
