@@ -29,7 +29,7 @@ pub enum FLVMediaFrame {
         pts: u64,
         // onMetaData should be the content of payload,
         // note the payload still holds all the bytes
-        on_meta_data: Option<OnMetaData>,
+        on_meta_data: Box<Option<OnMetaData>>,
         payload: BytesMut,
     },
 }
@@ -37,41 +37,32 @@ pub enum FLVMediaFrame {
 impl FLVMediaFrame {
     #[inline]
     pub fn is_video(&self) -> bool {
-        match self {
-            FLVMediaFrame::Video {
-                runtime_stat: _,
-                pts: _,
-                header: _,
-                payload: _,
-            } => true,
-            _ => false,
-        }
+        matches!(self, FLVMediaFrame::Video {
+            runtime_stat: _,
+            pts: _,
+            header: _,
+            payload: _,
+        })
     }
 
     #[inline]
     pub fn is_audio(&self) -> bool {
-        match self {
-            FLVMediaFrame::Audio {
-                runtime_stat: _,
-                pts: _,
-                header: _,
-                payload: _,
-            } => true,
-            _ => false,
-        }
+        matches!(self, FLVMediaFrame::Audio {
+            runtime_stat: _,
+            pts: _,
+            header: _,
+            payload: _,
+        })
     }
 
     #[inline]
     pub fn is_script(&self) -> bool {
-        match self {
-            FLVMediaFrame::Script {
-                runtime_stat: _,
-                pts: _,
-                payload: _,
-                on_meta_data: _,
-            } => true,
-            _ => false,
-        }
+        matches!(self, FLVMediaFrame::Script {
+            runtime_stat: _,
+            pts: _,
+            payload: _,
+            on_meta_data: _,
+        })
     }
 
     #[inline]
@@ -126,7 +117,7 @@ impl FLVMediaFrame {
                 pts,
                 on_meta_data: _,
                 payload: _,
-            } => pts.clone(),
+            } => *pts,
         }
     }
 }
@@ -179,8 +170,8 @@ impl Gop {
     }
 
     pub fn append_flv_tag(&mut self, frame: FLVMediaFrame) {
-        match &frame {
-            &FLVMediaFrame::Video {
+        match frame {
+            FLVMediaFrame::Video {
                 pts,
                 header: _,
                 payload: _,
@@ -192,13 +183,13 @@ impl Gop {
                 }
                 self.last_video_pts = pts;
             }
-            &FLVMediaFrame::Audio {
+            FLVMediaFrame::Audio {
                 pts: _,
                 header: _,
                 payload: _,
                 runtime_stat: _,
             } => self.audio_tag_cnt += 1,
-            &FLVMediaFrame::Script {
+            FLVMediaFrame::Script {
                 pts: _,
                 payload: _,
                 runtime_stat: _,
@@ -207,6 +198,12 @@ impl Gop {
         }
 
         self.flv_frames.push(frame);
+    }
+}
+
+impl Default for Gop {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -290,8 +287,8 @@ impl GopQueue {
     pub fn append_frame(&mut self, frame: FLVMediaFrame) -> StreamCenterResult<()> {
         let mut is_sequence_header = false;
         let mut is_video = false;
-        match &frame {
-            &FLVMediaFrame::Audio {
+        match frame {
+            FLVMediaFrame::Audio {
                 pts: _,
                 header,
                 payload: _,
@@ -303,7 +300,7 @@ impl GopQueue {
                     is_sequence_header = true
                 }
             }
-            &FLVMediaFrame::Video {
+            FLVMediaFrame::Video {
                 pts: _,
                 header,
                 payload: _,
@@ -318,7 +315,7 @@ impl GopQueue {
                     self.gops.push_back(Gop::new());
                 }
             }
-            &FLVMediaFrame::Script {
+            FLVMediaFrame::Script {
                 runtime_stat: _,
                 pts,
                 ref on_meta_data,

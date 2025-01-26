@@ -35,7 +35,7 @@ impl ExVideoTagHeader {
             if mod_ex_data_size == 256 {
                 mod_ex_data_size = reader.read_u16::<BigEndian>()? as u32 + 1;
             }
-            let mut mod_ex_data = vec![0 as u8; mod_ex_data_size as usize];
+            let mut mod_ex_data = vec![0_u8; mod_ex_data_size as usize];
             reader.read_exact(&mut mod_ex_data)?;
             let mut cursor = Cursor::new(&mut mod_ex_data);
 
@@ -76,7 +76,7 @@ impl ExVideoTagHeader {
 
         loop {
             let (track_id, track_data_size) = match video_multi_track_type {
-                None => (0 as u8, None),
+                None => (0_u8, None),
                 Some(multi_track_type) => {
                     if multi_track_type == AvMultiTrackType::ManyTracksManyCodecs {
                         video_four_cc = reader.read_u32::<BigEndian>()?.try_into()?;
@@ -100,7 +100,7 @@ impl ExVideoTagHeader {
 
             tracks.insert(track_id, VideoTrackInfo {
                 codec: video_four_cc,
-                composition_time: composition_time,
+                composition_time,
             });
 
             match track_data_size {

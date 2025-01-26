@@ -136,9 +136,10 @@ impl TryInto<audio_tag_header::AudioTagHeader> for AudioTagHeaderWithoutMultiTra
     fn try_into(self) -> Result<audio_tag_header::AudioTagHeader, Self::Error> {
         let legacy_info = self.legacy_info;
         if legacy_info.is_none() {
-            return Err(FLVError::InconsistentHeader(format!(
+            return Err(FLVError::InconsistentHeader(
                 "trying to convert to legacy audio tag header while there are no legacy info"
-            )));
+                    .to_owned(),
+            ));
         }
         let legacy_info = legacy_info.unwrap();
         let sound_format: audio_tag_header::SoundFormat = self.codec_id.try_into()?;
@@ -219,10 +220,7 @@ impl TryFrom<ExAudioTagHeader> for AudioTagHeaderWithoutMultiTrack {
 
 impl AudioTagHeaderWithoutMultiTrack {
     pub fn is_sequence_header(&self) -> bool {
-        match self.packet_type {
-            AudioPacketType::SequenceStart => true,
-            _ => false,
-        }
+        matches!(self.packet_type, AudioPacketType::SequenceStart)
     }
 
     pub fn get_codec_id(&self) -> AudioCodecCommon {

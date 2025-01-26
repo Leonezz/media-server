@@ -14,8 +14,8 @@ pub mod writer;
 
 #[derive(Debug, Clone)]
 pub struct ScriptKeyframeInfo {
-    file_position: f64,
-    time: f64,
+    _file_position: f64,
+    _time: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -116,8 +116,8 @@ impl From<HashMap<String, amf::Value>> for OnMetaData {
                         return None;
                     }
                     keyframe_infos.push(ScriptKeyframeInfo {
-                        file_position: pos_num.unwrap(),
-                        time: time_num.unwrap(),
+                        _file_position: pos_num.unwrap(),
+                        _time: time_num.unwrap(),
                     });
                 }
                 Some(keyframe_infos)
@@ -127,11 +127,11 @@ impl From<HashMap<String, amf::Value>> for OnMetaData {
         Self {
             audio_codec_id: value.extract_number_field("audiocodecid").map(|v| {
                 let four_cc_codec: Result<AudioFourCC, _> = (v as u32).try_into();
-                if four_cc_codec.is_ok() {
-                    return four_cc_codec.unwrap().into();
+                if let Ok(codec) = four_cc_codec {
+                    return codec.into();
                 }
                 let legacy_codec: Result<SoundFormat, _> = (v as u8).try_into();
-                return legacy_codec.unwrap_or(SoundFormat::AAC).into();
+                legacy_codec.unwrap_or(SoundFormat::AAC).into()
             }),
             audio_data_rate: value.extract_number_field("audiodatarate"),
             audio_delay: value.extract_number_field("audiodelay"),
@@ -146,11 +146,11 @@ impl From<HashMap<String, amf::Value>> for OnMetaData {
             stereo: value.extract_bool_field("stereo"),
             video_codec_id: value.extract_number_field("videocodecid").map(|v| {
                 let four_cc_codec: Result<VideoFourCC, _> = (v as u32).try_into();
-                if four_cc_codec.is_ok() {
-                    return four_cc_codec.unwrap().into();
+                if let Ok(codec) = four_cc_codec {
+                    return codec.into();
                 }
                 let legacy_codec: Result<CodecID, _> = (v as u8).try_into();
-                return legacy_codec.unwrap_or(CodecID::AVC).into();
+                legacy_codec.unwrap_or(CodecID::AVC).into()
             }),
             video_data_rate: value.extract_number_field("videodatarate"),
             width: value.extract_number_field("width"),

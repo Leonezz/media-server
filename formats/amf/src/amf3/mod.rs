@@ -1,4 +1,4 @@
-///! @see: [Action Message Format -- AMF 3](https://rtmp.veriskope.com/pdf/amf3-file-format-spec.pdf)
+//! @see: [Action Message Format -- AMF 3](https://rtmp.veriskope.com/pdf/amf3-file-format-spec.pdf)
 use core::time;
 use std::io::{self};
 

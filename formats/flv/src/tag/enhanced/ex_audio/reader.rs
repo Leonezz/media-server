@@ -32,7 +32,7 @@ impl ExAudioTagHeader {
                 mod_ex_data_size = reader.read_u16::<BigEndian>()? as u32 + 1;
             }
 
-            let mut mod_ex_data = vec![0 as u8; mod_ex_data_size as usize];
+            let mut mod_ex_data = vec![0_u8; mod_ex_data_size as usize];
             reader.read_exact(&mut mod_ex_data)?;
             let mut mod_ex_cursor = Cursor::new(&mod_ex_data);
 

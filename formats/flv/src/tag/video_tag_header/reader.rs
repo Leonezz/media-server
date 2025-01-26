@@ -8,18 +8,18 @@ use super::{CodecID, FrameType, VideoTagHeader};
 
 impl VideoTagHeader {
     pub fn read_from(
-        mut reader: &mut Cursor<&mut BytesMut>,
+        reader: &mut Cursor<&mut BytesMut>,
     ) -> FLVResult<Either<VideoTagHeader, ExVideoTagHeader>> {
         let byte = reader.read_u8()?;
 
         let is_ex_header = ((byte >> 7) & 0b1) == 0b1;
         if is_ex_header {
-            let ex_header = ExVideoTagHeader::read_from(&mut reader, byte)?;
+            let ex_header = ExVideoTagHeader::read_from(reader, byte)?;
             return Ok(Either::Right(ex_header));
         }
 
         let frame_type: FrameType = ((byte >> 4) & 0b1111).try_into()?;
-        let codec_id: CodecID = ((byte >> 0) & 0b1111).try_into()?;
+        let codec_id: CodecID = (byte & 0b1111).try_into()?;
 
         let mut video_command = None;
         if frame_type == FrameType::CommandFrame {

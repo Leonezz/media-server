@@ -26,7 +26,7 @@ where
         let mut byte: u8 = 0;
 
         byte |= (header.has_audio as u8) << 2;
-        byte |= (header.has_video as u8) << 0;
+        byte |= header.has_video as u8;
 
         self.inner.write_u8(byte)?;
         self.inner.write_u32::<BigEndian>(header.data_offset)?;

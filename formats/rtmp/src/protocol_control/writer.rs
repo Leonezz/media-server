@@ -31,9 +31,9 @@ where
 
     fn write_set_chunk_size_message(&mut self, message: &SetChunkSize) -> ChunkMessageResult<()> {
         if (message.chunk_size as i32) < 0 {
-            return Err(ChunkMessageError::InvalidMessage(format!(
-                "invalid set chunk size message, the first bit of chunk size is not 0"
-            )));
+            return Err(ChunkMessageError::InvalidMessage(
+                "invalid set chunk size message, the first bit of chunk size is not 0".to_owned(),
+            ));
         }
 
         self.inner

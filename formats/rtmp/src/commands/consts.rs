@@ -1,5 +1,4 @@
-///! @see: 7.2.1. NetConnection Commands
-
+// @see: 7.2.1. NetConnection Commands
 pub mod c2s_command_names {
     pub const CONNECT: &str = "connect";
     pub const CLOSE: &str = "close"; // FIXME - no spec for this action
@@ -45,7 +44,7 @@ pub mod video_codecs {
     pub const SUPPORT_VID_JPEG: u16 = 0x0002; // Obsolete value
     pub const SUPPORT_VID_SORENSON: u16 = 0x0004; //  Sorenson Flash video 
     pub const SUPPORT_VID_HOMEBREW: u16 = 0x0008; // V1 screen sharing
-    pub const SUPPORT_VID_VP6_On2: u16 = 0x0010; // On2 video (Flash 8+)
+    pub const SUPPORT_VID_VP6_ON2: u16 = 0x0010; // On2 video (Flash 8+)
     pub const SUPPORT_VID_VP6ALPHA: u16 = 0x0020; // On2 video with alpha 
     pub const SUPPORT_VID_HOMEBREWV: u16 = 0x0040; // Screen sharing version 2 
     pub const SUPPORT_VID_H264: u16 = 0x0080; // H264 video 
@@ -55,7 +54,7 @@ pub mod video_codecs {
 pub mod function_flags {
     // Indicates that the client can perform frame-accurate seeks
     pub const SUPPORT_VID_CLIENT_SEEK: u8 = 0x0001;
-    ///! the below are from enhanced rtmp
+    // the below are from enhanced rtmp
     // Indicates that the client has support for HDR video.
     // Note: Implies support for colorInfo Object within VideoPacketType.Metadata.
     pub const SUPPORT_VID_CLIENT_HDR: u8 = 0x0002;

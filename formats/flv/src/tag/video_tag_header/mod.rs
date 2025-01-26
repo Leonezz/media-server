@@ -23,9 +23,9 @@ pub enum FrameType {
     CommandFrame = 5,
 }
 
-impl Into<u8> for FrameType {
-    fn into(self) -> u8 {
-        self as u8
+impl From<FrameType> for u8 {
+    fn from(value: FrameType) -> Self {
+        value as u8
     }
 }
 
@@ -68,9 +68,9 @@ pub enum CodecID {
     AV1 = 13,
 }
 
-impl Into<u8> for CodecID {
-    fn into(self) -> u8 {
-        self as u8
+impl From<CodecID> for u8 {
+    fn from(value: CodecID) -> Self {
+        value as u8
     }
 }
 
@@ -105,9 +105,9 @@ pub enum AVCPacketType {
     EndOfSequence = 2,
 }
 
-impl Into<u8> for AVCPacketType {
-    fn into(self) -> u8 {
-        self as u8
+impl From<AVCPacketType> for u8 {
+    fn from(value: AVCPacketType) -> Self {
+        value as u8
     }
 }
 
@@ -133,9 +133,9 @@ pub enum VideoCommand {
     // 0xff = reserved
 }
 
-impl Into<u8> for VideoCommand {
-    fn into(self) -> u8 {
-        self as u8
+impl From<VideoCommand> for u8 {
+    fn from(value: VideoCommand) -> Self {
+        value as u8
     }
 }
 

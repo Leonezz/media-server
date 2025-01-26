@@ -7,7 +7,7 @@ pub mod errors;
 pub mod reader;
 pub mod writer;
 
-///! @see: 5.4.1. Set Chunk Size (1)
+// @see: 5.4.1. Set Chunk Size (1)
 ///  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 /// |0|                     chunk size (31 bits)                    |
@@ -18,7 +18,7 @@ pub struct SetChunkSize {
     pub chunk_size: u32, // 31 bits, in [1, 0xFFFFFF]
 }
 
-///! @see: 5.4.2. Abort Message (2)
+// @see: 5.4.2. Abort Message (2)
 ///  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 /// |                   chunk stream id (32 bits)                   |
@@ -29,7 +29,7 @@ pub struct AbortMessage {
     pub chunk_stream_id: u32,
 }
 
-///! @see: 5.4.3. Acknowledgement (3)
+// @see: 5.4.3. Acknowledgement (3)
 ///  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 /// |                   sequence number (4 bytes)                   |
@@ -40,7 +40,7 @@ pub struct Acknowledgement {
     pub sequence_number: u32,
 }
 
-///! @see: 5.4.4. Window Acknowledgement Size (5)
+// @see: 5.4.4. Window Acknowledgement Size (5)
 ///  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 /// |             Acknowledgement Window size (4 bytes)             |
@@ -61,9 +61,9 @@ pub enum ProtocolControlMessageType {
     SetPeerBandwidth = 6,
 }
 
-impl Into<u8> for ProtocolControlMessageType {
-    fn into(self) -> u8 {
-        self as u8
+impl From<ProtocolControlMessageType> for u8 {
+    fn from(value: ProtocolControlMessageType) -> Self {
+        value as u8
     }
 }
 
@@ -112,7 +112,7 @@ impl TryFrom<u8> for SetPeerBandWidthLimitType {
     }
 }
 
-///! @see: 5.4.5. Set Peer Bandwidth (6)
+// @see: 5.4.5. Set Peer Bandwidth (6)
 ///  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 /// |                  Acknowledgement Window size                  |

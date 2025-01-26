@@ -202,17 +202,11 @@ impl TryFrom<ExVideoTagHeader> for VideoTagHeaderWithoutMultiTrack {
 
 impl VideoTagHeaderWithoutMultiTrack {
     pub fn is_sequence_header(&self) -> bool {
-        match self.packet_type {
-            VideoPacketType::SequenceStart => true,
-            _ => false,
-        }
+        matches!(self.packet_type, VideoPacketType::SequenceStart)
     }
 
     pub fn is_key_frame(&self) -> bool {
-        match self.frame_type {
-            FrameType::KeyFrame => true,
-            _ => false,
-        }
+        matches!(self.frame_type, FrameType::KeyFrame)
     }
 
     pub fn get_codec_id(&self) -> VideoCodecCommon {

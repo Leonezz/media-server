@@ -14,9 +14,9 @@ use crate::{
 };
 
 use super::{
-    CSID, ChunkBasicHeader, ChunkBasicHeaderType, ChunkMessage, ChunkMessageCommonHeader,
+    ChunkBasicHeader, ChunkBasicHeaderType, ChunkMessage, ChunkMessageCommonHeader,
     ChunkMessageHeader, ChunkMessageHeaderType0, ChunkMessageHeaderType1, ChunkMessageHeaderType2,
-    ChunkMessageHeaderType3, ChunkMessageType, RtmpChunkMessageBody, RuntimeStat,
+    ChunkMessageHeaderType3, ChunkMessageType, Csid, RtmpChunkMessageBody, RuntimeStat,
     consts::MAX_TIMESTAMP, errors::ChunkMessageResult,
 };
 
@@ -38,7 +38,7 @@ pub struct ReadContext {
     pub incomplete_chunk: Option<ChunkPayload>,
 }
 
-type ChunkStreamReadContext = HashMap<CSID, ReadContext>;
+type ChunkStreamReadContext = HashMap<Csid, ReadContext>;
 
 #[derive(Debug)]
 pub struct Reader {
@@ -128,7 +128,7 @@ impl Reader {
             ),
             ChunkMessageType::RtmpUserMessage(message_type) => {
                 if c2s {
-                    RtmpChunkMessageBody::RtmpUserMessage(
+                    RtmpChunkMessageBody::RtmpUserMessage(Box::new(
                         message::RtmpUserMessageBody::read_c2s_from(
                             bytes.reader(),
                             match message_type {
@@ -139,9 +139,9 @@ impl Reader {
                             },
                             &common_header,
                         )?,
-                    )
+                    ))
                 } else {
-                    RtmpChunkMessageBody::RtmpUserMessage(
+                    RtmpChunkMessageBody::RtmpUserMessage(Box::new(
                         message::RtmpUserMessageBody::read_s2c_from(
                             bytes.reader(),
                             match message_type {
@@ -152,7 +152,7 @@ impl Reader {
                             },
                             &common_header,
                         )?,
-                    )
+                    ))
                 }
             }
         };
@@ -190,8 +190,7 @@ impl Reader {
             return Ok(None);
         }
 
-        let mut bytes = Vec::with_capacity(bytes_need);
-        bytes.resize(bytes_need, 0);
+        let mut bytes = vec![0; bytes_need];
         reader.read_exact(&mut bytes)?;
 
         chunk.remaining_length -= bytes_need;
@@ -217,8 +216,8 @@ impl Reader {
         let fmt = basic_header.fmt;
         let message_header = self.read_message_header(reader, fmt)?;
 
-        let csid = basic_header.chunk_stream_id.clone();
-        if !self.context.contains_key(&csid) {
+        let csid = basic_header.chunk_stream_id;
+        self.context.entry(csid).or_insert_with(|| {
             if fmt != 0 {
                 tracing::error!(
                     "new chunk must start with a type 0 message header, {:?}, {:?}",
@@ -227,8 +226,8 @@ impl Reader {
                 );
                 // return Err(ChunkMessageError::NeedContext);
             }
-            self.context.insert(csid, ReadContext::default());
-        }
+            ReadContext::default()
+        });
 
         if message_header.is_none() {
             return Ok(None);
@@ -238,7 +237,7 @@ impl Reader {
         let context = self
             .context
             .get_mut(&csid)
-            .expect(format!("the context map should have this key: {}", csid).as_str());
+            .unwrap_or_else(|| panic!("the context map should have this key: {}", csid));
         match &message_header {
             ChunkMessageHeader::Type0(header0) => {
                 context.message_length = header0.message_length;
@@ -308,11 +307,11 @@ impl Reader {
                 }
                 let csid = reader.read_u8()?;
 
-                return Ok(Some(ChunkBasicHeader {
+                Ok(Some(ChunkBasicHeader {
                     header_type: super::ChunkBasicHeaderType::Type2,
                     fmt,
-                    chunk_stream_id: csid as CSID + 64,
-                }));
+                    chunk_stream_id: csid as Csid + 64,
+                }))
             }
             1 => {
                 if reader.remaining() < 2 {
@@ -322,19 +321,17 @@ impl Reader {
                 csid += reader.read_u8()? as u32;
                 csid += reader.read_u8()? as u32 * 256;
 
-                return Ok(Some(ChunkBasicHeader {
+                Ok(Some(ChunkBasicHeader {
                     header_type: super::ChunkBasicHeaderType::Type3,
                     fmt,
                     chunk_stream_id: csid,
-                }));
+                }))
             }
-            csid => {
-                return Ok(Some(ChunkBasicHeader {
-                    header_type: super::ChunkBasicHeaderType::Type1,
-                    fmt,
-                    chunk_stream_id: csid,
-                }));
-            }
+            csid => Ok(Some(ChunkBasicHeader {
+                header_type: super::ChunkBasicHeaderType::Type1,
+                fmt,
+                chunk_stream_id: csid,
+            })),
         }
     }
 
@@ -346,29 +343,29 @@ impl Reader {
         match fmt {
             0 => {
                 if reader.remaining() < 11 {
-                    return Ok(None);
+                    Ok(None)
                 } else {
-                    return Ok(Some(ChunkMessageHeader::Type0(
+                    Ok(Some(ChunkMessageHeader::Type0(
                         self.read_message_header_type0(reader)?,
-                    )));
+                    )))
                 }
             }
             1 => {
                 if reader.remaining() < 7 {
-                    return Ok(None);
+                    Ok(None)
                 } else {
-                    return Ok(Some(ChunkMessageHeader::Type1(
+                    Ok(Some(ChunkMessageHeader::Type1(
                         self.read_message_header_type1(reader)?,
-                    )));
+                    )))
                 }
             }
             2 => {
                 if reader.remaining() < 3 {
-                    return Ok(None);
+                    Ok(None)
                 } else {
-                    return Ok(Some(ChunkMessageHeader::Type2(
+                    Ok(Some(ChunkMessageHeader::Type2(
                         self.read_message_header_type2(reader)?,
-                    )));
+                    )))
                 }
             }
             3 => Ok(Some(ChunkMessageHeader::Type3(ChunkMessageHeaderType3 {}))),
@@ -418,5 +415,11 @@ impl Reader {
             header2.timestamp_delta = reader.read_u32::<BigEndian>()?;
         }
         Ok(header2)
+    }
+}
+
+impl Default for Reader {
+    fn default() -> Self {
+        Self::new()
     }
 }

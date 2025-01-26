@@ -19,4 +19,4 @@ macro_rules! generate_from_param_ext {
 }
 
 generate_from_param_ext!(FlvStreamName, ".flv");
-generate_from_param_ext!(HlsStreamName, ".hls");
+// generate_from_param_ext!(HlsStreamName, ".hls");

@@ -40,8 +40,8 @@ where
                 ref name,
                 ref entries,
             } => match name {
-                Some(name) => self.write_typed_object_arr_inner(&name, &entries),
-                None => self.write_anonymous_object_arr(&entries),
+                Some(name) => self.write_typed_object_arr_inner(name, entries),
+                None => self.write_anonymous_object_arr(entries),
             },
             Value::Null => self.write_null(),
             Value::Undefined => self.write_undefined(),
@@ -91,7 +91,7 @@ where
     }
     fn write_pairs_inner(&mut self, entries: &[(String, Value)]) -> AmfResult<()> {
         for (key, value) in entries {
-            self.write_short_string_inner(&key)?;
+            self.write_short_string_inner(key)?;
             self.write(value)?;
         }
         self.inner.write_u16::<BigEndian>(0)?;

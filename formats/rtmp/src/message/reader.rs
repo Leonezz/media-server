@@ -33,7 +33,7 @@ where
 
         let message = match header.message_type_id.try_into()? {
             RtmpMessageType::AMF0Data | RtmpMessageType::AMF3Data => {
-                RtmpUserMessageBody::MetaData { payload: payload }
+                RtmpUserMessageBody::MetaData { payload }
             }
             RtmpMessageType::Audio => RtmpUserMessageBody::Audio { payload },
             RtmpMessageType::Video => RtmpUserMessageBody::Video { payload },

@@ -20,9 +20,8 @@ impl EncryptionTagHeader {
         }
 
         let name = name.expect("this cannot be none");
-        let filter_name;
-        match name {
-            amf::amf0::Value::String(str) => filter_name = str,
+        let filter_name = match name {
+            amf::amf0::Value::String(str) => str,
             _ => {
                 return Err(FLVError::UnexpectedValue(format!(
                     "expect string for encryption tag header filter name, got {:?} instead",

@@ -21,49 +21,51 @@ use super::{
     errors::{DigestError, HandshakeError, HandshakeResult},
 };
 
-pub trait AsyncHandshakeServer {
-    async fn read_c0(&mut self) -> HandshakeResult<()>;
-    async fn read_c1(&mut self) -> HandshakeResult<()>;
-    async fn read_c2(&mut self) -> HandshakeResult<()>;
+pub trait AsyncHandshakeServer: Send {
+    fn read_c0(&mut self) -> impl std::future::Future<Output = HandshakeResult<()>> + Send;
+    fn read_c1(&mut self) -> impl std::future::Future<Output = HandshakeResult<()>> + Send;
+    fn read_c2(&mut self) -> impl std::future::Future<Output = HandshakeResult<()>> + Send;
 
-    async fn write_s0(&mut self) -> HandshakeResult<()>;
-    async fn write_s1(&mut self) -> HandshakeResult<()>;
-    async fn write_s2(&mut self) -> HandshakeResult<()>;
-    async fn flush(&mut self) -> HandshakeResult<()>;
+    fn write_s0(&mut self) -> impl std::future::Future<Output = HandshakeResult<()>> + Send;
+    fn write_s1(&mut self) -> impl std::future::Future<Output = HandshakeResult<()>> + Send;
+    fn write_s2(&mut self) -> impl std::future::Future<Output = HandshakeResult<()>> + Send;
+    fn flush(&mut self) -> impl std::future::Future<Output = HandshakeResult<()>> + Send;
 
     fn state(&self) -> HandshakeServerState;
     fn set_state(&mut self, state: HandshakeServerState);
 
-    async fn handshake(&mut self) -> HandshakeResult<()> {
-        loop {
-            let state = self.state();
-            debug!("handshake with state: {:?}", state);
-            match state {
-                HandshakeServerState::Uninitialized => {
-                    self.read_c0().await?;
-                    self.read_c1().await?;
-                    self.set_state(HandshakeServerState::C0C1Recived);
+    fn handshake(&mut self) -> impl std::future::Future<Output = HandshakeResult<()>> + Send {
+        async {
+            loop {
+                let state = self.state();
+                debug!("handshake with state: {:?}", state);
+                match state {
+                    HandshakeServerState::Uninitialized => {
+                        self.read_c0().await?;
+                        self.read_c1().await?;
+                        self.set_state(HandshakeServerState::C0C1Recived);
+                    }
+                    HandshakeServerState::C0C1Recived => {
+                        self.write_s0().await?;
+                        self.write_s1().await?;
+                        self.write_s2().await?;
+                        self.flush().await?;
+                        self.set_state(HandshakeServerState::S0S1S2Sent);
+                    }
+                    HandshakeServerState::S0S1S2Sent => {
+                        self.read_c2().await?;
+                        self.set_state(HandshakeServerState::Done);
+                    }
+                    HandshakeServerState::Done => break,
                 }
-                HandshakeServerState::C0C1Recived => {
-                    self.write_s0().await?;
-                    self.write_s1().await?;
-                    self.write_s2().await?;
-                    self.flush().await?;
-                    self.set_state(HandshakeServerState::S0S1S2Sent);
-                }
-                HandshakeServerState::S0S1S2Sent => {
-                    self.read_c2().await?;
-                    self.set_state(HandshakeServerState::Done);
-                }
-                HandshakeServerState::Done => break,
             }
+            Ok(())
         }
-        Ok(())
     }
 }
 
 #[derive(Debug)]
-struct SimpleHandshakeServer<T: AsyncRead + AsyncWrite + Unpin + Debug> {
+struct SimpleHandshakeServer<T: AsyncRead + AsyncWrite + Unpin + Debug + Send> {
     io: T,
     c1_bytes: Vec<u8>,
     c1_timestamp: u32,
@@ -72,11 +74,11 @@ struct SimpleHandshakeServer<T: AsyncRead + AsyncWrite + Unpin + Debug> {
 
 impl<T> SimpleHandshakeServer<T>
 where
-    T: AsyncRead + AsyncWrite + Unpin + Debug,
+    T: AsyncRead + AsyncWrite + Unpin + Debug + Send,
 {
-    pub fn new(io: T) -> Self {
+    pub fn _new(io: T) -> Self {
         Self {
-            io: io,
+            io,
             c1_bytes: Vec::with_capacity(1536),
             c1_timestamp: 0,
             state: HandshakeServerState::Uninitialized,
@@ -84,9 +86,14 @@ where
     }
 }
 
+unsafe impl<T> Send for SimpleHandshakeServer<T> where
+    T: Send + AsyncRead + AsyncWrite + Unpin + Debug
+{
+}
+
 impl<IO> AsyncHandshakeServer for SimpleHandshakeServer<IO>
 where
-    IO: AsyncRead + AsyncWrite + Unpin + Debug,
+    IO: AsyncRead + AsyncWrite + Unpin + Debug + Send,
 {
     async fn flush(&mut self) -> HandshakeResult<()> {
         self.io.flush().await?;
@@ -123,7 +130,7 @@ where
             },
             &mut bytes,
         )?;
-        self.io.write_all(&bytes[..]).await?;
+        self.io.write_all(&bytes).await?;
         self.io.flush().await?;
         debug!("s0 bytes sent");
         Ok(())
@@ -135,18 +142,18 @@ where
         C1S1PacketCodec.encode(
             C1S1Packet {
                 timestamp: SystemTime::now().duration_since(UNIX_EPOCH)?,
-                zeros: self.c1_timestamp,
-                random_bytes: random_bytes,
+                _zeros: self.c1_timestamp,
+                random_bytes,
             },
             &mut bytes,
         )?;
-        self.io.write(&bytes[..]).await?;
+        self.io.write_all(&bytes).await?;
         self.io.flush().await?;
         debug!("s1 bytes sent, {:?}", self.io);
         Ok(())
     }
     async fn write_s2(&mut self) -> HandshakeResult<()> {
-        self.io.write(&self.c1_bytes[..]).await?;
+        self.io.write_all(&self.c1_bytes).await?;
         self.io.flush().await?;
         debug!("s2 bytes sent");
         Ok(())
@@ -165,7 +172,7 @@ struct ComplexHandshakeServer<T> {
 
 impl<T> ComplexHandshakeServer<T>
 where
-    T: AsyncRead + AsyncWrite + Unpin + Debug,
+    T: AsyncRead + AsyncWrite + Unpin + Debug + Send,
 {
     pub fn new(io: T) -> Self {
         Self {
@@ -181,10 +188,10 @@ where
 
 impl<T> AsyncHandshakeServer for ComplexHandshakeServer<T>
 where
-    T: AsyncRead + AsyncWrite + Unpin + Debug,
+    T: AsyncRead + AsyncWrite + Unpin + Debug + Send + Send,
 {
     async fn flush(&mut self) -> HandshakeResult<()> {
-        self.io.write(&self.writer_buffer[..]).await?;
+        self.io.write_all(&self.writer_buffer[..]).await?;
         self.io.flush().await?;
         self.writer_buffer.clear();
         Ok(())
@@ -204,24 +211,21 @@ where
         self.c1_bytes.resize(RTMP_HANDSHAKE_SIZE, 0);
         let len = self.io.read_exact(&mut self.c1_bytes).await?;
         debug!("read c1, {}", len);
-        let mut bytes = [0 as u8; RTMP_HANDSHAKE_SIZE];
-        for i in 0..RTMP_HANDSHAKE_SIZE {
-            bytes[i] = self.c1_bytes[i];
-        }
+        let mut bytes = [0_u8; RTMP_HANDSHAKE_SIZE];
+        bytes.copy_from_slice(&self.c1_bytes);
+
         let digest = validate_c1_digest(&bytes)?;
         if digest.len() != SHA256_DIGEST_SIZE {
             return Err(HandshakeError::DigestError(DigestError::WrongLength {
                 length: digest.len(),
             }));
         }
-        for i in 0..SHA256_DIGEST_SIZE {
-            self.c1_digest[i] = digest[i]
-        }
+        self.c1_digest.copy_from_slice(&digest);
         debug!("c1 validate success");
         Ok(())
     }
     async fn read_c2(&mut self) -> HandshakeResult<()> {
-        let mut bytes = [0 as u8; RTMP_HANDSHAKE_SIZE];
+        let mut bytes = [0_u8; RTMP_HANDSHAKE_SIZE];
         self.io.read_exact(&mut bytes).await?;
         debug!("read c2");
         Ok(())
@@ -244,8 +248,8 @@ where
         C1S1PacketCodec.encode(
             C1S1Packet {
                 timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap(),
-                zeros: RTMP_SERVER_VERSION.into(),
-                random_bytes: random_bytes,
+                _zeros: RTMP_SERVER_VERSION.into(),
+                random_bytes,
             },
             &mut bytes,
         )?;
@@ -269,15 +273,15 @@ where
             },
             &mut bytes,
         )?;
-        let key = make_digest(&RTMP_SERVER_KEY, &self.c1_digest.into())?;
+        let key = make_digest(&RTMP_SERVER_KEY, &self.c1_digest)?;
         let mut bytes_array: [u8; RTMP_HANDSHAKE_SIZE] = [0; RTMP_HANDSHAKE_SIZE];
         bytes.reader().read_exact(&mut bytes_array)?;
         let digest = make_digest(
             &key,
-            &bytes_array[..RTMP_HANDSHAKE_SIZE - SHA256_DIGEST_SIZE].into(),
+            &bytes_array[..RTMP_HANDSHAKE_SIZE - SHA256_DIGEST_SIZE],
         )?;
         self.writer_buffer.extend_from_slice(
-            &[
+            [
                 &bytes_array[..RTMP_HANDSHAKE_SIZE - SHA256_DIGEST_SIZE],
                 &digest[..],
             ]
@@ -289,28 +293,28 @@ where
     }
 }
 
-impl<T> Into<SimpleHandshakeServer<T>> for ComplexHandshakeServer<T>
+impl<T> From<ComplexHandshakeServer<T>> for SimpleHandshakeServer<T>
 where
-    T: AsyncRead + AsyncWrite + Unpin + Debug,
+    T: AsyncRead + AsyncWrite + Unpin + Debug + Send,
 {
-    fn into(self) -> SimpleHandshakeServer<T> {
+    fn from(value: ComplexHandshakeServer<T>) -> Self {
         SimpleHandshakeServer {
-            io: self.io,
-            c1_bytes: self.c1_bytes,
+            io: value.io,
+            c1_bytes: value.c1_bytes,
             c1_timestamp: 0,
-            state: self.state,
+            state: value.state,
         }
     }
 }
 
 #[derive(Debug)]
-pub struct HandshakeServer<T: AsyncRead + AsyncWrite + Unpin + Debug> {
+pub struct HandshakeServer<T: AsyncRead + AsyncWrite + Unpin + Debug + Send> {
     handshaker: Either<ComplexHandshakeServer<T>, SimpleHandshakeServer<T>>,
 }
 
 impl<T> HandshakeServer<T>
 where
-    T: AsyncRead + AsyncWrite + Unpin + Debug,
+    T: AsyncRead + AsyncWrite + Unpin + Debug + Send,
 {
     pub fn new(io: T) -> Self {
         Self {

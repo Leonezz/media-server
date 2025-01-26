@@ -135,10 +135,7 @@ where
             success: command_name == s2c_command_names::RESULT,
             transaction_id,
             properties,
-            information: match information {
-                None => None,
-                Some(value) => Some(Either::Left(value)),
-            },
+            information: information.map(Either::Left),
         })
     }
 
@@ -154,10 +151,7 @@ where
             procedure_name,
             transaction_id,
             command_object,
-            optional_arguments: match optional_arguments {
-                None => None,
-                Some(v) => Some(Either::Left(v)),
-            },
+            optional_arguments: optional_arguments.map(Either::Left),
         })
     }
 
@@ -270,24 +264,18 @@ where
                         }
                     }
                 };
-                match map.get("code") {
-                    None => {
-                        return Err(ChunkMessageError::UnexpectedAmfType {
-                            amf_type: "expect a code field".to_string(),
-                            backtrace: Backtrace::capture(),
-                        });
-                    }
-                    _ => {}
+                if map.get("code").is_none() {
+                    return Err(ChunkMessageError::UnexpectedAmfType {
+                        amf_type: "expect a code field".to_string(),
+                        backtrace: Backtrace::capture(),
+                    });
                 };
-                match map.get("description") {
-                    None => {
-                        return Err(ChunkMessageError::UnexpectedAmfType {
-                            amf_type: "expect a description field".to_string(),
-                            backtrace: Backtrace::capture(),
-                        });
-                    }
-                    _ => {}
-                };
+                if map.get("description").is_none() {
+                    return Err(ChunkMessageError::UnexpectedAmfType {
+                        amf_type: "expect a description field".to_string(),
+                        backtrace: Backtrace::capture(),
+                    });
+                }
             }
         }
         Ok(OnStatusCommand {
@@ -311,8 +299,8 @@ where
         let duration = self.read_amf_optional_number()?;
         let reset = self.read_amf_optional_bool()?;
         Ok(PlayCommand {
-            command_name: c2s_command_names::PLAY.to_string(),
-            transaction_id,
+            _command_name: c2s_command_names::PLAY.to_string(),
+            _transaction_id: transaction_id,
             stream_name,
             start,
             duration: duration.unwrap_or(-1.0) as i64,
@@ -331,8 +319,8 @@ where
         self.read_amf_null()?;
         // TODO parameters should be a NetStreamPlayOptions object
         Ok(Play2Command {
-            command_name: c2s_command_names::PLAY2.to_string(),
-            transaction_id,
+            _command_name: c2s_command_names::PLAY2.to_string(),
+            _transaction_id: transaction_id,
             parameters: self.read_amf_object()?.unwrap_or(HashMap::default()),
         })
     }
@@ -348,8 +336,8 @@ where
         self.read_amf_null()?;
         let stream_id = self.read_amf_number()?;
         Ok(DeleteStreamCommand {
-            command_name: c2s_command_names::DELETE_STREAM.to_string(),
-            transaction_id,
+            _command_name: c2s_command_names::DELETE_STREAM.to_string(),
+            _transaction_id: transaction_id,
             stream_id,
         })
     }
@@ -367,8 +355,8 @@ where
         self.read_amf_null()?;
         let bool_flag = self.read_amf_bool()?;
         Ok(ReceiveAudioCommand {
-            command_name: c2s_command_names::RECEIVE_AUDIO.to_string(),
-            transaction_id,
+            _command_name: c2s_command_names::RECEIVE_AUDIO.to_string(),
+            _transaction_id: transaction_id,
             bool_flag,
         })
     }
@@ -386,8 +374,8 @@ where
         self.read_amf_null()?;
         let bool_flag = self.read_amf_bool()?;
         Ok(ReceiveVideoCommand {
-            command_name: c2s_command_names::RECEIVE_VIDEO.to_string(),
-            transaction_id,
+            _command_name: c2s_command_names::RECEIVE_VIDEO.to_string(),
+            _transaction_id: transaction_id,
             bool_flag,
         })
     }
@@ -416,8 +404,8 @@ where
         }
 
         Ok(PublishCommand {
-            command_name: c2s_command_names::PUBLISH.to_string(),
-            transaction_id,
+            _command_name: c2s_command_names::PUBLISH.to_string(),
+            _transaction_id: transaction_id,
             publishing_name,
             publishing_type,
         })
@@ -429,8 +417,8 @@ where
         self.read_amf_null()?;
         let milliseconds = self.read_amf_number()? as u64;
         Ok(SeekCommand {
-            command_name: c2s_command_names::SEEK.to_string(),
-            transaction_id,
+            _command_name: c2s_command_names::SEEK.to_string(),
+            _transaction_id: transaction_id,
             milliseconds,
         })
     }
@@ -442,8 +430,8 @@ where
         let pause_flag = self.read_amf_bool()?;
         let milliseconds = self.read_amf_number()? as u64;
         Ok(PauseCommand {
-            command_name: c2s_command_names::PAUSE.to_string(),
-            transaction_id,
+            _command_name: c2s_command_names::PAUSE.to_string(),
+            _transaction_id: transaction_id,
             pause_flag,
             milliseconds,
         })
@@ -475,12 +463,10 @@ where
         }
         match amf_str.expect("this cannot be none").try_as_str() {
             Some(v) => Ok(v.to_string()),
-            None => {
-                return Err(ChunkMessageError::UnexpectedAmfType {
-                    amf_type: format!("expect string type",),
-                    backtrace: Backtrace::capture(),
-                });
-            }
+            None => Err(ChunkMessageError::UnexpectedAmfType {
+                amf_type: "expect string type".to_owned(),
+                backtrace: Backtrace::capture(),
+            }),
         }
     }
 
@@ -494,18 +480,16 @@ where
         }
         match amf_f64.expect("this cannot be none").try_as_f64() {
             Some(v) => Ok(v),
-            None => {
-                return Err(ChunkMessageError::UnexpectedAmfType {
-                    amf_type: format!("expect a number type"),
-                    backtrace: Backtrace::capture(),
-                });
-            }
+            None => Err(ChunkMessageError::UnexpectedAmfType {
+                amf_type: "expect a number type".to_owned(),
+                backtrace: Backtrace::capture(),
+            }),
         }
     }
 
     fn read_amf_optional_number(&mut self) -> ChunkMessageResult<Option<f64>> {
         match AmfValue::read_from(self.inner.by_ref(), self.amf_version) {
-            Err(err) => return Err(err.into()),
+            Err(err) => Err(err.into()),
             Ok(v) => match v {
                 None => Ok(None),
                 Some(v) => match v.try_as_f64() {
@@ -523,12 +507,10 @@ where
         let amf_bool = AmfValue::read_from(self.inner.by_ref(), self.amf_version)?;
         match amf_bool.expect("this cannot be none").try_as_bool() {
             Some(v) => Ok(v),
-            None => {
-                return Err(ChunkMessageError::UnexpectedAmfType {
-                    amf_type: format!("expect a bool type, got None instead",),
-                    backtrace: Backtrace::capture(),
-                });
-            }
+            None => Err(ChunkMessageError::UnexpectedAmfType {
+                amf_type: "expect a bool type, got None instead".to_owned(),
+                backtrace: Backtrace::capture(),
+            }),
         }
     }
 
@@ -555,12 +537,10 @@ where
             }
             None => Ok(None),
             Some(value) => match value.try_into_pairs() {
-                Err(v) => {
-                    return Err(ChunkMessageError::UnexpectedAmfType {
-                        amf_type: format!("expect key-value pair type, but got {:?} instead", v),
-                        backtrace: Backtrace::capture(),
-                    });
-                }
+                Err(v) => Err(ChunkMessageError::UnexpectedAmfType {
+                    amf_type: format!("expect key-value pair type, but got {:?} instead", v),
+                    backtrace: Backtrace::capture(),
+                }),
                 Ok(pairs) => {
                     let mut map = HashMap::new();
                     for (k, v) in pairs {

@@ -31,9 +31,9 @@ pub enum AudioPacketType {
     ModEx = 7,
 }
 
-impl Into<u8> for AudioPacketType {
-    fn into(self) -> u8 {
-        self as u8
+impl From<AudioPacketType> for u8 {
+    fn from(value: AudioPacketType) -> Self {
+        value as u8
     }
 }
 
@@ -78,9 +78,9 @@ pub enum AudioPacketModExType {
     TimestampOffsetNano = 0,
 }
 
-impl Into<u8> for AudioPacketModExType {
-    fn into(self) -> u8 {
-        self as u8
+impl From<AudioPacketModExType> for u8 {
+    fn from(value: AudioPacketModExType) -> Self {
+        value as u8
     }
 }
 
@@ -128,15 +128,15 @@ pub mod audio_four_cc_value {
     pub const AAC_VALUE: u32 = make_four_cc("mp4a");
 }
 
-impl Into<u32> for AudioFourCC {
-    fn into(self) -> u32 {
-        match self {
-            Self::AC3 => audio_four_cc_value::AC3_VALUE,
-            Self::EAC3 => audio_four_cc_value::EAC3_VALUE,
-            Self::OPUS => audio_four_cc_value::OPUS_VALUE,
-            Self::MP3 => audio_four_cc_value::MP3_VALUE,
-            Self::FLAC => audio_four_cc_value::FLAC_VALUE,
-            Self::AAC => audio_four_cc_value::AAC_VALUE,
+impl From<AudioFourCC> for u32 {
+    fn from(value: AudioFourCC) -> Self {
+        match value {
+            AudioFourCC::AC3 => audio_four_cc_value::AC3_VALUE,
+            AudioFourCC::EAC3 => audio_four_cc_value::EAC3_VALUE,
+            AudioFourCC::OPUS => audio_four_cc_value::OPUS_VALUE,
+            AudioFourCC::MP3 => audio_four_cc_value::MP3_VALUE,
+            AudioFourCC::FLAC => audio_four_cc_value::FLAC_VALUE,
+            AudioFourCC::AAC => audio_four_cc_value::AAC_VALUE,
         }
     }
 }

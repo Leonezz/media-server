@@ -130,7 +130,7 @@ where
                     .referenceable
                     .strings
                     .get(index)
-                    .ok_or(AmfError::OutOfRangeReference { index: index })?;
+                    .ok_or(AmfError::OutOfRangeReference { index })?;
                 Ok(result.clone())
             }
             SizeOrIndex::Size(size) => {
@@ -151,10 +151,10 @@ where
                 .referenceable
                 .objects
                 .get(index)
-                .ok_or(AmfError::OutOfRangeReference { index: index })
+                .ok_or(AmfError::OutOfRangeReference { index })
                 .and_then(|v| {
                     if *v == Value::Null {
-                        Err(AmfError::CircularReference { index: index })
+                        Err(AmfError::CircularReference { index })
                     } else {
                         Ok(v.clone())
                     }
@@ -171,7 +171,7 @@ where
 
     fn read_trait(&mut self, size: usize) -> AmfResult<Amf3Trait> {
         if (size & 0b1) == 0 {
-            let index = (size >> 1) as usize;
+            let index = size >> 1;
             let result = self
                 .referenceable
                 .traits
@@ -269,12 +269,10 @@ where
             let assoc_entries = this.read_pairs()?;
             let dense_entries = (0..size)
                 .map(|_| match this.read() {
-                    Ok(None) => {
-                        return Err(AmfError::Io(io::Error::new(
-                            io::ErrorKind::UnexpectedEof,
-                            "unexpected eof",
-                        )));
-                    }
+                    Ok(None) => Err(AmfError::Io(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "unexpected eof",
+                    ))),
                     Ok(Some(value)) => Ok(value),
                     Err(err) => Err(err),
                 })
@@ -390,7 +388,7 @@ where
                             "unexpected eof",
                         )));
                     }
-                    return Ok((key, value.expect("this cannot be none")));
+                    Ok((key, value.expect("this cannot be none")))
                 })
                 .collect::<AmfResult<_>>()?;
             Ok(Value::Dictionary { is_weak, entries })

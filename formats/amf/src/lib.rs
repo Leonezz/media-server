@@ -38,14 +38,8 @@ impl Value {
         R: io::Read,
     {
         match version {
-            Version::Amf0 => amf0::Value::read_from(reader).map(|v| match v {
-                None => None,
-                Some(v) => Some(Value::AMF0Value(v)),
-            }),
-            Version::Amf3 => amf3::Value::read_from(reader).map(|v| match v {
-                None => None,
-                Some(v) => Some(Value::AMF3Value(v)),
-            }),
+            Version::Amf0 => amf0::Value::read_from(reader).map(|v| v.map(Value::AMF0Value)),
+            Version::Amf3 => amf3::Value::read_from(reader).map(|v| v.map(Value::AMF3Value)),
         }
     }
 
@@ -135,7 +129,7 @@ impl Value {
             )
         } else {
             let mut all_v3 = true;
-            for (_, v) in &value {
+            for v in value.values() {
                 if let Value::AMF0Value(_) = v {
                     all_v3 = false;
                 }
@@ -152,17 +146,17 @@ impl Value {
 
             if all_v3 {
                 // if all values are amf3, amf3 could work
-                return Value::write_to(
+                Value::write_to(
                     &Value::AMF3Value(amf3::Value::Object {
                         name: None,
                         sealed_fields_count: 0,
                         entries: pairs,
                     }),
                     writer,
-                );
+                )
             } else {
                 // otherwise we go back to amf0
-                return Value::write_key_value_pairs(value, writer, Version::Amf0);
+                Value::write_key_value_pairs(value, writer, Version::Amf0)
             }
         }
     }
@@ -291,14 +285,14 @@ impl AmfComplexObject for HashMap<String, Value> {
 
     fn extract_array_field(&self, key: &str) -> Option<Box<dyn Iterator<Item = Value>>> {
         match self.get(key).cloned() {
-            Some(v) => v.try_into_values().map_or_else(|_| None, |v| Some(v)),
+            Some(v) => v.try_into_values().ok(),
             None => None,
         }
     }
 
     fn extract_object_field(&self, key: &str) -> Option<Box<dyn Iterator<Item = (String, Value)>>> {
         match self.get(key).cloned() {
-            Some(v) => v.try_into_pairs().map_or_else(|_| None, |v| Some(v)),
+            Some(v) => v.try_into_pairs().ok(),
             None => None,
         }
     }

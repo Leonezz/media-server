@@ -15,7 +15,7 @@ pub struct C0S0Packet {
 
 pub struct C1S1Packet {
     timestamp: time::Duration,
-    zeros: u32,
+    _zeros: u32,
     random_bytes: [u8; 1528],
 }
 
@@ -33,9 +33,9 @@ pub enum Version {
     V3 = 3,
 }
 
-impl Into<u8> for Version {
-    fn into(self) -> u8 {
-        match self {
+impl From<Version> for u8 {
+    fn from(value: Version) -> Self {
+        match value {
             Version::V0 => 0,
             Version::V1 => 1,
             Version::V2 => 2,
@@ -43,6 +43,7 @@ impl Into<u8> for Version {
         }
     }
 }
+
 /// +-------------+                +-------------+
 /// |    Client   | TCP/IP Network |    Server   |
 /// +-------------+       |        +-------------+

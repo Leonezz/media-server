@@ -52,7 +52,7 @@ where
         self.inner.read_exact(&mut buf)?;
         Ok(C1S1Packet {
             timestamp: time::Duration::from_millis(time as u64),
-            zeros: zero,
+            _zeros: zero,
             random_bytes: buf,
         })
     }

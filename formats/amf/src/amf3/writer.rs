@@ -110,18 +110,18 @@ where
             }
             i if i < 0x4000 => {
                 self.inner.write_u8(((u29 >> 7) | 0b1000_0000) as u8)?;
-                self.inner.write_u8(((u29 >> 0) & 0b0111_1111) as u8)?;
+                self.inner.write_u8((u29 & 0b0111_1111) as u8)?;
             }
             i if i < 0x20_0000 => {
                 self.inner.write_u8(((u29 >> 14) | 0b1000_0000) as u8)?;
                 self.inner.write_u8(((u29 >> 7) | 0b1000_0000) as u8)?;
-                self.inner.write_u8(((u29 >> 0) & 0b0111_1111) as u8)?;
+                self.inner.write_u8((u29 & 0b0111_1111) as u8)?;
             }
             i if i < 0x4000_0000 => {
                 self.inner.write_u8(((u29 >> 22) | 0b1000_0000) as u8)?;
                 self.inner.write_u8(((u29 >> 15) | 0b1000_0000) as u8)?;
                 self.inner.write_u8(((u29 >> 8) | 0b1000_0000) as u8)?;
-                self.inner.write_u8(((u29 >> 0) & 0b1111_1111) as u8)?;
+                self.inner.write_u8((u29 & 0b1111_1111) as u8)?;
             }
             _ => return Err(AmfError::U29OutOfRange { value: u29 }),
         }
@@ -179,7 +179,7 @@ where
 
     fn write_pairs_inner(&mut self, pairs: &[(String, Value)]) -> AmfResult<()> {
         for (key, value) in pairs {
-            self.write_utf8_inner(&key)?;
+            self.write_utf8_inner(key)?;
             self.write(value)?;
         }
         self.write_utf8_inner("")?;
@@ -189,10 +189,7 @@ where
         self.inner.write_u8(amf3_marker::ARRAY)?;
         self.write_size_inner(dense.len())?;
         self.write_pairs_inner(assoc)?;
-        dense
-            .iter()
-            .map(|value| self.write(value))
-            .collect::<AmfResult<()>>()?;
+        dense.iter().try_for_each(|value| self.write(value))?;
         Ok(())
     }
 
@@ -205,17 +202,17 @@ where
         if sealed_count > entries.len() {
             return Err(AmfError::Amf3TraitInvalid {
                 entries: Vec::from(entries),
-                sealed_count: sealed_count,
+                sealed_count,
             });
         }
-        let not_reference_bit = 1 as usize;
+        let not_reference_bit = 1_usize;
         let is_externalizable = false as usize;
         let is_dynamic = (sealed_count < entries.len()) as usize;
         let u28 =
             (sealed_count << 3) | (is_dynamic << 2) | (is_externalizable << 1) | not_reference_bit;
         self.write_size_inner(u28)?;
         let class_name = class_name.as_ref().map_or("", |s| s);
-        self.write_utf8_inner(&class_name)?;
+        self.write_utf8_inner(class_name)?;
         for (key, _) in entries.iter().take(sealed_count) {
             self.write_utf8_inner(key)?;
         }

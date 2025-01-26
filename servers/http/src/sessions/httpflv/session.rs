@@ -45,13 +45,13 @@ pub struct HttpFlvSessionRuntimeStat {
     audio_sequence_header_sent: bool,
     video_frame_sent: u64,
     audio_frame_sent: u64,
-    video_frame_send_failed: u64,
-    audio_frame_send_failed: u64,
+    _video_frame_send_failed: u64,
+    _audio_frame_send_failed: u64,
 }
 
 #[derive(Debug)]
 pub struct HttpFlvSession {
-    config: HttpFlvSessionConfig,
+    _config: HttpFlvSessionConfig,
     stream_center_event_sender: mpsc::UnboundedSender<StreamCenterEvent>,
     stream_properties: StreamProperties,
     play_id: Option<Uuid>,
@@ -70,7 +70,7 @@ impl HttpFlvSession {
         http_response_bytes_sender: mpsc::UnboundedSender<BytesMut>,
     ) -> Self {
         Self {
-            config: config.clone(),
+            _config: config.clone(),
             stream_center_event_sender,
             stream_properties,
             play_id: None,
@@ -110,8 +110,8 @@ impl HttpFlvSession {
             bytes.write_u32::<BigEndian>(0)?;
         }
 
-        let mut has_video_sequence_header = !self.has_video || false;
-        let mut has_audio_sequence_header = !self.has_audio || false;
+        let mut has_video_sequence_header = !self.has_video;
+        let mut has_audio_sequence_header = !self.has_audio;
         loop {
             match response.media_receiver.recv().await {
                 None => {}
@@ -278,7 +278,7 @@ impl HttpFlvSession {
                     "channel closed while trying receive unsubscribe result, stream: {:?}",
                     self.stream_properties
                 );
-                return Err(HttpFlvSessionError::StreamEventSendFailed(None));
+                Err(HttpFlvSessionError::StreamEventSendFailed(None))
             }
             Ok(Err(err)) => {
                 tracing::error!(
@@ -286,7 +286,7 @@ impl HttpFlvSession {
                     err,
                     self.stream_properties
                 );
-                return Err(err.into());
+                Err(err.into())
             }
             Ok(Ok(())) => {
                 tracing::info!(
@@ -294,7 +294,7 @@ impl HttpFlvSession {
                     self.stream_properties,
                     self.play_id
                 );
-                return Ok(());
+                Ok(())
             }
         }
     }
@@ -327,7 +327,7 @@ impl HttpFlvSession {
                     "channel closed while trying receive subscribe result, stream: {:?}",
                     self.stream_properties,
                 );
-                return Err(HttpFlvSessionError::StreamEventSendFailed(None));
+                Err(HttpFlvSessionError::StreamEventSendFailed(None))
             }
             Ok(Err(err)) => {
                 tracing::error!(
@@ -335,7 +335,7 @@ impl HttpFlvSession {
                     err,
                     self.stream_properties
                 );
-                return Err(err.into());
+                Err(err.into())
             }
             Ok(Ok(res)) => {
                 tracing::info!(

@@ -51,9 +51,9 @@ where
             )));
         }
         if chunk_size < 1 {
-            return Err(ChunkMessageError::InvalidMessage(format!(
-                "invalid set chunk size message, the chunk size is 0"
-            )));
+            return Err(ChunkMessageError::InvalidMessage(
+                "invalid set chunk size message, the chunk size is 0".to_owned(),
+            ));
         }
 
         Ok(SetChunkSize {
