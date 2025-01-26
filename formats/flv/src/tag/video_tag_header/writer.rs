@@ -25,15 +25,16 @@ where
             || header.codec_id == CodecID::AV1)
             && (header.avc_packet_type.is_none() || header.composition_time.is_none())
         {
-            return Err(FLVError::InconsistentHeader(format!(
-                "video header with codec id 7 (AVC) should also has avc packet type and composition_time"
-            )));
+            return Err(FLVError::InconsistentHeader(
+                "video header with codec id 7 (AVC) should also has avc packet type and composition_time".to_owned()
+            ));
         }
 
         if header.frame_type == FrameType::CommandFrame && header.video_command.is_none() {
-            return Err(FLVError::InconsistentHeader(format!(
+            return Err(FLVError::InconsistentHeader(
                 "video header with frame type: 5 (VideoCommand) should also has video_command"
-            )));
+                    .to_owned(),
+            ));
         }
 
         let mut byte = 0;

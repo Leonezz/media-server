@@ -147,7 +147,7 @@ where
         self.referenceable
             .objects
             .get(index)
-            .ok_or(AmfError::OutOfRangeReference { index: index })
+            .ok_or(AmfError::OutOfRangeReference { index })
             .and_then(|v| match *v {
                 Value::Null => Err(AmfError::CircularReference { index }),
                 _ => Ok(v.clone()),
@@ -166,12 +166,10 @@ where
             let len = this.inner.read_u32::<BigEndian>()? as usize;
             let values = (0..len)
                 .map(|_| match this.read() {
-                    Ok(None) => {
-                        return Err(AmfError::Io(io::Error::new(
-                            io::ErrorKind::UnexpectedEof,
-                            "expected eof",
-                        )));
-                    }
+                    Ok(None) => Err(AmfError::Io(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "expected eof",
+                    ))),
                     Ok(Some(value)) => Ok(value),
                     Err(err) => Err(err),
                 })

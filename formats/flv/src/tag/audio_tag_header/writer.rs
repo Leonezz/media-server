@@ -28,9 +28,10 @@ where
         byte <<= 1;
         byte |= <SoundType as Into<u8>>::into(header.sound_type);
         if header.sound_format == SoundFormat::AAC && header.aac_packet_type.is_none() {
-            return Err(FLVError::InconsistentHeader(format!(
+            return Err(FLVError::InconsistentHeader(
                 "audio format header with sound_type 10 should have aac packet type, but got none"
-            )));
+                    .to_owned(),
+            ));
         }
 
         self.inner.write_u8(byte)?;

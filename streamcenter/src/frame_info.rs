@@ -67,34 +67,25 @@ impl ChunkFrameData {
 impl ChunkFrameData {
     #[inline]
     pub fn is_video(&self) -> bool {
-        match self {
-            ChunkFrameData::Video {
-                meta: _,
-                payload: _,
-            } => true,
-            _ => false,
-        }
+        matches!(self, ChunkFrameData::Video {
+            meta: _,
+            payload: _,
+        })
     }
 
     #[inline]
     pub fn is_audio(&self) -> bool {
-        match self {
-            ChunkFrameData::Audio {
-                meta: _,
-                payload: _,
-            } => true,
-            _ => false,
-        }
+        matches!(self, ChunkFrameData::Audio {
+            meta: _,
+            payload: _,
+        })
     }
 
     #[inline]
     pub fn is_script(&self) -> bool {
-        match self {
-            ChunkFrameData::Script {
-                meta: _,
-                payload: _,
-            } => true,
-            _ => false,
-        }
+        matches!(self, ChunkFrameData::Script {
+            meta: _,
+            payload: _,
+        })
     }
 }

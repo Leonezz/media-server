@@ -8,12 +8,12 @@ use super::{AACPacketType, AudioTagHeader, SoundFormat, SoundRate, SoundSize, So
 
 impl AudioTagHeader {
     pub fn read_from(
-        mut reader: &mut Cursor<&mut BytesMut>,
+        reader: &mut Cursor<&mut BytesMut>,
     ) -> FLVResult<Either<AudioTagHeader, ExAudioTagHeader>> {
         let first_byte = reader.read_u8()?;
 
         if ((first_byte >> 4) & 0b1111) == 9 {
-            let ex_header = ExAudioTagHeader::read_from(&mut reader, first_byte)?;
+            let ex_header = ExAudioTagHeader::read_from(reader, first_byte)?;
             return Ok(Either::Right(ex_header));
         }
 
@@ -21,7 +21,7 @@ impl AudioTagHeader {
 
         let sound_rate: SoundRate = ((first_byte >> 2) & 0b11).try_into()?;
         let sound_size: SoundSize = ((first_byte >> 1) & 0b1).into();
-        let sound_type: SoundType = ((first_byte >> 0) & 0b1).into();
+        let sound_type: SoundType = (first_byte & 0b1).into();
         let mut aac_packet_type: Option<AACPacketType> = None;
         if sound_format == SoundFormat::AAC {
             let aac_type_byte = reader.read_u8()?;

@@ -44,17 +44,17 @@ impl From<u8> for FourCCInfo {
     }
 }
 
-impl Into<u8> for FourCCInfo {
-    fn into(self) -> u8 {
-        (if self.can_decode {
+impl From<FourCCInfo> for u8 {
+    fn from(value: FourCCInfo) -> Self {
+        (if value.can_decode {
             four_cc_info_mask::CAN_DECODE
         } else {
             0
-        } | if self.can_encode {
+        } | if value.can_encode {
             four_cc_info_mask::CAN_ENCODE
         } else {
             0
-        } | if self.can_forward {
+        } | if value.can_forward {
             four_cc_info_mask::CAN_FORWARD
         } else {
             0
@@ -72,7 +72,7 @@ impl Into<u8> for FourCCInfo {
 /// - The implementation might fully handle the feature by applying the appropriate logic.
 /// - Alternatively, if full support is not available, the implementation can still parse the bitstream correctly,
 ///     ensuring graceful degradation.
-/// This allows continued operation, even with reduced functionality.
+///   This allows continued operation, even with reduced functionality.
 pub mod caps_ex_mask {
     pub const RECONNECT: u8 = 0x01; // Support for reconnection
     pub const MULTI_TRACK: u8 = 0x02; // Support for multitrack
@@ -100,21 +100,21 @@ impl From<u8> for CapsExInfo {
     }
 }
 
-impl Into<u8> for CapsExInfo {
-    fn into(self) -> u8 {
-        (if self.support_reconnect {
+impl From<CapsExInfo> for u8 {
+    fn from(value: CapsExInfo) -> Self {
+        (if value.support_reconnect {
             caps_ex_mask::RECONNECT
         } else {
             0
-        } | if self.support_mod_ex {
+        } | if value.support_mod_ex {
             caps_ex_mask::MOD_EX
         } else {
             0
-        } | if self.support_multi_track {
+        } | if value.support_multi_track {
             caps_ex_mask::MULTI_TRACK
         } else {
             0
-        } | if self.support_timestamp_nano {
+        } | if value.support_timestamp_nano {
             caps_ex_mask::TIMESTAMP_NANO_OFFSET
         } else {
             0
@@ -122,7 +122,7 @@ impl Into<u8> for CapsExInfo {
     }
 }
 
-///! @see: 7.2.1.1. connect
+// @see: 7.2.1.1. connect
 #[derive(Debug, Clone, Default)]
 pub struct ConnectCommandRequestObject {
     pub app: String,
@@ -135,7 +135,7 @@ pub struct ConnectCommandRequestObject {
     pub video_function: u16,
     pub page_url: String,
     pub object_encoding: amf::Version,
-    ///! the below are from enhanced rtmp
+    // the below are from enhanced rtmp
     pub caps_ex_info: Option<CapsExInfo>,
     pub four_cc_list: Option<Vec<String>>,
     pub video_four_cc_info: Option<HashMap<String, FourCCInfo>>,
@@ -205,7 +205,7 @@ impl TryFrom<HashMap<String, amf::Value>> for ConnectCommandRequestObject {
             {
                 0 => amf::Version::Amf0,
                 3 => amf::Version::Amf3,
-                v => return Err(ChunkMessageError::UnknownAmfVersion(v as u8)),
+                v => return Err(ChunkMessageError::UnknownAmfVersion(v)),
             },
             four_cc_list: extract_string_array_field("fourCcList"),
             video_four_cc_info: extract_four_cc_info("videoFourCcInfoMap"),
@@ -219,32 +219,32 @@ impl TryFrom<HashMap<String, amf::Value>> for ConnectCommandRequestObject {
     }
 }
 
-impl Into<HashMap<String, amf::Value>> for ConnectCommandRequestObject {
-    fn into(self) -> HashMap<String, amf::Value> {
+impl From<ConnectCommandRequestObject> for HashMap<String, amf::Value> {
+    fn from(value: ConnectCommandRequestObject) -> Self {
         let mut map: HashMap<String, amf::Value> = HashMap::new();
-        let version = self.object_encoding;
-        map.insert("app".into(), amf::string(self.app, version));
-        map.insert("flashver".into(), amf::string(self.flash_version, version));
-        map.insert("swfUrl".into(), amf::string(self.swf_url, version));
-        map.insert("tcUrl".into(), amf::string(self.tc_url, version));
-        map.insert("fpad".into(), amf::bool(self.fpad, version));
+        let version = value.object_encoding;
+        map.insert("app".into(), amf::string(value.app, version));
+        map.insert("flashver".into(), amf::string(value.flash_version, version));
+        map.insert("swfUrl".into(), amf::string(value.swf_url, version));
+        map.insert("tcUrl".into(), amf::string(value.tc_url, version));
+        map.insert("fpad".into(), amf::bool(value.fpad, version));
         map.insert(
             "audioCodecs".into(),
-            amf::number(self.audio_codecs, version),
+            amf::number(value.audio_codecs, version),
         );
         map.insert(
             "videoCodecs".into(),
-            amf::number(self.video_codecs, version),
+            amf::number(value.video_codecs, version),
         );
         map.insert(
             "videoFunction".into(),
-            amf::number(self.video_function, version),
+            amf::number(value.video_function, version),
         );
-        map.insert("pageUrl".into(), amf::string(self.page_url, version));
+        map.insert("pageUrl".into(), amf::string(value.page_url, version));
         map.insert(
             "objectEncoding".into(),
             amf::number::<u8>(
-                match self.object_encoding {
+                match value.object_encoding {
                     amf::Version::Amf0 => 0,
                     amf::Version::Amf3 => 3,
                 },
@@ -314,8 +314,8 @@ pub struct OnStatusCommand {
 
 #[derive(Debug)]
 pub struct PlayCommand {
-    command_name: String, // "play"
-    transaction_id: u8,   // 0
+    _command_name: String, // "play"
+    _transaction_id: u8,   // 0
     // command_object is null
     pub stream_name: String,
     pub start: i64,    // default to -2
@@ -325,40 +325,40 @@ pub struct PlayCommand {
 
 #[derive(Debug)]
 pub struct Play2Command {
-    command_name: String, // "play2"
-    transaction_id: u8,   // 0
+    _command_name: String, // "play2"
+    _transaction_id: u8,   // 0
     // command_object is null
     parameters: HashMap<String, amf::Value>,
 }
 
 #[derive(Debug)]
 pub struct DeleteStreamCommand {
-    command_name: String, // "deleteStream"
-    transaction_id: u8,   // 0
+    _command_name: String, // "deleteStream"
+    _transaction_id: u8,   // 0
     // command_object is null
     stream_id: f64,
 }
 
 #[derive(Debug)]
 pub struct ReceiveAudioCommand {
-    command_name: String, // "receiveAudio"
-    transaction_id: u8,   // 0
+    _command_name: String, // "receiveAudio"
+    _transaction_id: u8,   // 0
     // command_object is null
     pub bool_flag: bool,
 }
 
 #[derive(Debug)]
 pub struct ReceiveVideoCommand {
-    command_name: String, // "receiveVideo"
-    transaction_id: u8,   // 0
+    _command_name: String, // "receiveVideo"
+    _transaction_id: u8,   // 0
     // command_object is null
     pub bool_flag: bool,
 }
 
 #[derive(Debug)]
 pub struct PublishCommand {
-    command_name: String, // "publish"
-    transaction_id: u8,   // 0
+    _command_name: String, // "publish"
+    _transaction_id: u8,   // 0
     // command_object is null
     pub publishing_name: String, // stream name
     pub publishing_type: String, // "live", "record", "append"
@@ -366,16 +366,16 @@ pub struct PublishCommand {
 
 #[derive(Debug)]
 pub struct SeekCommand {
-    command_name: String, // "seek"
-    transaction_id: u8,   // 0
+    _command_name: String, // "seek"
+    _transaction_id: u8,   // 0
     // command_object is null
     milliseconds: u64,
 }
 
 #[derive(Debug)]
 pub struct PauseCommand {
-    command_name: String, // "pause"
-    transaction_id: u8,   // 0
+    _command_name: String, // "pause"
+    _transaction_id: u8,   // 0
     // command_object is null
     pause_flag: bool, // pause or unpause
     milliseconds: u64,
@@ -427,7 +427,7 @@ impl RtmpC2SCommands {
     where
         W: io::Write,
     {
-        writer::Writer::new(inner, version).write_c2s_command(&self)
+        writer::Writer::new(inner, version).write_c2s_command(self)
     }
 }
 

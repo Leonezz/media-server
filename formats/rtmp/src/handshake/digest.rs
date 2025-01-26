@@ -7,8 +7,8 @@ use super::{
     errors::DigestError,
 };
 
-///! @see: https://blog.csdn.net/win_lin/article/details/13006803
-///! @see: https://github.com/harlanc/xiu/blob/master/protocol/rtmp/src/handshake/handshake_client.rs
+// @see: https://blog.csdn.net/win_lin/article/details/13006803
+// @see: https://github.com/harlanc/xiu/blob/master/protocol/rtmp/src/handshake/handshake_client.rs
 
 /// two types of schema for c1s1 random bytes:
 /// schema1:
@@ -86,9 +86,9 @@ pub fn validate_c1_digest(random_bytes: &[u8; RTMP_HANDSHAKE_SIZE]) -> DigestRes
         .or_else(|_| validate_c1_digest_with_schema(random_bytes, DigestSchema::Schema2))
 }
 
-pub fn make_digest(key: &[u8], message: &Vec<u8>) -> DigestResult<Vec<u8>> {
+pub fn make_digest(key: &[u8], message: &[u8]) -> DigestResult<Vec<u8>> {
     let mut hmac = Hmac::<Sha256>::new_from_slice(key).expect("HMAC can take key of any size");
-    hmac.update(&message);
+    hmac.update(message);
     let result = hmac.finalize().into_bytes();
     if result.len() != SHA256_DIGEST_SIZE {
         return Err(DigestError::WrongLength {

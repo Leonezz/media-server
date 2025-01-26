@@ -54,9 +54,9 @@ pub enum VideoPacketType {
     // 15 - reserved
 }
 
-impl Into<u8> for VideoPacketType {
-    fn into(self) -> u8 {
-        self as u8
+impl From<VideoPacketType> for u8 {
+    fn from(value: VideoPacketType) -> Self {
+        value as u8
     }
 }
 
@@ -108,9 +108,9 @@ pub enum VideoPacketModExType {
     // 15 - reserved
 }
 
-impl Into<u8> for VideoPacketModExType {
-    fn into(self) -> u8 {
-        self as u8
+impl From<VideoPacketModExType> for u8 {
+    fn from(value: VideoPacketModExType) -> Self {
+        value as u8
     }
 }
 
@@ -143,9 +143,9 @@ pub mod video_four_cc_value {
     pub const HEVC_VALUE: u32 = make_four_cc("hvc1");
 }
 
-impl Into<u32> for VideoFourCC {
-    fn into(self) -> u32 {
-        match self {
+impl From<VideoFourCC> for u32 {
+    fn from(value: VideoFourCC) -> Self {
+        match value {
             VideoFourCC::VP8 => video_four_cc_value::VP8_VALUE,
             VideoFourCC::VP9 => video_four_cc_value::VP9_VALUE,
             VideoFourCC::AV1 => video_four_cc_value::AV1_VALUE,

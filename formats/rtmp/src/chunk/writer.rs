@@ -4,7 +4,6 @@ use std::{
     cmp::min,
     collections::HashMap,
     io::{Cursor, Read, Write},
-    u32,
 };
 use tokio::{io::BufWriter, net::TcpStream};
 use tokio_util::{
@@ -34,8 +33,8 @@ use crate::{
 };
 
 use super::{
-    CSID, ChunkBasicHeader, ChunkBasicHeaderType, ChunkMessage, ChunkMessageCommonHeader,
-    ChunkMessageHeader, RtmpChunkMessageBody,
+    ChunkBasicHeader, ChunkBasicHeaderType, ChunkMessage, ChunkMessageCommonHeader,
+    ChunkMessageHeader, Csid, RtmpChunkMessageBody,
     consts::{MAX_TIMESTAMP, csid},
     errors::ChunkMessageResult,
 };
@@ -51,7 +50,7 @@ struct WriteContext {
     previous_message_header: Option<ChunkMessageHeader>,
 }
 
-type ChunkMessageWriteContext = HashMap<CSID, WriteContext>;
+type ChunkMessageWriteContext = HashMap<Csid, WriteContext>;
 
 #[derive(Debug)]
 pub struct Writer {
@@ -383,14 +382,15 @@ impl Writer {
         self.write(
             ChunkMessage {
                 header: Self::make_command_common_header()?,
-                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(Box::new(
                     RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::Connect(message)),
-                ),
+                )),
             },
             version,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn write_connect_response(
         &mut self,
         success: bool,
@@ -417,7 +417,7 @@ impl Writer {
         self.write(
             ChunkMessage {
                 header: Self::make_command_common_header()?,
-                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(Box::new(
                     RtmpUserMessageBody::S2Command(RtmpS2CCommands::Connect(
                         ConnectCommandResponse {
                             success,
@@ -426,7 +426,7 @@ impl Writer {
                             information: Some(Either::Right(information)),
                         },
                     )),
-                ),
+                )),
             },
             encoding,
         )
@@ -436,9 +436,9 @@ impl Writer {
         self.write(
             ChunkMessage {
                 header: Self::make_command_common_header()?,
-                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(Box::new(
                     RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::Call(message)),
-                ),
+                )),
             },
             amf::Version::Amf0,
         )
@@ -454,7 +454,7 @@ impl Writer {
         self.write(
             ChunkMessage {
                 header: Self::make_command_common_header()?,
-                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(Box::new(
                     RtmpUserMessageBody::S2Command(RtmpS2CCommands::Call(CallCommandResponse {
                         command_name: if success {
                             s2c_command_names::RESULT.to_string()
@@ -465,7 +465,7 @@ impl Writer {
                         command_object,
                         response,
                     })),
-                ),
+                )),
             },
             amf::Version::Amf0,
         )
@@ -478,9 +478,9 @@ impl Writer {
         self.write(
             ChunkMessage {
                 header: Self::make_command_common_header()?,
-                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(Box::new(
                     RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::CreateStream(message)),
-                ),
+                )),
             },
             amf::Version::Amf0,
         )
@@ -496,7 +496,7 @@ impl Writer {
         self.write(
             ChunkMessage {
                 header: Self::make_command_common_header()?,
-                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(Box::new(
                     RtmpUserMessageBody::S2Command(RtmpS2CCommands::CreateStream(
                         CreateStreamCommandResponse {
                             success,
@@ -505,7 +505,7 @@ impl Writer {
                             stream_id,
                         },
                     )),
-                ),
+                )),
             },
             amf::Version::Amf0,
         )
@@ -515,9 +515,9 @@ impl Writer {
         self.write(
             ChunkMessage {
                 header: Self::make_command_common_header()?,
-                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(Box::new(
                     RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::Play(message)),
-                ),
+                )),
             },
             amf::Version::Amf0,
         )
@@ -527,9 +527,9 @@ impl Writer {
         self.write(
             ChunkMessage {
                 header: Self::make_command_common_header()?,
-                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(Box::new(
                     RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::Play2(message)),
-                ),
+                )),
             },
             amf::Version::Amf0,
         )
@@ -542,9 +542,9 @@ impl Writer {
         self.write(
             ChunkMessage {
                 header: Self::make_command_common_header()?,
-                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(Box::new(
                     RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::DeleteStream(message)),
-                ),
+                )),
             },
             amf::Version::Amf0,
         )
@@ -557,9 +557,9 @@ impl Writer {
         self.write(
             ChunkMessage {
                 header: Self::make_command_common_header()?,
-                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(Box::new(
                     RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::ReceiveAudio(message)),
-                ),
+                )),
             },
             amf::Version::Amf0,
         )
@@ -572,9 +572,9 @@ impl Writer {
         self.write(
             ChunkMessage {
                 header: Self::make_command_common_header()?,
-                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(Box::new(
                     RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::ReceiveVideo(message)),
-                ),
+                )),
             },
             amf::Version::Amf0,
         )
@@ -584,9 +584,9 @@ impl Writer {
         self.write(
             ChunkMessage {
                 header: Self::make_command_common_header()?,
-                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(Box::new(
                     RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::Publish(message)),
-                ),
+                )),
             },
             amf::Version::Amf0,
         )
@@ -596,9 +596,9 @@ impl Writer {
         self.write(
             ChunkMessage {
                 header: Self::make_command_common_header()?,
-                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(Box::new(
                     RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::Seek(message)),
-                ),
+                )),
             },
             amf::Version::Amf0,
         )
@@ -608,9 +608,9 @@ impl Writer {
         self.write(
             ChunkMessage {
                 header: Self::make_command_common_header()?,
-                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(Box::new(
                     RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::Pause(message)),
-                ),
+                )),
             },
             amf::Version::Amf0,
         )
@@ -634,13 +634,13 @@ impl Writer {
         self.write(
             ChunkMessage {
                 header: Self::make_command_common_header()?,
-                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(Box::new(
                     RtmpUserMessageBody::S2Command(RtmpS2CCommands::OnStatus(OnStatusCommand {
                         command_name: ON_STATUS.into(),
                         transaction_id: 0,
                         info_object,
                     })),
-                ),
+                )),
             },
             amf::Version::Amf0,
         )
@@ -650,7 +650,7 @@ impl Writer {
         let timestamp = get_timestamp_ms()? as u32;
         Ok(ChunkMessageCommonHeader {
             basic_header: ChunkBasicHeader::new(0, csid::NET_CONNECTION_COMMAND.into())?,
-            timestamp: timestamp,
+            timestamp,
             message_length: 0, //NOTE - length will be justified later
             message_type_id: RtmpMessageType::AMF0Command.into(),
             message_stream_id: 0, //TODO - check this out
@@ -665,7 +665,7 @@ impl Writer {
             ChunkMessage {
                 header: ChunkMessageCommonHeader {
                     basic_header: ChunkBasicHeader::new(0, csid::NET_CONNECTION_COMMAND2.into())?,
-                    timestamp: timestamp,
+                    timestamp,
                     message_length: 0,
                     message_type_id: RtmpMessageType::AMF0Data.into(),
                     message_stream_id: 0,
@@ -673,9 +673,9 @@ impl Writer {
                     // we do not need this to write
                     runtime_stat: Default::default(),
                 },
-                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(Box::new(
                     RtmpUserMessageBody::MetaData { payload: meta },
-                ),
+                )),
             },
             amf::Version::Amf0,
         )
@@ -694,9 +694,9 @@ impl Writer {
                     // we do not need this to write
                     runtime_stat: Default::default(),
                 },
-                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(Box::new(
                     RtmpUserMessageBody::Audio { payload: message },
-                ),
+                )),
             },
             amf::Version::Amf0,
         )
@@ -715,9 +715,9 @@ impl Writer {
                     // we do not need this to write
                     runtime_stat: Default::default(),
                 },
-                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(
+                chunk_message_body: RtmpChunkMessageBody::RtmpUserMessage(Box::new(
                     RtmpUserMessageBody::Video { payload: message },
-                ),
+                )),
             },
             amf::Version::Amf0,
         )
@@ -742,13 +742,15 @@ impl Writer {
             );
         }
 
-        let ctx = self.context.get_mut(&basic_header.chunk_stream_id).expect(
-            format!(
-                "there should be {} in context map",
-                basic_header.chunk_stream_id
-            )
-            .as_str(),
-        );
+        let ctx = self
+            .context
+            .get_mut(&basic_header.chunk_stream_id)
+            .unwrap_or_else(|| {
+                panic!(
+                    "there should be {} in context map",
+                    basic_header.chunk_stream_id
+                )
+            });
 
         // maybe something weird happened, but we don't know what type the last message header is
         if ctx.previous_message_header.is_none() {
@@ -785,31 +787,31 @@ impl Writer {
             && ctx.message_type_id == value.message_type_id
             && ctx.timestamp_delta == value.timestamp - ctx.timestamp
         {
-            return (
+            (
                 basic_header,
                 ChunkMessageHeader::Type3(super::ChunkMessageHeaderType3 {}),
-            );
+            )
         } else if ctx.message_length == value.message_length
             && ctx.message_stream_id == value.message_stream_id
             && ctx.message_type_id == value.message_type_id
         {
-            return (
+            (
                 basic_header,
                 ChunkMessageHeader::Type2(super::ChunkMessageHeaderType2 {
                     timestamp_delta: value.timestamp - ctx.timestamp,
                 }),
-            );
+            )
         } else if ctx.message_stream_id == value.message_stream_id {
-            return (
+            (
                 basic_header,
                 ChunkMessageHeader::Type1(super::ChunkMessageHeaderType1 {
                     timestamp_delta: value.timestamp - ctx.timestamp,
                     message_length: value.message_length,
                     message_type_id: value.message_type_id,
                 }),
-            );
+            )
         } else {
-            return (
+            (
                 basic_header,
                 ChunkMessageHeader::Type0(super::ChunkMessageHeaderType0 {
                     timestamp: value.timestamp,
@@ -817,7 +819,7 @@ impl Writer {
                     message_type_id: value.message_type_id,
                     message_stream_id: value.message_stream_id,
                 }),
-            );
+            )
         }
     }
 
@@ -846,7 +848,7 @@ impl Writer {
     fn write_message_header(
         &mut self,
         header: &ChunkMessageHeader,
-        csid: CSID,
+        csid: Csid,
     ) -> ChunkMessageResult<()> {
         self.inner.reserve(20);
         match header {
@@ -862,13 +864,13 @@ impl Writer {
                     self.inner.write_u32::<BigEndian>(header.timestamp)?;
                 }
 
-                if !self.context.contains_key(&csid) {
-                    self.context.insert(csid, WriteContext::default());
-                }
+                // insert default if not exist, very rusty way
+                self.context.entry(csid).or_default();
+
                 let ctx = self
                     .context
                     .get_mut(&csid)
-                    .expect(format!("there should be {} in context map", csid).as_str());
+                    .unwrap_or_else(|| panic!("there should be {} in context map", csid));
 
                 ctx.extended_timestamp_enabled = extended_timestamp_enabled;
                 ctx.timestamp = header.timestamp;
@@ -899,7 +901,7 @@ impl Writer {
                 let ctx = self
                     .context
                     .get_mut(&csid)
-                    .expect(format!("there should be {} in context map", csid).as_str());
+                    .unwrap_or_else(|| panic!("there should be {} in context map", csid));
 
                 ctx.extended_timestamp_enabled = extended_timestamp_enabled;
                 ctx.timestamp_delta = header.timestamp_delta;
@@ -927,7 +929,7 @@ impl Writer {
                 let ctx = self
                     .context
                     .get_mut(&csid)
-                    .expect(format!("there should be {} in context map", csid).as_str());
+                    .unwrap_or_else(|| panic!("there should be {} in context map", csid));
 
                 ctx.extended_timestamp_enabled = extended_timestamp_enabled;
                 ctx.timestamp_delta = header.timestamp_delta;
@@ -950,5 +952,11 @@ impl Writer {
             }
         }
         Ok(())
+    }
+}
+
+impl Default for Writer {
+    fn default() -> Self {
+        Self::new()
     }
 }

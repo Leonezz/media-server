@@ -182,7 +182,7 @@ impl RtmpSession {
                 None => {}
                 Some(size) => {
                     if self.chunk_reader.get_bytes_read() >= size {
-                        self.ack_window_size(size as u32).await?;
+                        self.ack_window_size(size).await?;
                     }
                 }
             }
@@ -231,7 +231,7 @@ impl RtmpSession {
         }
 
         timeout(
-            Duration::from_millis(self.config.write_timeout_ms as u64),
+            Duration::from_millis(self.config.write_timeout_ms),
             async move {
                 self.chunk_writer.write_to(&mut self.stream).await?;
                 self.stream.flush().await?;
@@ -241,10 +241,10 @@ impl RtmpSession {
         )
         .await
         .map_err(|err| {
-            return RtmpServerError::Io(io::Error::new(
+            RtmpServerError::Io(io::Error::new(
                 io::ErrorKind::TimedOut,
                 format!("write chunk timeout, {}", err),
-            ));
+            ))
         })??;
         Ok(())
     }
@@ -280,8 +280,8 @@ impl RtmpSession {
                     Some(message) => {
                         self.process_message(message).await?;
                     }
-                    None => match &self.runtime_handle {
-                        SessionRuntime::Publish(handle) => {
+                    None => {
+                        if let SessionRuntime::Publish(handle) = &self.runtime_handle {
                             let current_time = SystemTime::now();
                             if current_time
                                 .duration_since(handle.no_data_since.unwrap_or(current_time))
@@ -294,8 +294,7 @@ impl RtmpSession {
                                 return Ok(());
                             }
                         }
-                        _ => {}
-                    },
+                    }
                 },
                 Err(err) => match err {
                     RtmpServerError::ChunkMessageReadFailed(
@@ -474,7 +473,7 @@ impl RtmpSession {
                 self.process_user_control_event(control).await?
             }
             RtmpChunkMessageBody::RtmpUserMessage(message) => {
-                self.process_user_message(message, header).await?
+                self.process_user_message(*message, header).await?
             }
         }
         Ok(())
@@ -485,7 +484,7 @@ impl RtmpSession {
         message: RtmpUserMessageBody,
         header: ChunkMessageCommonHeader,
     ) -> RtmpServerResult<()> {
-        let _ = match message {
+        match message {
             RtmpUserMessageBody::C2SCommand(command) => {
                 self.process_user_command(command, header).await?
             }
@@ -510,7 +509,7 @@ impl RtmpSession {
         header: ChunkMessageCommonHeader,
         audio: BytesMut,
     ) -> RtmpServerResult<()> {
-        let _ = match &mut self.runtime_handle {
+        match &mut self.runtime_handle {
             SessionRuntime::Publish(handle) => {
                 handle.no_data_since = None;
 
@@ -558,7 +557,7 @@ impl RtmpSession {
         header: ChunkMessageCommonHeader,
         video: BytesMut,
     ) -> RtmpServerResult<()> {
-        let _ = match &mut self.runtime_handle {
+        match &mut self.runtime_handle {
             SessionRuntime::Publish(handle) => {
                 handle.no_data_since = None;
 
@@ -605,7 +604,7 @@ impl RtmpSession {
         header: ChunkMessageCommonHeader,
         payload: BytesMut,
     ) -> RtmpServerResult<()> {
-        let _ = match &mut self.runtime_handle {
+        match &mut self.runtime_handle {
             SessionRuntime::Publish(handle) => {
                 handle.no_data_since = None;
 
@@ -652,7 +651,7 @@ impl RtmpSession {
         header: ChunkMessageCommonHeader,
         aggregate: BytesMut,
     ) -> RtmpServerResult<()> {
-        let _ = match &mut self.runtime_handle {
+        match &mut self.runtime_handle {
             SessionRuntime::Publish(handle) => {
                 handle.no_data_since = None;
 
@@ -784,7 +783,7 @@ impl RtmpSession {
         Ok(())
     }
 
-    ///! for enhanced rtmp reconnect command, might not be useful
+    // for enhanced rtmp reconnect command, might not be useful
     #[allow(dead_code)]
     async fn write_reconnect_command(
         &mut self,
@@ -828,9 +827,9 @@ impl RtmpSession {
                     stream_name,
                     app
                 );
-                return RtmpServerError::ChannelSendFailed {
+                RtmpServerError::ChannelSendFailed {
                     backtrace: Backtrace::capture(),
-                };
+                }
             })?;
 
         match rx.await {
@@ -991,15 +990,14 @@ impl RtmpSession {
         stream_name: &str,
         stream_type: StreamType,
     ) -> RtmpServerResult<()> {
-        match self.runtime_handle {
-            SessionRuntime::Publish(_) => return Ok(()),
-            _ => {}
-        };
+        if let SessionRuntime::Publish(_) = self.runtime_handle {
+            return Ok(());
+        }
 
         if stream_name.is_empty() {
-            return Err(RtmpServerError::InvalidStreamParam(format!(
-                "stream publish need at least stream_name, got empty"
-            )));
+            return Err(RtmpServerError::InvalidStreamParam(
+                "stream publish need at least stream_name, got empty".to_owned(),
+            ));
         }
 
         self.stream_properties.stream_name = stream_name.to_string();
@@ -1023,9 +1021,9 @@ impl RtmpSession {
                     stream_name,
                     self.stream_properties.app.clone(),
                 );
-                return RtmpServerError::ChannelSendFailed {
+                RtmpServerError::ChannelSendFailed {
                     backtrace: Backtrace::capture(),
-                };
+                }
             })?;
 
         match rx.await {
@@ -1071,9 +1069,7 @@ impl RtmpSession {
                 let stream_name = match &request.optional_arguments {
                     None => None,
                     Some(v) => match v {
-                        Either::Left(amf_any) => {
-                            amf_any.try_as_str().map_or_else(|| None, |v| Some(v))
-                        }
+                        Either::Left(amf_any) => amf_any.try_as_str().map_or_else(|| None, Some),
                         Either::Right(_map) => None,
                     },
                 };
@@ -1146,9 +1142,9 @@ impl RtmpSession {
                     stream_name,
                     app
                 );
-                return RtmpServerError::ChannelSendFailed {
+                RtmpServerError::ChannelSendFailed {
                     backtrace: Backtrace::capture(),
-                };
+                }
             })?;
 
         match rx.await {
@@ -1158,9 +1154,9 @@ impl RtmpSession {
                     stream_name,
                     app
                 );
-                return Err(RtmpServerError::ChannelSendFailed {
+                Err(RtmpServerError::ChannelSendFailed {
                     backtrace: Backtrace::capture(),
-                });
+                })
             }
             Ok(Err(err)) => {
                 tracing::error!(
@@ -1169,7 +1165,7 @@ impl RtmpSession {
                     stream_name,
                     app
                 );
-                return Err(err.into());
+                Err(err.into())
             }
             Ok(Ok(response)) => {
                 tracing::info!(
@@ -1206,9 +1202,9 @@ impl RtmpSession {
                     app,
                     uuid,
                 );
-                return RtmpServerError::ChannelSendFailed {
+                RtmpServerError::ChannelSendFailed {
                     backtrace: Backtrace::capture(),
-                };
+                }
             })?;
 
         match rx.await {
@@ -1247,10 +1243,10 @@ impl RtmpSession {
         tracing::info!("got play request: {:?}", request);
         let stream_play_path = format!("rtmp://fake_host/{}", request.stream_name);
         let url = Url::parse(&stream_play_path).map_err(|err| {
-            return RtmpServerError::InvalidStreamParam(format!(
+            RtmpServerError::InvalidStreamParam(format!(
                 "stream play code parse failed: {:?}, should be url path format, got: {}",
                 err, request.stream_name
-            ));
+            ))
         })?;
 
         let stream_name = url.path_segments();
@@ -1260,7 +1256,7 @@ impl RtmpSession {
                 request.stream_name
             )));
         }
-        let stream_name = stream_name.unwrap().collect::<Vec<&str>>().get(0).cloned();
+        let stream_name = stream_name.unwrap().collect::<Vec<&str>>().first().cloned();
         if stream_name.is_none() {
             return Err(RtmpServerError::InvalidStreamParam(format!(
                 "stream play code parse failed, no stream_name: {}",
@@ -1274,8 +1270,8 @@ impl RtmpSession {
                 .insert(k.to_string(), v.to_string());
         }
 
-        let start = request.start; // this might by useful
-        let duration = request.duration; // this might by useful
+        let _start = request.start; // this might by useful
+        let _duration = request.duration; // this might by useful
         let reset = request.reset; // this should be ignored
 
         self.stream_properties.stream_name = stream_name.to_string();
@@ -1343,7 +1339,7 @@ impl RtmpSession {
         Ok(())
     }
 
-    fn process_play2_request(&mut self, request: Play2Command) -> RtmpServerResult<()> {
+    fn process_play2_request(&mut self, _request: Play2Command) -> RtmpServerResult<()> {
         todo!()
     }
 
@@ -1381,7 +1377,7 @@ impl RtmpSession {
         Ok(())
     }
 
-    fn process_seek_request(&mut self, request: SeekCommand) -> RtmpServerResult<()> {
+    fn process_seek_request(&mut self, _request: SeekCommand) -> RtmpServerResult<()> {
         todo!()
     }
 

@@ -9,17 +9,11 @@ pub mod writer;
 impl ExVideoTagHeader {
     #[inline]
     pub fn is_sequence_header(&self) -> bool {
-        match self.packet_type {
-            VideoPacketType::SequenceStart => true,
-            _ => false,
-        }
+        matches!(self.packet_type, VideoPacketType::SequenceStart)
     }
 
     #[inline]
     pub fn is_key_frame(&self) -> bool {
-        match self.frame_type {
-            FrameType::KeyFrame => true,
-            _ => false,
-        }
+        matches!(self.frame_type, FrameType::KeyFrame)
     }
 }

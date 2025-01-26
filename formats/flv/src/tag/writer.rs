@@ -50,20 +50,20 @@ where
             FLVTagBody::Audio { header, body } => {
                 match header {
                     Either::Left(header) => header.write_to(self.inner.by_ref())?,
-                    Either::Right(ex_header) => {
+                    Either::Right(_ex_header) => {
                         todo!()
                     }
                 }
-                self.inner.write_all(&body)?;
+                self.inner.write_all(body)?;
             }
             FLVTagBody::Video { header, body } => {
                 match header {
                     Either::Left(header) => header.write_to(self.inner.by_ref())?,
-                    Either::Right(ex_header) => {
+                    Either::Right(_ex_header) => {
                         todo!()
                     }
                 }
-                self.inner.write_all(&body)?;
+                self.inner.write_all(body)?;
             }
             FLVTagBody::Script { name, value } => {
                 amf::amf0::Value::String(name.clone()).write_to(self.inner.by_ref())?;

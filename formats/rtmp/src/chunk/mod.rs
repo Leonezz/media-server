@@ -21,19 +21,19 @@ enum ChunkBasicHeaderType {
     Type3 = 3,
 }
 
-type CSID = u32;
+type Csid = u32;
 
-///! @see: 5.3.1.1. Chunk Basic Header
-///! 1, 2 or 3 bytes
+// @see: 5.3.1.1. Chunk Basic Header
+// 1, 2 or 3 bytes
 #[derive(Debug, Clone)]
 pub struct ChunkBasicHeader {
     header_type: ChunkBasicHeaderType,
     fmt: u8,               // 2 bits
-    chunk_stream_id: CSID, // 6 bits / 1 byte / 2 bytes
+    chunk_stream_id: Csid, // 6 bits / 1 byte / 2 bytes
 }
 
 impl ChunkBasicHeader {
-    pub fn new(fmt: u8, csid: CSID) -> ChunkMessageResult<Self> {
+    pub fn new(fmt: u8, csid: Csid) -> ChunkMessageResult<Self> {
         let header_type = match csid {
             id if id > 1 && id < 64 => ChunkBasicHeaderType::Type1,
             id if id > 63 && id < 320 => ChunkBasicHeaderType::Type2,
@@ -62,10 +62,10 @@ impl ChunkBasicHeader {
     }
 }
 
-///! @see: 5.3.1.2. Chunk Message Header
-///! @see: 5.3.1.2.1. Type 0 - for start of a chunk stream, or for timestamp backwards
-///! 11 bytes total
-///! the timestamp fields must by less or equal then 0xFFFF, and enables extend timestamp field if timestamp equals to 0xFFFF
+// @see: 5.3.1.2. Chunk Message Header
+// @see: 5.3.1.2.1. Type 0 - for start of a chunk stream, or for timestamp backwards
+// 11 bytes total
+// the timestamp fields must by less or equal then 0xFFFF, and enables extend timestamp field if timestamp equals to 0xFFFF
 ///  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 /// |                   timestamp                   |message length |
@@ -83,8 +83,8 @@ pub struct ChunkMessageHeaderType0 {
     message_stream_id: u32, // 4 byte, little endian
 }
 
-///! @see: 5.3.1.2.2. Type 1 - this chunk takes the same stream ID as the preceding chunk
-///! 7 bytes
+// @see: 5.3.1.2.2. Type 1 - this chunk takes the same stream ID as the preceding chunk
+// 7 bytes
 ///  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 /// |                timestamp delta                |message length |
@@ -99,8 +99,8 @@ pub struct ChunkMessageHeaderType1 {
     message_type_id: u8,  // 1 byte
 }
 
-///! @see: 5.3.1.2.3. Type 2 - for streams with constant-sized messages
-///! 3 bytes
+// @see: 5.3.1.2.3. Type 2 - for streams with constant-sized messages
+// 3 bytes
 ///  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 /// |                timestamp delta                |
@@ -111,7 +111,7 @@ pub struct ChunkMessageHeaderType2 {
     timestamp_delta: u32, // 3 bytes
 }
 
-///! @see: 5.3.1.2.4. Type 3 - for one message split into multiple chunks
+// @see: 5.3.1.2.4. Type 3 - for one message split into multiple chunks
 /// there are no message header for this type
 #[derive(Debug)]
 pub struct ChunkMessageHeaderType3 {}
@@ -153,7 +153,7 @@ pub struct ChunkMessageCommonHeader {
     pub runtime_stat: RuntimeStat,
 }
 
-///! @see: 5.3.1. Chunk Format
+// @see: 5.3.1. Chunk Format
 /// +--------------+----------------+--------------------+--------------+
 /// | Basic Header | Message Header | Extended Timestamp |  Chunk Data  |
 /// +--------------+----------------+--------------------+--------------+
@@ -170,7 +170,7 @@ pub struct ChunkMessage {
 pub enum RtmpChunkMessageBody {
     ProtocolControl(ProtocolControlMessage),
     UserControl(UserControlEvent),
-    RtmpUserMessage(RtmpUserMessageBody),
+    RtmpUserMessage(Box<RtmpUserMessageBody>),
 }
 
 #[repr(u8)]

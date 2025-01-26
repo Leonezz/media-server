@@ -31,10 +31,9 @@ where
             RtmpUserMessageBody::MetaData { payload }
             | RtmpUserMessageBody::Audio { payload }
             | RtmpUserMessageBody::Video { payload }
-            | RtmpUserMessageBody::Aggregate { payload } => self
-                .inner
-                .write_all(&payload)
-                .map_err(|err| ChunkMessageError::Io(err)),
+            | RtmpUserMessageBody::Aggregate { payload } => {
+                self.inner.write_all(payload).map_err(ChunkMessageError::Io)
+            }
             RtmpUserMessageBody::SharedObject() => todo!(),
         }
     }

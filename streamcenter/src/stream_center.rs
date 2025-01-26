@@ -12,10 +12,7 @@ use crate::{
     events::{StreamCenterEvent, SubscribeResponse},
     frame_info::ChunkFrameData,
     signal::StreamSignal,
-    stream_source::{
-        ConsumeGopCache, ParsedContext, StreamIdentifier, StreamSource, StreamType,
-        SubscribeHandler,
-    },
+    stream_source::{ParsedContext, StreamIdentifier, StreamSource, StreamType, SubscribeHandler},
 };
 
 #[derive(Debug)]
@@ -27,9 +24,9 @@ pub struct StreamSourceDynamicInfo {
 #[derive(Debug)]
 struct StreamSourceHandles {
     signal_sender: mpsc::Sender<StreamSignal>,
-    source_sender: mpsc::Sender<ChunkFrameData>,
+    _source_sender: mpsc::Sender<ChunkFrameData>,
 
-    stream_identifier: StreamIdentifier,
+    _stream_identifier: StreamIdentifier,
     stream_type: StreamType,
 
     data_distributer: Arc<RwLock<HashMap<Uuid, SubscribeHandler>>>,
@@ -118,9 +115,9 @@ impl StreamCenter {
                 .send(Err(StreamCenterError::DuplicateStream(stream_id.clone())))
                 .map_err(|err| {
                     tracing::error!("deliver publish fail result to caller failed, {:?}", err);
-                    return StreamCenterError::ChannelSendFailed {
+                    StreamCenterError::ChannelSendFailed {
                         backtrace: Backtrace::capture(),
-                    };
+                    }
                 });
         }
 
@@ -146,8 +143,8 @@ impl StreamCenter {
 
         self.streams.insert(stream_id.clone(), StreamSourceHandles {
             signal_sender,
-            source_sender: frame_sender.clone(),
-            stream_identifier: stream_id.clone(),
+            _source_sender: frame_sender.clone(),
+            _stream_identifier: stream_id.clone(),
             stream_type,
             data_distributer,
             stream_dynamic_info: stream_source_dynamic_info,
@@ -155,9 +152,9 @@ impl StreamCenter {
 
         result_sender.send(Ok(frame_sender)).map_err(|err| {
             tracing::error!("deliver publish success result to caller failed, {:?}", err);
-            return StreamCenterError::ChannelSendFailed {
+            StreamCenterError::ChannelSendFailed {
                 backtrace: Backtrace::capture(),
-            };
+            }
         })?;
 
         tracing::info!(
@@ -186,9 +183,9 @@ impl StreamCenter {
                         "deliver unpublish failed result to caller failed, {:?}",
                         err
                     );
-                    return StreamCenterError::ChannelSendFailed {
+                    StreamCenterError::ChannelSendFailed {
                         backtrace: Backtrace::capture(),
-                    };
+                    }
                 }),
             Some(handles) => {
                 let _ = handles
@@ -197,9 +194,9 @@ impl StreamCenter {
                     .await
                     .map_err(|err| {
                         tracing::error!("send stop signal to stream source failed, {:?}", err);
-                        return StreamCenterError::ChannelSendFailed {
+                        StreamCenterError::ChannelSendFailed {
                             backtrace: Backtrace::capture(),
-                        };
+                        }
                     });
 
                 result_sender.send(Ok(())).map_err(|err| {
@@ -207,9 +204,9 @@ impl StreamCenter {
                         "deliver unpublish success result to caller failed, {:?}",
                         err
                     );
-                    return StreamCenterError::ChannelSendFailed {
+                    StreamCenterError::ChannelSendFailed {
                         backtrace: Backtrace::capture(),
-                    };
+                    }
                 })?;
                 tracing::info!(
                     "ubpublish stream success, stream_name: {}, app: {} total stream count: {}",
@@ -236,7 +233,7 @@ impl StreamCenter {
                         "deliver subscribe failed result to caller failed, {:?}",
                         err
                     );
-                    return StreamCenterError::StreamNotFound(stream_id.clone());
+                    StreamCenterError::StreamNotFound(stream_id.clone())
                 });
         }
 
@@ -252,7 +249,7 @@ impl StreamCenter {
                 .data_distributer
                 .write()
                 .await
-                .insert(uuid.clone(), SubscribeHandler {
+                .insert(uuid, SubscribeHandler {
                     context,
                     parsed_context,
                     data_sender: tx,
@@ -267,7 +264,7 @@ impl StreamCenter {
         result_sender
             .send(Ok(SubscribeResponse {
                 subscribe_id: uuid,
-                stream_type: stream_type,
+                stream_type,
                 has_video: source_has_video,
                 has_audio: source_has_audio,
                 media_receiver: rx,
@@ -277,9 +274,9 @@ impl StreamCenter {
                     "deliver subscribe success result to caller failed, {:?}",
                     err
                 );
-                return StreamCenterError::ChannelSendFailed {
+                StreamCenterError::ChannelSendFailed {
                     backtrace: Backtrace::capture(),
-                };
+                }
             })?;
         tracing::info!(
             "subscribe stream success, stream_name: {}, app: {}, stream_type: {}, uuid: {}",
@@ -305,7 +302,7 @@ impl StreamCenter {
                         "deliver unsubscribe fail result to caller failed, {:?}",
                         err
                     );
-                    return StreamCenterError::StreamNotFound(stream_id.clone());
+                    StreamCenterError::StreamNotFound(stream_id.clone())
                 });
         }
         {
@@ -327,9 +324,9 @@ impl StreamCenter {
                 "deliver unsubscribe success result to caller failed, {:?}",
                 err
             );
-            return StreamCenterError::ChannelSendFailed {
+            StreamCenterError::ChannelSendFailed {
                 backtrace: Backtrace::capture(),
-            };
+            }
         })?;
         tracing::info!(
             "unsubscribe stream success, stream_name: {}, app: {}, uuid: {}",
@@ -338,5 +335,11 @@ impl StreamCenter {
             uuid,
         );
         Ok(())
+    }
+}
+
+impl Default for StreamCenter {
+    fn default() -> Self {
+        Self::new()
     }
 }

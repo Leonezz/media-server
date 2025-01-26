@@ -47,12 +47,12 @@ impl Display for StreamType {
     }
 }
 
-impl Into<String> for StreamType {
-    fn into(self) -> String {
-        match self {
-            Self::Live => "live".to_string(),
-            Self::Record => "record".to_string(),
-            Self::Append => "append".to_string(),
+impl From<StreamType> for String {
+    fn from(value: StreamType) -> Self {
+        match value {
+            StreamType::Live => "live".to_owned(),
+            StreamType::Append => "append".to_owned(),
+            StreamType::Record => "record".to_owned(),
         }
     }
 }
@@ -64,7 +64,7 @@ impl TryFrom<String> for StreamType {
             "live" => Ok(StreamType::Live),
             "recorded" => Ok(StreamType::Record),
             "append" => Ok(StreamType::Append),
-            _ => Err(StreamCenterError::InvalidStreamType(value.into())),
+            _ => Err(StreamCenterError::InvalidStreamType(value)),
         }
     }
 }
@@ -329,7 +329,7 @@ impl StreamSource {
                     runtime_stat: meta.runtime_stat,
                     pts: meta.pts,
                     payload: payload.clone(),
-                    on_meta_data,
+                    on_meta_data: Box::new(on_meta_data),
                 }])
             }
             ChunkFrameData::Aggregate { meta, data } => {

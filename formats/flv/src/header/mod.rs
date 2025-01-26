@@ -31,8 +31,8 @@ impl FLVHeader {
         Self {
             flv_marker: [b'F', b'L', b'V'],
             flv_version: 1,
-            has_audio: has_audio,
-            has_video: has_video,
+            has_audio,
+            has_video,
             data_offset: 9,
         }
     }

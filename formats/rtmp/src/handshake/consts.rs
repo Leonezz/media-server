@@ -23,17 +23,17 @@ pub const RTMP_CLIENT_VERSION: FourBytes = FourBytes([0x0C, 0x00, 0x0D, 0x0E]);
 pub const RTMP_HANDSHAKE_SIZE: usize = 1536;
 pub const SHA256_DIGEST_SIZE: usize = 32;
 
-impl Into<u32> for FourBytes {
-    fn into(self) -> u32 {
+impl From<FourBytes> for u32 {
+    fn from(value: FourBytes) -> Self {
         let mut res: u32 = 0;
         res <<= 8;
-        res |= self.0[0] as u32;
+        res |= value.0[0] as u32;
         res <<= 8;
-        res |= self.0[1] as u32;
+        res |= value.0[1] as u32;
         res <<= 8;
-        res |= self.0[2] as u32;
+        res |= value.0[2] as u32;
         res <<= 8;
-        res |= self.0[3] as u32;
+        res |= value.0[3] as u32;
         res
     }
 }

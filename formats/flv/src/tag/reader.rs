@@ -44,7 +44,7 @@ where
     pub fn read_tag_header(&mut self) -> FLVResult<FLVTagHeader> {
         let first_byte = self.inner.read_u8()?;
         let filter_enabled = ((first_byte >> 5) & 0b1) != 0;
-        let tag_type: FLVTagType = ((first_byte >> 0) & 0b11111).try_into()?;
+        let tag_type: FLVTagType = (first_byte & 0b11111).try_into()?;
         let data_size = self.inner.read_u24::<BigEndian>()?;
         let timestamp = self.inner.read_u24::<BigEndian>()?;
         let timestamp_extended = self.inner.read_u8()?;
@@ -95,13 +95,14 @@ impl FLVTag {
                 let remaining_bytes = cursor_bytes.remaining();
                 audio_body_bytes.resize(remaining_bytes, 0);
                 cursor_bytes.read_exact(&mut audio_body_bytes)?;
-                return Ok(FLVTagBodyWithFilter {
+
+                Ok(FLVTagBodyWithFilter {
                     filter,
                     body: FLVTagBody::Audio {
                         header: tag_header,
                         body: audio_body_bytes,
                     },
-                });
+                })
             }
             FLVTagType::Video => {
                 let tag_header = video_tag_header::VideoTagHeader::read_from(&mut cursor_bytes)?;
@@ -109,13 +110,14 @@ impl FLVTag {
                 let remaining_bytes = cursor_bytes.remaining();
                 video_body_bytes.resize(remaining_bytes, 0);
                 cursor_bytes.read_exact(&mut video_body_bytes)?;
-                return Ok(FLVTagBodyWithFilter {
+
+                Ok(FLVTagBodyWithFilter {
                     filter,
                     body: FLVTagBody::Video {
                         header: tag_header,
                         body: video_body_bytes,
                     },
-                });
+                })
             }
             FLVTagType::Script => Ok(FLVTagBodyWithFilter {
                 filter,
@@ -129,7 +131,7 @@ impl FLVTag {
         Reader: io::Read,
     {
         let tag_header = EncryptionTagHeader::read_from(reader.by_ref())?;
-        let mut bytes = vec![0 as u8; tag_header.length as usize];
+        let mut bytes = vec![0_u8; tag_header.length as usize];
         reader.read_exact(&mut bytes)?;
         let mut cursor_bytes = Cursor::new(bytes);
         let filter_params = match tag_header.filter_name.as_str() {
@@ -163,18 +165,15 @@ impl FLVTag {
         }
 
         let name = name.expect("this cannot be none");
-        let name_str;
-        match name {
-            amf::amf0::Value::String(str) => {
-                name_str = str;
-            }
+        let name_str = match name {
+            amf::amf0::Value::String(str) => str,
             _ => {
                 return Err(FLVError::UnexpectedValue(format!(
                     "expect an amf string for meta name, got {:?} instead",
                     name
                 )));
             }
-        }
+        };
 
         let value = amf::amf0::Value::read_from(reader.by_ref())?;
         if value.is_none() {
@@ -183,18 +182,15 @@ impl FLVTag {
             ));
         }
         let value = value.expect("this cannot be none");
-        let value_arr;
-        match value {
-            amf::amf0::Value::ECMAArray(arr) => {
-                value_arr = arr;
-            }
+        let value_arr = match value {
+            amf::amf0::Value::ECMAArray(arr) => arr,
             _ => {
                 return Err(FLVError::UnexpectedValue(format!(
                     "expect an amf ECMA Array for meta value, got {:?} instead",
                     value
                 )));
             }
-        }
+        };
         Ok(FLVTagBody::Script {
             name: name_str,
             value: value_arr,

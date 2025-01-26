@@ -8,9 +8,6 @@ pub mod writer;
 impl ExAudioTagHeader {
     #[inline]
     pub fn is_sequence_header(&self) -> bool {
-        match self.packet_type {
-            AudioPacketType::SequenceStart => true,
-            _ => false,
-        }
+        matches!(self.packet_type, AudioPacketType::SequenceStart)
     }
 }

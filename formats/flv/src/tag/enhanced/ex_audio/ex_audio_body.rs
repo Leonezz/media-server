@@ -15,9 +15,9 @@ pub enum AudioChannelOrder {
     Custom = 2,
 }
 
-impl Into<u8> for AudioChannelOrder {
-    fn into(self) -> u8 {
-        self as u8
+impl From<AudioChannelOrder> for u8 {
+    fn from(value: AudioChannelOrder) -> Self {
+        value as u8
     }
 }
 
@@ -33,37 +33,37 @@ impl TryFrom<u8> for AudioChannelOrder {
     }
 }
 
-pub mod AudioChannelMask {
+pub mod audio_channel_mask {
     // Mask used to indicate which channels are present in the stream.
     // masks for commonly used speaker configurations
     // <https://en.wikipedia.org/wiki/Surround_sound#Standard_speaker_channels>
-    pub const FrontLeft: u32 = 0x000001;
-    pub const FrontRight: u32 = 0x000002;
-    pub const FrontCenter: u32 = 0x000004;
-    pub const LowFrequency1: u32 = 0x000008;
-    pub const BackLeft: u32 = 0x000010;
-    pub const BackRight: u32 = 0x000020;
-    pub const FrontLeftCenter: u32 = 0x000040;
-    pub const FrontRightCenter: u32 = 0x000080;
-    pub const BackCenter: u32 = 0x000100;
-    pub const SideLeft: u32 = 0x000200;
-    pub const SideRight: u32 = 0x000400;
-    pub const TopCenter: u32 = 0x000800;
-    pub const TopFrontLeft: u32 = 0x001000;
-    pub const TopFrontCenter: u32 = 0x002000;
-    pub const TopFrontRight: u32 = 0x004000;
-    pub const TopBackLeft: u32 = 0x008000;
-    pub const TopBackCenter: u32 = 0x010000;
-    pub const TopBackRight: u32 = 0x020000;
+    pub const FRONT_LEFT: u32 = 0x000001;
+    pub const FRONT_RIGHT: u32 = 0x000002;
+    pub const FRONT_CENTER: u32 = 0x000004;
+    pub const LOW_FREQUENCY1: u32 = 0x000008;
+    pub const BACK_LEFT: u32 = 0x000010;
+    pub const BACK_RIGHT: u32 = 0x000020;
+    pub const FRONT_LEFT_CENTER: u32 = 0x000040;
+    pub const FRONT_RIGHT_CENTER: u32 = 0x000080;
+    pub const BACK_CENTER: u32 = 0x000100;
+    pub const SIDE_LEFT: u32 = 0x000200;
+    pub const SIDE_RIGHT: u32 = 0x000400;
+    pub const TOP_CENTER: u32 = 0x000800;
+    pub const TOP_FRONT_LEFT: u32 = 0x001000;
+    pub const TOP_FRONT_CENTER: u32 = 0x002000;
+    pub const TOP_FRONT_RIGHT: u32 = 0x004000;
+    pub const TOP_BACK_LEFT: u32 = 0x008000;
+    pub const TOP_BACK_CENTER: u32 = 0x010000;
+    pub const TOP_BACK_RIGHT: u32 = 0x020000;
     // Completes 22.2 multichannel audio, as
     // standardized in SMPTE ST2036-2-2008
     // see - <https://en.wikipedia.org/wiki/22.2_surround_sound>
-    pub const LowFrequency2: u32 = 0x040000;
-    pub const TopSideLeft: u32 = 0x080000;
-    pub const TopSideRight: u32 = 0x100000;
-    pub const BottomFrontCenter: u32 = 0x200000;
-    pub const BottomFrontLeft: u32 = 0x400000;
-    pub const BottomFrontRight: u32 = 0x800000;
+    pub const LOW_FREQUENCY2: u32 = 0x040000;
+    pub const TOP_SIDE_LEFT: u32 = 0x080000;
+    pub const TOP_SIDE_RIGHT: u32 = 0x100000;
+    pub const BOTTOM_FRONT_CENTER: u32 = 0x200000;
+    pub const BOTTOM_FRONT_LEFT: u32 = 0x400000;
+    pub const BOTTOM_FRONT_RIGHT: u32 = 0x800000;
 }
 
 /// Channel mappings enums
@@ -107,7 +107,7 @@ pub enum AudioChannel {
     Unknown = 0xff,
 }
 
-pub const AudioChannelIndexes: [AudioChannel; 24] = [
+pub const AUDIO_CHANNEL_INDEXES: [AudioChannel; 24] = [
     AudioChannel::FrontLeft, // = 0, // i.e., FrontLeft is assigned to channel zero
     AudioChannel::FrontRight, // = 1,
     AudioChannel::FrontCenter, //  = 2,
@@ -134,9 +134,9 @@ pub const AudioChannelIndexes: [AudioChannel; 24] = [
     AudioChannel::BottomFrontRight, // = 23,
 ];
 
-impl Into<u8> for AudioChannel {
-    fn into(self) -> u8 {
-        self as u8
+impl From<AudioChannel> for u8 {
+    fn from(value: AudioChannel) -> Self {
+        value as u8
     }
 }
 
@@ -144,7 +144,7 @@ impl TryFrom<u8> for AudioChannel {
     type Error = FLVError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         if value < 24 {
-            return Ok(AudioChannelIndexes[value as usize]);
+            return Ok(AUDIO_CHANNEL_INDEXES[value as usize]);
         }
 
         if value == AudioChannel::Unused.into() {
@@ -161,10 +161,10 @@ impl TryFrom<u8> for AudioChannel {
 
 pub fn read_channels_from_mask(mask: u32) -> Vec<AudioChannel> {
     let mut result = Vec::new();
-    for i in 0..24 {
+    for (i, audio_channel_idx) in AUDIO_CHANNEL_INDEXES.iter().enumerate() {
         let m = 1 << i;
         if (mask & m) == m {
-            result.push(AudioChannelIndexes[i]);
+            result.push(*audio_channel_idx);
         }
     }
     result
@@ -206,8 +206,8 @@ impl AudioMultichannelConfig {
                 read_channels_from_mask(channel_mask)
             }
             AudioChannelOrder::Custom => {
-                let mut channels = vec![0 as u8; channel_cnt];
-                reader.read_exact(&mut channels);
+                let mut channels = vec![0_u8; channel_cnt];
+                reader.read_exact(&mut channels)?;
                 let mut channel_mapping = Vec::new();
                 for v in channels {
                     channel_mapping.push(v.try_into()?);

@@ -1,8 +1,8 @@
+//! @see: 7.1.7. User Control Message Events
 use std::io;
 
 use crate::chunk::errors::{ChunkMessageError, ChunkMessageResult};
 
-///! @see: 7.1.7. User Control Message Events
 pub mod consts;
 mod errors;
 pub mod reader;
@@ -62,9 +62,9 @@ pub enum UserControlEventType {
     PingResponse = 7,
 }
 
-impl Into<u16> for UserControlEventType {
-    fn into(self) -> u16 {
-        self as u16
+impl From<UserControlEventType> for u16 {
+    fn from(value: UserControlEventType) -> Self {
+        value as u16
     }
 }
 

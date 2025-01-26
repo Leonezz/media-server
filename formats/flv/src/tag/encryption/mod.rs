@@ -40,39 +40,39 @@ pub struct EncryptionHeader {
     /// 2 = Flash Access 2.0 products.
     /// Contents protected using either version are in existence,
     /// so applications shall be able to consume both versions of the content.
-    version: f64,
+    _version: f64,
     /// Encryption method. Shall be ‘Standard’
-    method: String,
+    _method: String,
     /// Encryption flags. Shall be 0.
-    flags: f64,
+    _flags: f64,
     /// Parameters for encryption method 'Standard'
-    params: StandardEncodingParametersObject,
+    _params: StandardEncodingParametersObject,
     // IF version == 1
-    signature_params: Option<SignatureParams>,
+    _signature_params: Option<SignatureParams>,
 }
 
 #[derive(Debug)]
 pub struct SignatureParams {
-    sig_format: Option<String>,
-    signature: Option<String>,
+    _sig_format: Option<String>,
+    _signature: Option<String>,
 }
 
 #[derive(Debug)]
 pub struct StandardEncodingParametersObject {
     /// Version. Shall be 1.
-    version: f64,
+    _version: f64,
     /// The encryption algorithm.
     /// Shall be ‘AES-CBC’, which specifies that the encryption used is ‘AESCBC’ with padding as per RFC 2630.
-    encryption_algorithm: String,
-    encryption_params: AESCBSEncryptionParamsObject,
-    key_info: KeyInformationObject,
+    _encryption_algorithm: String,
+    _encryption_params: AESCBSEncryptionParamsObject,
+    _key_info: KeyInformationObject,
 }
 
 /// This structure contains parameters specific to the encryption algorithm, in this case AES-CBC_128.
 #[derive(Debug)]
 pub struct AESCBSEncryptionParamsObject {
     /// Key length for the encryption algorithm in bytes. Shall be 16 (i.e. 128 bits)
-    key_length: f64,
+    _key_length: f64,
 }
 
 #[derive(Debug)]
@@ -82,14 +82,14 @@ pub struct KeyInformationObject {
     /// ELSE
     ///   ‘FlashAccessv2’ = An online key retrieval protocol
     /// APS should NOT be used
-    sub_type: String,
-    data: FlashAccessV2Object,
+    _sub_type: String,
+    _data: FlashAccessV2Object,
 }
 
 #[derive(Debug)]
 pub struct FlashAccessV2Object {
     /// Base 64 encoded metadata used by the DRM client to retrieve the decryption key.
-    meta_data: String,
+    _meta_data: String,
 }
 
 #[derive(Debug)]
@@ -107,11 +107,7 @@ pub struct EncryptionTagHeader {
     pub length: u32,
 }
 
-use std::io;
-
 use tokio_util::either::Either;
-
-use crate::errors::{FLVError, FLVResult};
 
 #[derive(Debug)]
 pub struct FilterParams {

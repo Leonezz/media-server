@@ -19,9 +19,9 @@ pub enum AvMultiTrackType {
     ManyTracksManyCodecs = 2,
 }
 
-impl Into<u8> for AvMultiTrackType {
-    fn into(self) -> u8 {
-        self as u8
+impl From<AvMultiTrackType> for u8 {
+    fn from(value: AvMultiTrackType) -> Self {
+        value as u8
     }
 }
 

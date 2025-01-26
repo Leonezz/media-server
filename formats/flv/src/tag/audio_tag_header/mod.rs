@@ -41,11 +41,12 @@ pub enum SoundFormat {
     DeviceSpecific = 15,
 }
 
-impl Into<u8> for SoundFormat {
-    fn into(self) -> u8 {
-        self as u8
+impl From<SoundFormat> for u8 {
+    fn from(value: SoundFormat) -> Self {
+        value as u8
     }
 }
+
 impl TryFrom<u8> for SoundFormat {
     type Error = FLVError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
@@ -84,9 +85,9 @@ pub enum SoundRate {
     KHZ44 = 3,
 }
 
-impl Into<u8> for SoundRate {
-    fn into(self) -> u8 {
-        self as u8
+impl From<SoundRate> for u8 {
+    fn from(value: SoundRate) -> Self {
+        value as u8
     }
 }
 
@@ -117,9 +118,9 @@ pub enum SoundSize {
     Bit16 = 1,
 }
 
-impl Into<u8> for SoundSize {
-    fn into(self) -> u8 {
-        self as u8
+impl From<SoundSize> for u8 {
+    fn from(value: SoundSize) -> Self {
+        value as u8
     }
 }
 
@@ -144,9 +145,9 @@ pub enum SoundType {
     Stereo = 1,
 }
 
-impl Into<u8> for SoundType {
-    fn into(self) -> u8 {
-        self as u8
+impl From<SoundType> for u8 {
+    fn from(value: SoundType) -> Self {
+        value as u8
     }
 }
 
@@ -171,9 +172,9 @@ pub enum AACPacketType {
     AACRaw = 1,
 }
 
-impl Into<u8> for AACPacketType {
-    fn into(self) -> u8 {
-        self as u8
+impl From<AACPacketType> for u8 {
+    fn from(value: AACPacketType) -> Self {
+        value as u8
     }
 }
 
@@ -249,7 +250,7 @@ impl AudioTagHeader {
         }
 
         // TODO - more codecs
-        return false;
+        false
     }
 }
 

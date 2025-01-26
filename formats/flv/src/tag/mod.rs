@@ -27,9 +27,9 @@ pub enum FLVTagType {
     Script = 18,
 }
 
-impl Into<u8> for FLVTagType {
-    fn into(self) -> u8 {
-        self as u8
+impl From<FLVTagType> for u8 {
+    fn from(value: FLVTagType) -> Self {
+        value as u8
     }
 }
 

@@ -1,11 +1,6 @@
 use std::{collections::HashMap, io::Cursor};
 
-use rocket::{
-    FromForm, Request, Response, State,
-    get,
-    http::ContentType,
-    response::Responder,
-};
+use rocket::{FromForm, Request, Response, State, get, http::ContentType, response::Responder};
 use tokio::sync::mpsc::{self, UnboundedReceiver};
 use tokio_util::bytes::BytesMut;
 
@@ -78,7 +73,7 @@ pub struct HttpFlvPullRequest {
     #[field(name = uncased("backtrack_gop_cnt"))]
     backtrack_gop_cnt: Option<usize>,
     #[field(name = "ctx")]
-    ctx: Option<String>,
+    _ctx: Option<String>,
 }
 
 #[get("/<app>/<stream>?<params..>")]
@@ -95,7 +90,7 @@ pub(crate) async fn serve(
         stream,
         params
     );
-    if app.len() == 0 {
+    if app.is_empty() {
         return Err(HttpServerError::BadRequest(format!(
             "bad app and stream, app: {}, stream: {}",
             app, stream
