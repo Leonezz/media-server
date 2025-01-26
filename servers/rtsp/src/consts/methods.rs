@@ -1,6 +1,6 @@
-use crate::errors::RTSPMessageError;
+//! @see: RFC 7826 Table 7
 
-///! @see: RFC 7826 Table 7
+use crate::errors::RTSPMessageError;
 
 pub mod method_names {
     pub const DESCRIBE: &str = "DESCRIBE";
@@ -29,19 +29,19 @@ pub enum RtspMethod {
     TearDown,
 }
 
-impl Into<&'static str> for RtspMethod {
-    fn into(self) -> &'static str {
-        match self {
-            Self::Describe => method_names::DESCRIBE,
-            Self::GetParameter => method_names::GET_PARAMETER,
-            Self::Options => method_names::OPTIONS,
-            Self::Pause => method_names::PAUSE,
-            Self::Play => method_names::PLAY,
-            Self::PlayNotify => method_names::PLAY_NOTIFY,
-            Self::Redirect => method_names::REDIRECT,
-            Self::Setup => method_names::SETUP,
-            Self::SetParameter => method_names::SET_PARAMETER,
-            Self::TearDown => method_names::TEARDOWN,
+impl From<RtspMethod> for &'static str {
+    fn from(value: RtspMethod) -> Self {
+        match value {
+            RtspMethod::Describe => method_names::DESCRIBE,
+            RtspMethod::GetParameter => method_names::GET_PARAMETER,
+            RtspMethod::Options => method_names::OPTIONS,
+            RtspMethod::Pause => method_names::PAUSE,
+            RtspMethod::Play => method_names::PLAY,
+            RtspMethod::PlayNotify => method_names::PLAY_NOTIFY,
+            RtspMethod::Redirect => method_names::REDIRECT,
+            RtspMethod::Setup => method_names::SETUP,
+            RtspMethod::SetParameter => method_names::SET_PARAMETER,
+            RtspMethod::TearDown => method_names::TEARDOWN,
         }
     }
 }

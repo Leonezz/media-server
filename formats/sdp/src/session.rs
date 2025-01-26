@@ -1,10 +1,9 @@
+//! @see: RFC 8866 SDP: Session Description Protocol
 use std::fmt;
 
 use url::Url;
 
 use crate::{CRLF, errors::SDPError};
-
-///! @see: RFC 8866 SDP: Session Description Protocol
 
 /// 5.1. Protocol Version ("v=")
 /// v=0
@@ -19,9 +18,9 @@ pub enum SDPNetType {
     Other(String),
 }
 
-impl Into<String> for SDPNetType {
-    fn into(self) -> String {
-        format!("{}", self)
+impl From<SDPNetType> for String {
+    fn from(value: SDPNetType) -> Self {
+        format!("{}", value)
     }
 }
 
@@ -51,9 +50,9 @@ pub enum SDPAddrType {
     Other(String),
 }
 
-impl Into<String> for SDPAddrType {
-    fn into(self) -> String {
-        format!("{}", self)
+impl From<SDPAddrType> for String {
+    fn from(value: SDPAddrType) -> Self {
+        format!("{}", value)
     }
 }
 
@@ -355,7 +354,7 @@ impl TryFrom<&str> for SDPRangedPort {
 
         let fields: Vec<&str> = value.split('/').collect();
         if fields.len() != 2 {
-            return Err(SDPError::SyntaxError(format!("invalid ranged port")));
+            return Err(SDPError::SyntaxError("invalid ranged port".to_owned()));
         }
 
         Ok(Self {

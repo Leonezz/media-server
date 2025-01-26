@@ -8,7 +8,7 @@ use utils::traits::{
 
 use crate::{codec::h264::util, errors::RtpError};
 
-///! @see: RFC 6184 5.7.1. Single-Time Aggregation Packet (STAP) Figure 7
+// @see: RFC 6184 5.7.1. Single-Time Aggregation Packet (STAP) Figure 7
 ///  0                   1                   2                   3
 ///  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -68,7 +68,7 @@ impl DynamicSizedPacket for StapAFormat {
     }
 }
 
-///! @see: Figure 8
+// @see: Figure 8
 ///  0                   1                   2                   3
 ///  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+

@@ -189,6 +189,7 @@ mod tests {
         Ok(())
     }
 
+    #[allow(dead_code)]
     const BASE_SDP: &str = "v=0\r\n\
 o=jdoe 2890844526 2890842807 IN IP4 10.47.16.5\r\n\
 s=SDP Seminar\r\n";
@@ -256,7 +257,7 @@ s=SDP Seminar\r\n\
 b=X-YZ:128\r\n\
 b=AS:12345\r\n\
 t=3034423619 3042462419\r\n";
-
+    #[allow(dead_code)]
     const TIMING_SDP: &str = "v=0\r\n\
 o=jdoe 2890844526 2890842807 IN IP4 10.47.16.5\r\n\
 s=SDP Seminar\r\n\
@@ -307,13 +308,13 @@ o=jdoe 2890844526 2890842807 IN IP4 10.47.16.5\r\n\
 s=SDP Seminar\r\n\
 t=2873397496 2873404696\r\n\
 r=2882844526 -3600 2898848070 0\r\n";
-
+    #[allow(dead_code)]
     const TIME_ZONES_SDP2: &str = "v=0\r\n\
 o=jdoe 2890844526 2890842807 IN IP4 10.47.16.5\r\n\
 s=SDP Seminar\r\n\
 t=2873397496 2873404696\r\n\
 z=2882844526 -3600 2898848070 0\r\n";
-
+    #[allow(dead_code)]
     const TIME_ZONES_SDP2EXTRA_CRLF: &str = "v=0\r\n\
 o=jdoe 2890844526 2890842807 IN IP4 10.47.16.5\r\n\
 s=SDP Seminar\r\n\
@@ -379,7 +380,7 @@ m=video 51372 RTP/AVP 99\r\n\
 m=audio 54400 RTP/SAVPF 0 96\r\n\
 c=IN IP4 203.0.113.1\r\n\
 \r\n";
-
+    #[allow(dead_code)]
     const MEDIA_DESCRIPTION_OUT_OF_ORDER_SDP: &str = "v=0\r\n\
 o=jdoe 2890844526 2890842807 IN IP4 10.47.16.5\r\n\
 s=SDP Seminar\r\n\
@@ -390,7 +391,7 @@ a=rtpmap:99 h263-1998/90000\r\n\
 a=candidate:0 1 UDP 2113667327 203.0.113.1 54400 typ host\r\n\
 c=IN IP4 203.0.113.1\r\n\
 i=Vivamus a posuere nisl\r\n";
-
+    #[allow(dead_code)]
     const MEDIA_DESCRIPTION_OUT_OF_ORDER_SDPACTUAL: &str = "v=0\r\n\
 o=jdoe 2890844526 2890842807 IN IP4 10.47.16.5\r\n\
 s=SDP Seminar\r\n\
@@ -589,7 +590,7 @@ a=rtpmap:99 h263-1998/90000\r\n";
         if let Err(err) = result {
             println!("{:?}", err);
         } else {
-            assert!(false);
+            panic!();
         }
         Ok(())
     }

@@ -24,12 +24,12 @@ pub enum PayloadStructureType {
     FragmentationUnit(FragmentationUnitPacketType),
 }
 
-impl Into<u8> for PayloadStructureType {
-    fn into(self) -> u8 {
-        match self {
-            Self::SingleNALUPacket(v) => v,
-            Self::AggregationPacket(v) => v.into(),
-            Self::FragmentationUnit(v) => v.into(),
+impl From<PayloadStructureType> for u8 {
+    fn from(value: PayloadStructureType) -> Self {
+        match value {
+            PayloadStructureType::SingleNALUPacket(v) => v,
+            PayloadStructureType::AggregationPacket(v) => v.into(),
+            PayloadStructureType::FragmentationUnit(v) => v.into(),
         }
     }
 }
@@ -38,8 +38,8 @@ impl TryFrom<u8> for PayloadStructureType {
     type Error = RtpError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            v if v >= 1 && v <= 23 => Ok(Self::SingleNALUPacket(v)),
-            v if v >= 24 && v <= 27 => Ok(Self::AggregationPacket(
+            v if (1..=23).contains(&v) => Ok(Self::SingleNALUPacket(v)),
+            v if (24..=27).contains(&v) => Ok(Self::AggregationPacket(
                 AggregationPacketType::try_from(v).unwrap(),
             )),
             v if v == 28 || v == 29 => Ok(Self::FragmentationUnit(
@@ -81,15 +81,15 @@ impl<R: io::Read> ReadFrom<R> for RtpH264NalUnit {
         let first_byte = reader.read_u8()?;
         let payload_structure: PayloadStructureType = first_byte.try_into()?;
         let packet: RtpH264NalUnit = match payload_structure {
-            PayloadStructureType::SingleNALUPacket(header) => RtpH264NalUnit::SingleNalu(
-                SingleNalUnit::read_remaining_from(header.into(), reader)?,
-            ),
+            PayloadStructureType::SingleNALUPacket(header) => {
+                RtpH264NalUnit::SingleNalu(SingleNalUnit::read_remaining_from(header, reader)?)
+            }
             PayloadStructureType::AggregationPacket(header) => RtpH264NalUnit::Aggregated(
-                AggregationNalUnits::read_remaining_from(header.into(), reader)?,
+                AggregationNalUnits::read_remaining_from(header, reader)?,
             ),
-            PayloadStructureType::FragmentationUnit(header) => RtpH264NalUnit::Fragmented(
-                FragmentedUnit::read_remaining_from(header.into(), reader)?,
-            ),
+            PayloadStructureType::FragmentationUnit(header) => {
+                RtpH264NalUnit::Fragmented(FragmentedUnit::read_remaining_from(header, reader)?)
+            }
         };
 
         Ok(packet)
