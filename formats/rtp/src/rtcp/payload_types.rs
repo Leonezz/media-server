@@ -25,8 +25,8 @@ impl TryFrom<u8> for RtcpPayloadType {
     }
 }
 
-impl Into<u8> for RtcpPayloadType {
-    fn into(self) -> u8 {
-        self as u8
+impl From<RtcpPayloadType> for u8 {
+    fn from(value: RtcpPayloadType) -> Self {
+        value as u8
     }
 }

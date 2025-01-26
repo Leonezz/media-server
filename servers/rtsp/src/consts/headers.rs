@@ -1,6 +1,6 @@
+//! @see: RFC 7826 Table 1
 use crate::errors::RTSPMessageError;
 
-///! @see: RFC 7826 Table 1
 pub mod header_names {
     pub const ACCEPT: &str = "Accept";
     pub const ACCEPT_CREDENTIALS: &str = "Accept-Credentials";
@@ -156,83 +156,85 @@ pub enum PredefinedRtspHeader {
     WWWAuthenticate,
 }
 
-impl<'a> Into<&'a str> for PredefinedRtspHeader {
-    fn into(self) -> &'static str {
-        match self {
-            Self::Accept => header_names::ACCEPT,
-            Self::AcceptCredentials => header_names::ACCEPT_CREDENTIALS,
-            Self::AcceptEncoding => header_names::ACCEPT_ENCODING,
-            Self::AcceptLanguage => header_names::ACCEPT_LANGUAGE,
-            Self::AcceptRanges => header_names::ACCEPT_RANGES,
-            Self::Allow => header_names::ALLOW,
-            Self::AuthenticationInfo => header_names::AUTHENTICATION_INFO,
-            Self::Authorization => header_names::AUTHORIZATION,
+impl From<PredefinedRtspHeader> for &str {
+    fn from(value: PredefinedRtspHeader) -> Self {
+        match value {
+            PredefinedRtspHeader::Accept => header_names::ACCEPT,
+            PredefinedRtspHeader::AcceptCredentials => header_names::ACCEPT_CREDENTIALS,
+            PredefinedRtspHeader::AcceptEncoding => header_names::ACCEPT_ENCODING,
+            PredefinedRtspHeader::AcceptLanguage => header_names::ACCEPT_LANGUAGE,
+            PredefinedRtspHeader::AcceptRanges => header_names::ACCEPT_RANGES,
+            PredefinedRtspHeader::Allow => header_names::ALLOW,
+            PredefinedRtspHeader::AuthenticationInfo => header_names::AUTHENTICATION_INFO,
+            PredefinedRtspHeader::Authorization => header_names::AUTHORIZATION,
 
-            Self::Bandwidth => header_names::BANDWIDTH,
-            Self::Blocksize => header_names::BLOCKSIZE,
+            PredefinedRtspHeader::Bandwidth => header_names::BANDWIDTH,
+            PredefinedRtspHeader::Blocksize => header_names::BLOCKSIZE,
 
-            Self::CacheControl => header_names::CACHE_CONTROL,
-            Self::Connection => header_names::CONNECTION,
-            Self::ConnectionCredentials => header_names::CONNECTION_CREDENTIALS,
-            Self::ContentBase => header_names::CONTENT_BASE,
-            Self::ContentEncoding => header_names::CONTENT_ENCODING,
-            Self::ContentLanguage => header_names::CONTENT_LANGUAGE,
-            Self::ContentLength => header_names::CONTENT_LENGTH,
-            Self::ContentLocation => header_names::CONTENT_LOCATION,
-            Self::ContentType => header_names::CONTENT_TYPE,
-            Self::CSeq => header_names::C_SEQ,
+            PredefinedRtspHeader::CacheControl => header_names::CACHE_CONTROL,
+            PredefinedRtspHeader::Connection => header_names::CONNECTION,
+            PredefinedRtspHeader::ConnectionCredentials => header_names::CONNECTION_CREDENTIALS,
+            PredefinedRtspHeader::ContentBase => header_names::CONTENT_BASE,
+            PredefinedRtspHeader::ContentEncoding => header_names::CONTENT_ENCODING,
+            PredefinedRtspHeader::ContentLanguage => header_names::CONTENT_LANGUAGE,
+            PredefinedRtspHeader::ContentLength => header_names::CONTENT_LENGTH,
+            PredefinedRtspHeader::ContentLocation => header_names::CONTENT_LOCATION,
+            PredefinedRtspHeader::ContentType => header_names::CONTENT_TYPE,
+            PredefinedRtspHeader::CSeq => header_names::C_SEQ,
 
-            Self::Date => header_names::DATE,
+            PredefinedRtspHeader::Date => header_names::DATE,
 
-            Self::Expires => header_names::EXPIRES,
+            PredefinedRtspHeader::Expires => header_names::EXPIRES,
 
-            Self::From => header_names::FROM,
+            PredefinedRtspHeader::From => header_names::FROM,
 
-            Self::IfMatch => header_names::IF_MATCH,
-            Self::IfModifiedSince => header_names::IF_MODIFIED_SINCE,
-            Self::IfNoneMatch => header_names::IF_NONE_MATCH,
+            PredefinedRtspHeader::IfMatch => header_names::IF_MATCH,
+            PredefinedRtspHeader::IfModifiedSince => header_names::IF_MODIFIED_SINCE,
+            PredefinedRtspHeader::IfNoneMatch => header_names::IF_NONE_MATCH,
 
-            Self::LastModified => header_names::LAST_MODIFIED,
-            Self::Location => header_names::LOCATION,
+            PredefinedRtspHeader::LastModified => header_names::LAST_MODIFIED,
+            PredefinedRtspHeader::Location => header_names::LOCATION,
 
-            Self::MediaProperties => header_names::MEDIA_PROPERTIES,
-            Self::MediaRange => header_names::MEDIA_RANGE,
-            Self::MTag => header_names::M_TAG,
+            PredefinedRtspHeader::MediaProperties => header_names::MEDIA_PROPERTIES,
+            PredefinedRtspHeader::MediaRange => header_names::MEDIA_RANGE,
+            PredefinedRtspHeader::MTag => header_names::M_TAG,
 
-            Self::NotifyReason => header_names::NOTIFY_REASON,
+            PredefinedRtspHeader::NotifyReason => header_names::NOTIFY_REASON,
 
-            Self::PipelinedRequests => header_names::PIPELINED_REQUESTS,
-            Self::ProxyAuthenticate => header_names::PROXY_AUTHENTICATE,
-            Self::ProxyAuthenticationInfo => header_names::PROXY_AUTHENTICATION_INFO,
-            Self::ProxyAuthorization => header_names::PROXY_AUTHORIZATION,
-            Self::ProxyRequire => header_names::PROXY_REQUIRE,
-            Self::ProxySupported => header_names::PROXY_SUPPORTED,
-            Self::Public => header_names::PUBLIC,
+            PredefinedRtspHeader::PipelinedRequests => header_names::PIPELINED_REQUESTS,
+            PredefinedRtspHeader::ProxyAuthenticate => header_names::PROXY_AUTHENTICATE,
+            PredefinedRtspHeader::ProxyAuthenticationInfo => {
+                header_names::PROXY_AUTHENTICATION_INFO
+            }
+            PredefinedRtspHeader::ProxyAuthorization => header_names::PROXY_AUTHORIZATION,
+            PredefinedRtspHeader::ProxyRequire => header_names::PROXY_REQUIRE,
+            PredefinedRtspHeader::ProxySupported => header_names::PROXY_SUPPORTED,
+            PredefinedRtspHeader::Public => header_names::PUBLIC,
 
-            Self::Range => header_names::RANGE,
-            Self::Referrer => header_names::REFERRER,
-            Self::RequestStatus => header_names::REQUEST_STATUS,
-            Self::Require => header_names::REQUIRE,
-            Self::RetryAfter => header_names::RETRY_AFTER,
-            Self::RtpInfo => header_names::RTP_INFO,
+            PredefinedRtspHeader::Range => header_names::RANGE,
+            PredefinedRtspHeader::Referrer => header_names::REFERRER,
+            PredefinedRtspHeader::RequestStatus => header_names::REQUEST_STATUS,
+            PredefinedRtspHeader::Require => header_names::REQUIRE,
+            PredefinedRtspHeader::RetryAfter => header_names::RETRY_AFTER,
+            PredefinedRtspHeader::RtpInfo => header_names::RTP_INFO,
 
-            Self::Scale => header_names::SCALE,
-            Self::SeekStyle => header_names::SEEK_STYLE,
-            Self::Server => header_names::SERVER,
-            Self::Session => header_names::SESSION,
-            Self::Speed => header_names::SPEED,
-            Self::Supported => header_names::SUPPORTED,
+            PredefinedRtspHeader::Scale => header_names::SCALE,
+            PredefinedRtspHeader::SeekStyle => header_names::SEEK_STYLE,
+            PredefinedRtspHeader::Server => header_names::SERVER,
+            PredefinedRtspHeader::Session => header_names::SESSION,
+            PredefinedRtspHeader::Speed => header_names::SPEED,
+            PredefinedRtspHeader::Supported => header_names::SUPPORTED,
 
-            Self::TerminateReason => header_names::TERMINATE_REASON,
-            Self::Timestamp => header_names::TIMESTAMP,
-            Self::Transport => header_names::TRANSPORT,
+            PredefinedRtspHeader::TerminateReason => header_names::TERMINATE_REASON,
+            PredefinedRtspHeader::Timestamp => header_names::TIMESTAMP,
+            PredefinedRtspHeader::Transport => header_names::TRANSPORT,
 
-            Self::Unsupported => header_names::UNSUPPORTED,
-            Self::UserAgent => header_names::USER_AGENT,
+            PredefinedRtspHeader::Unsupported => header_names::UNSUPPORTED,
+            PredefinedRtspHeader::UserAgent => header_names::USER_AGENT,
 
-            Self::Via => header_names::VIA,
+            PredefinedRtspHeader::Via => header_names::VIA,
 
-            Self::WWWAuthenticate => header_names::WWW_AUTHENTICATE,
+            PredefinedRtspHeader::WWWAuthenticate => header_names::WWW_AUTHENTICATE,
         }
     }
 }

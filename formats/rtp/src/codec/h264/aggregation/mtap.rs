@@ -1,4 +1,4 @@
-///! @see: RFC 6184 5.7.2. Multi-Time Aggregation Packets (MTAPs)
+//! @see: RFC 6184 5.7.2. Multi-Time Aggregation Packets (MTAPs)
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use h264_codec::nalu::NalUnit;
 use std::io;
@@ -25,7 +25,7 @@ impl<T: Into<u32>> From<(NalUnit, u8, T)> for MtapNalUnit<T> {
     }
 }
 
-///! @see: Figure 12. An RTP packet including a multi-time aggregation packet of type MTAP16 containing two multi-time aggregation units
+// @see: Figure 12. An RTP packet including a multi-time aggregation packet of type MTAP16 containing two multi-time aggregation units
 ///  0                   1                   2                   3
 ///  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -108,7 +108,7 @@ impl DynamicSizedPacket for Mtap16Format {
     }
 }
 
-///! @see: Figure 13. An RTP packet including a multi-time aggregation packet of type MTAP24 containing two multi-time aggregation units
+// @see: Figure 13. An RTP packet including a multi-time aggregation packet of type MTAP24 containing two multi-time aggregation units
 ///  0                   1                   2                   3
 ///  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
