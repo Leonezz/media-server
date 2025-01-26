@@ -16,7 +16,7 @@ use crate::{
     },
 };
 
-///! @see: 9. SDP Grammar
+// @see: 9. SDP Grammar
 /// ; SDP Syntax
 /// session-description = version-field
 ///                       origin-field
@@ -257,7 +257,7 @@ impl SessionDescriptionReader {
         let lines: Vec<&str> = text
             .split(LF)
             .map(|item| item.trim())
-            .filter(|item| item.len() > 0)
+            .filter(|item| !item.is_empty())
             .collect();
         if lines.len() < 4 {
             return Err(SDPError::InvalidPayload(format!(
@@ -334,7 +334,7 @@ impl SessionDescriptionReader {
     }
 
     fn read_line_type(reader: &mut Cursor<&[u8]>) -> SDPResult<[u8; 2]> {
-        let mut result = [0 as u8; 2];
+        let mut result = [0_u8; 2];
         reader.read_exact(&mut result)?;
         Ok(result)
     }
@@ -502,9 +502,9 @@ impl SessionDescriptionReader {
             if let Some(media_info) = self.session_description.media_description.last_mut() {
                 media_info.media_title = Some(information);
             } else {
-                return Err(SDPError::SyntaxError(format!(
-                    "got information in media mode while there is no media info"
-                )));
+                return Err(SDPError::SyntaxError(
+                    "got information in media mode while there is no media info".to_owned(),
+                ));
             }
         } else {
             self.session_description.session_information = Some(information);
@@ -554,9 +554,12 @@ impl SessionDescriptionReader {
             )));
         }
 
-        let mut result = SDPConnectionInformation::default();
-        result.net_type = fields[0].into();
-        result.addr_type = fields[1].into();
+        let mut result = SDPConnectionInformation {
+            net_type: fields[0].into(),
+            addr_type: fields[1].into(),
+            connection_address: Default::default(),
+        };
+
         if !fields[2].contains('/') {
             result.connection_address.address = fields[2].to_owned();
             return Ok(result);
@@ -615,9 +618,10 @@ impl SessionDescriptionReader {
             if let Some(media_info) = self.session_description.media_description.last_mut() {
                 media_info.connection_information.push(connection_info);
             } else {
-                return Err(SDPError::SyntaxError(format!(
+                return Err(SDPError::SyntaxError(
                     "got connection information line in media mode while there is no media info"
-                )));
+                        .to_owned(),
+                ));
             }
         } else {
             self.session_description.connection_information = Some(connection_info);
@@ -660,9 +664,10 @@ impl SessionDescriptionReader {
             if let Some(media_info) = self.session_description.media_description.last_mut() {
                 media_info.bandwidth.push(bandwidth);
             } else {
-                return Err(SDPError::SyntaxError(format!(
+                return Err(SDPError::SyntaxError(
                     "got bandwidth information line in media mode while there is no media info"
-                )));
+                        .to_owned(),
+                ));
             }
         } else {
             self.session_description
@@ -697,9 +702,9 @@ impl SessionDescriptionReader {
     // 1h -> 3600s
     fn parse_typed_time(text: &str) -> SDPResult<i64> {
         if text.is_empty() {
-            return Err(SDPError::SyntaxError(format!(
-                "empty str should not be typed time"
-            )));
+            return Err(SDPError::SyntaxError(
+                "empty str should not be typed time".to_owned(),
+            ));
         }
         const TYPED_TIME_OFFSETS: [char; 4] = ['d', 'h', 'm', 's'];
         let last_char = text.chars().last().unwrap();
@@ -793,9 +798,9 @@ impl SessionDescriptionReader {
                 }
                 b"z=" => {
                     if time.repeat_times.is_empty() {
-                        return Err(SDPError::SyntaxError(format!(
-                            "got zone line without time information or repeat lines"
-                        )));
+                        return Err(SDPError::SyntaxError(
+                            "got zone line without time information or repeat lines".to_owned(),
+                        ));
                     }
                     if !time
                         .repeat_times
@@ -804,9 +809,9 @@ impl SessionDescriptionReader {
                         .time_zone_adjustment
                         .is_empty()
                     {
-                        return Err(SDPError::SyntaxError(format!(
-                            "got multiple zone line for one repeat line"
-                        )));
+                        return Err(SDPError::SyntaxError(
+                            "got multiple zone line for one repeat line".to_owned(),
+                        ));
                     }
                     reader.seek_relative(2)?;
                     let zone_line = Self::read_line(reader)?;
@@ -854,9 +859,9 @@ impl SessionDescriptionReader {
             if let Some(media_info) = self.session_description.media_description.last_mut() {
                 media_info.encryption_key = Some(key);
             } else {
-                return Err(SDPError::SyntaxError(format!(
-                    "got key line in media mode while there is not media info"
-                )));
+                return Err(SDPError::SyntaxError(
+                    "got key line in media mode while there is not media info".to_owned(),
+                ));
             }
         } else {
             self.session_description.encryption_keys = Some(key);
@@ -872,7 +877,7 @@ impl SessionDescriptionReader {
 
     fn parse_attribute(text: &str) -> SDPResult<SDPAttribute> {
         let fields: Vec<&str> = text.split(':').collect();
-        if fields.len() == 0 {
+        if fields.is_empty() {
             return Err(SDPError::SyntaxError(format!(
                 "invalid attribute line: {}",
                 text
@@ -885,10 +890,10 @@ impl SessionDescriptionReader {
             });
         }
 
-        return Ok(SDPAttribute {
+        Ok(SDPAttribute {
             name: fields[0].to_owned(),
             value: Some(fields[1..].join(":").to_owned()),
-        });
+        })
     }
 
     fn read_attribute_line(
@@ -904,9 +909,9 @@ impl SessionDescriptionReader {
             if let Some(media_info) = self.session_description.media_description.last_mut() {
                 media_info.attributes.push(attribute);
             } else {
-                return Err(SDPError::SyntaxError(format!(
-                    "got attribute line in media mode while there is no media info"
-                )));
+                return Err(SDPError::SyntaxError(
+                    "got attribute line in media mode while there is no media info".to_owned(),
+                ));
             }
         } else {
             self.session_description.attributes.push(attribute);
@@ -941,5 +946,11 @@ impl SessionDescriptionReader {
         self.read_next_line_type(reader, &[b"m=", b"i=", b"c=", b"b=", b"k=", b"a="], true)?;
 
         Ok(())
+    }
+}
+
+impl Default for SessionDescriptionReader {
+    fn default() -> Self {
+        Self::new()
     }
 }

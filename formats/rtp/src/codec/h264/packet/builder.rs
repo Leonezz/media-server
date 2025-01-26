@@ -188,8 +188,7 @@ impl RtpH264PacketBuilder {
         while cursor.has_remaining() {
             let current_fragment_size =
                 std::cmp::min(max_fragment_size as usize, cursor.remaining());
-            let mut fragment_bytes = Vec::with_capacity(current_fragment_size);
-            fragment_bytes.resize(current_fragment_size, 0);
+            let mut fragment_bytes = vec![0; current_fragment_size];
             cursor.read_exact(&mut fragment_bytes)?;
 
             let is_end = !cursor.has_remaining();

@@ -37,7 +37,7 @@ impl<R: AsRef<[u8]>> TryReadFrom<R> for RtcpCommonHeader {
         Ok(Some(Self {
             version: ((word >> 30) & 0b11) as u8,
             padding: ((word >> 29) & 0b1) == 0b1,
-            count: ((word >> 24) & 0b1111_1) as u8,
+            count: ((word >> 24) & 0b1_1111) as u8,
             payload_type: (((word >> 16) & 0b1111_1111) as u8).try_into()?,
             length: (word & 0b1111_1111_1111_1111) as u16,
         }))

@@ -21,7 +21,7 @@ use super::{
     simple_ntp::{SimpleNtp, SimpleShortNtp},
 };
 
-///! @see: RFC 3550 6.4.1 SR: Sender Report RTCP Packet
+// @see: RFC 3550 6.4.1 SR: Sender Report RTCP Packet
 ///         0                   1                   2                   3
 ///         0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 ///        +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -163,7 +163,7 @@ impl<W: io::Write> WriteTo<W> for ReportBlock {
 
 #[derive(Debug)]
 pub struct RtcpSenderReport {
-    header: RtcpCommonHeader,
+    _header: RtcpCommonHeader,
     sender_ssrc: u32,
     sender_info: SenderInfo,
     report_blocks: Vec<ReportBlock>,
@@ -225,7 +225,7 @@ impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpSenderReport {
         };
 
         Ok(Self {
-            header,
+            _header: header,
             sender_ssrc,
             sender_info,
             report_blocks,
@@ -245,7 +245,7 @@ impl<W: io::Write> WriteTo<W> for RtcpSenderReport {
             .try_for_each(|block| block.write_to(writer.by_ref()))?;
 
         if let Some(buffer) = &self.profile_specific_extension {
-            writer.write_all(&buffer)?;
+            writer.write_all(buffer)?;
         }
 
         if let Some(padding) = rtp_make_padding_bytes(self.get_packet_bytes_count_without_padding())
@@ -258,7 +258,7 @@ impl<W: io::Write> WriteTo<W> for RtcpSenderReport {
 
 #[derive(Debug)]
 pub struct RtcpReceiverReport {
-    header: RtcpCommonHeader,
+    _header: RtcpCommonHeader,
     sender_ssrc: u32,
     report_blocks: Vec<ReportBlock>,
     profile_specific_extension: Option<Bytes>,
@@ -316,7 +316,7 @@ impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpReceiverReport 
         };
 
         Ok(Self {
-            header,
+            _header: header,
             sender_ssrc,
             report_blocks,
             profile_specific_extension,
@@ -336,7 +336,7 @@ impl<W: io::Write> WriteTo<W> for RtcpReceiverReport {
             .try_for_each(|block| block.write_to(writer.by_ref()))?;
 
         if let Some(buffer) = &self.profile_specific_extension {
-            writer.write_all(&buffer)?;
+            writer.write_all(buffer)?;
         }
 
         if let Some(padding) = rtp_make_padding_bytes(raw_size) {

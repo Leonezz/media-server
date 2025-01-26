@@ -82,7 +82,7 @@ impl<R: AsRef<[u8]>> TryReadFrom<R> for RtpTrivialPacket {
 
         let header = header.unwrap();
         if header.padding {
-            let padding_size = payload.last().unwrap().clone() as usize;
+            let padding_size = *payload.last().unwrap() as usize;
             if padding_size > payload_size {
                 return Err(RtpError::BadPaddingSize(padding_size));
             }

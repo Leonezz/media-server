@@ -866,12 +866,12 @@ mod tests {
             decode!("../../test_data/amf3-externalizable.bin").unwrap_err(),
             AmfError::UnsupportedExternalizable {
                 name
-            } if name == "ExternalizableTest".to_string()
+            } if name == *"ExternalizableTest"
         ));
 
         assert!(matches!(
             decode!("../../test_data/amf3-array-collection.bin").unwrap_err(),
-            AmfError::UnsupportedExternalizable { name } if name == "flex.messaging.io.ArrayCollection".to_string()
+            AmfError::UnsupportedExternalizable { name } if name == *"flex.messaging.io.ArrayCollection"
         ));
     }
 

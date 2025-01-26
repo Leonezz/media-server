@@ -166,22 +166,20 @@ impl RtpH264Sequencer {
                 }
                 fragmentation_buffer.extend_from_slice(&payload);
             }
+        } else if fu_header.start_bit {
+            self.nal_fragment = Some(BytesMut::from(payload));
+            self.nal_fragment_don = don;
         } else {
-            if fu_header.start_bit {
-                self.nal_fragment = Some(BytesMut::from(payload));
-                self.nal_fragment_don = don;
-            } else {
-                return Err(RtpError::SequenceFUPacketsFailed(format!(
-                    "got a FU packet without start bit, but fragment buffer is None"
-                )));
-            }
+            return Err(RtpError::SequenceFUPacketsFailed(
+                "got a FU packet without start bit, but fragment buffer is None".to_owned(),
+            ));
         }
 
         if fu_header.end_bit {
             if self.nal_fragment.is_none() {
-                return Err(RtpError::SequenceFUPacketsFailed(format!(
-                    "got a FU packet with end bit, but fragment buffer is None"
-                )));
+                return Err(RtpError::SequenceFUPacketsFailed(
+                    "got a FU packet with end bit, but fragment buffer is None".to_owned(),
+                ));
             } else {
                 let reader = Cursor::new(self.nal_fragment.as_ref().unwrap());
                 let nalu = NalUnit::read_from(reader)?;

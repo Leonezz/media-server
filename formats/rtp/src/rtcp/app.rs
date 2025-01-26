@@ -14,7 +14,7 @@ use crate::{
 
 use super::{RtcpPacketTrait, common_header::RtcpCommonHeader, payload_types::RtcpPayloadType};
 
-///! @see: RFC 3550 6.7 APP: Application-Defined RTCP Packet
+// @see: RFC 3550 6.7 APP: Application-Defined RTCP Packet
 ///  0                   1                   2                   3
 ///  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -29,7 +29,7 @@ use super::{RtcpPacketTrait, common_header::RtcpCommonHeader, payload_types::Rtc
 
 #[derive(Debug)]
 pub struct RtcpAppPacket {
-    header: RtcpCommonHeader,
+    _header: RtcpCommonHeader,
     ssrc: u32,
     name: [u8; 4],
     payload: Bytes,
@@ -64,12 +64,12 @@ impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpAppPacket {
             )));
         }
         let ssrc = reader.read_u32::<BigEndian>()?;
-        let mut name = [0 as u8; 4];
+        let mut name = [0_u8; 4];
         reader.read_exact(&mut name)?;
         let mut payload = Vec::new();
         reader.read_to_end(&mut payload)?;
         Ok(Self {
-            header,
+            _header: header,
             ssrc,
             name,
             payload: Bytes::from(payload),

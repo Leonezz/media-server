@@ -13,7 +13,7 @@ use crate::{
 
 use super::{RtcpPacketTrait, common_header::RtcpCommonHeader, payload_types::RtcpPayloadType};
 
-///! @see: RFC 3550 6.6 BYE: Goodbye RTCP Packet
+// @see: RFC 3550 6.6 BYE: Goodbye RTCP Packet
 ///        0                   1                   2                   3
 ///        0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 ///       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -29,7 +29,7 @@ use super::{RtcpPacketTrait, common_header::RtcpCommonHeader, payload_types::Rtc
 
 #[derive(Debug)]
 pub struct RtcpByePacket {
-    header: RtcpCommonHeader,
+    _header: RtcpCommonHeader,
     ssrc_list: Vec<u32>,
     leave_reason: Option<Bytes>,
 }
@@ -82,7 +82,7 @@ impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpByePacket {
         };
 
         Ok(Self {
-            header,
+            _header: header,
             ssrc_list,
             leave_reason,
         })
@@ -95,7 +95,7 @@ impl<W: io::Write> WriteTo<W> for RtcpByePacket {
         self.get_header().write_to(writer.by_ref())?;
         self.ssrc_list
             .iter()
-            .try_for_each(|ssrc| writer.write_u32::<BigEndian>(ssrc.clone()))?;
+            .try_for_each(|ssrc| writer.write_u32::<BigEndian>(*ssrc))?;
 
         if let Some(buffer) = &self.leave_reason {
             writer.write_all(buffer)?;
