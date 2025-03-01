@@ -43,13 +43,25 @@ impl HttpServer {
         })
         .merge(Serialized::defaults(&self.context.config));
 
-        let res = rocket::custom(figment)
+        match rocket::custom(figment)
             .manage(self.context.clone())
             .mount("/rest/v1", routes![hello])
             .mount("/live_stream/v1", routes![routes::httpflv::serve])
             .launch()
-            .await;
-        tracing::info!("{:?}", res);
+            .await
+        {
+            Ok(res) => {
+                tracing::info!(
+                    "http server exit successfully, config: {:?}",
+                    self.context.config
+                );
+                tracing::debug!("http server exit res: {:?}", res);
+            }
+            Err(err) => {
+                tracing::error!("http server exit with err: {:?}", err);
+            }
+        }
+
         Ok(())
     }
 }

@@ -55,6 +55,7 @@ impl StreamCenter {
     }
 
     pub async fn run(&mut self) -> StreamCenterResult<()> {
+        tracing::info!("stream center is running");
         loop {
             match self.event_receiver.recv().await {
                 None => {}
@@ -141,14 +142,17 @@ impl StreamCenter {
 
         tokio::spawn(async move { source.run().await });
 
-        self.streams.insert(stream_id.clone(), StreamSourceHandles {
-            signal_sender,
-            _source_sender: frame_sender.clone(),
-            _stream_identifier: stream_id.clone(),
-            stream_type,
-            data_distributer,
-            stream_dynamic_info: stream_source_dynamic_info,
-        });
+        self.streams.insert(
+            stream_id.clone(),
+            StreamSourceHandles {
+                signal_sender,
+                _source_sender: frame_sender.clone(),
+                _stream_identifier: stream_id.clone(),
+                stream_type,
+                data_distributer,
+                stream_dynamic_info: stream_source_dynamic_info,
+            },
+        );
 
         result_sender.send(Ok(frame_sender)).map_err(|err| {
             tracing::error!("deliver publish success result to caller failed, {:?}", err);
@@ -245,16 +249,15 @@ impl StreamCenter {
         {
             let parsed_context: ParsedContext = (&context).into();
             let stream = self.streams.get_mut(&stream_id).expect("this must exist");
-            stream
-                .data_distributer
-                .write()
-                .await
-                .insert(uuid, SubscribeHandler {
+            stream.data_distributer.write().await.insert(
+                uuid,
+                SubscribeHandler {
                     context,
                     parsed_context,
                     data_sender: tx,
                     stat: Default::default(),
-                });
+                },
+            );
             stream_type = stream.stream_type;
             let info = stream.stream_dynamic_info.read().await;
             source_has_video = info.has_video;

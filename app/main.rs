@@ -27,7 +27,7 @@ async fn main() {
         .finish();
     tracing::dispatcher::set_global_default(Dispatch::new(subscriber)).unwrap();
 
-    tracing::debug!("running");
+    tracing::info!("yam_server is starting");
 
     let mut stream_center = stream_center::StreamCenter::new();
 
@@ -50,14 +50,24 @@ async fn main() {
         stream_center.get_event_sender(),
     );
 
-    tokio::spawn(async move { stream_center.run().await });
     tokio::spawn(async move {
-        let _ = rtmp_server.run().await;
+        if let Err(err) = stream_center.run().await {
+            tracing::error!("stream center thread exit with err: {:?}", err);
+        }
     });
 
     tokio::spawn(async move {
-        let _ = http_server.run().await;
+        if let Err(err) = rtmp_server.run().await {
+            tracing::error!("rtmp server thread exit with err: {:?}", err);
+        }
     });
 
+    tokio::spawn(async move {
+        if let Err(err) = http_server.run().await {
+            tracing::error!("http server thread exit with err: {:?}", err);
+        }
+    });
+
+    tracing::info!("all servers are started");
     let _ = signal::ctrl_c().await;
 }
