@@ -172,7 +172,7 @@ impl StreamSource {
             return Ok(());
         }
         self.status = StreamStatus::Running;
-        tracing::info!("stream is running, stream id: {:?}", self.identifier);
+        log::info!("stream is running, stream id: {:?}", self.identifier);
 
         loop {
             match self.data_receiver.recv().await {
@@ -323,7 +323,7 @@ impl StreamSource {
                 let on_meta_data: Option<OnMetaData> =
                     OnMetaData::read_from(&mut cursor, amf::Version::Amf0);
 
-                tracing::trace!("got script tag, onMetaData: {:?}", on_meta_data);
+                log::trace!("got script tag, onMetaData: {:?}", on_meta_data);
 
                 Ok(vec![FLVMediaFrame::Script {
                     runtime_stat: meta.runtime_stat,
@@ -345,7 +345,7 @@ impl StreamSource {
 
     async fn on_flv_frame(&mut self, frame: FLVMediaFrame) -> StreamCenterResult<()> {
         if let Err(err) = self.gop_cache.append_frame(frame.clone()) {
-            tracing::error!("append frame to gop cache failed: {:?}", err);
+            log::error!("append frame to gop cache failed: {:?}", err);
         }
 
         if self.data_distributer.read().await.len() == 0 {
@@ -379,7 +379,7 @@ impl StreamSource {
             }
             let res = handler.data_sender.try_send(frame.clone());
             if res.is_err() {
-                tracing::error!("distribute frame data to {} failed: {:?}", key, res);
+                log::error!("distribute frame data to {} failed: {:?}", key, res);
             }
             if frame.is_video_key_frame() {
                 handler.stat.first_key_frame_sent = true;
@@ -410,7 +410,7 @@ impl StreamSource {
         if let Some(script) = &self.gop_cache.script_frame {
             let res = handler.data_sender.try_send(script.clone());
             if res.is_err() {
-                tracing::error!("distribute script frame data to {} failed: {:?}", key, res);
+                log::error!("distribute script frame data to {} failed: {:?}", key, res);
                 handler.stat.script_frame_send_fail_cnt += 1;
             } else {
                 handler.stat.script_frames_sent += 1;
@@ -420,7 +420,7 @@ impl StreamSource {
             if !handler.parsed_context.audio_only {
                 let res = handler.data_sender.try_send(video_sh.clone());
                 if res.is_err() {
-                    tracing::error!(
+                    log::error!(
                         "distribute video sh frame data to {} failed: {:?}",
                         key,
                         res
@@ -436,7 +436,7 @@ impl StreamSource {
             if !handler.parsed_context.video_only {
                 let res = handler.data_sender.try_send(audio_sh.clone());
                 if res.is_err() {
-                    tracing::error!(
+                    log::error!(
                         "distribute audio sh frame data to {} failed: {:?}",
                         key,
                         res
@@ -452,7 +452,7 @@ impl StreamSource {
         let total_gop_cnt = self.gop_cache.get_gops_cnt();
 
         if total_gop_cnt == 0 {
-            tracing::info!("got new consumer {} but no gop cached", key);
+            log::info!("got new consumer {} but no gop cached", key);
             return Ok(());
         }
 
@@ -468,7 +468,7 @@ impl StreamSource {
             total_gop_cnt,
         );
 
-        tracing::info!(
+        log::info!(
             "dump {} gops for play id: {}, total gop cnt: {}",
             gop_consumer_cnt,
             key,
@@ -478,7 +478,7 @@ impl StreamSource {
         for index in (total_gop_cnt - gop_consumer_cnt)..total_gop_cnt {
             let gop = self.gop_cache.gops.get(index).expect("this cannot be none");
 
-            tracing::info!(
+            log::info!(
                 "dump gop index: {}, frame cnt: {}",
                 index,
                 gop.flv_frames.len()
@@ -492,7 +492,7 @@ impl StreamSource {
                 }
                 let res = handler.data_sender.try_send(frame.clone());
                 if let Err(err) = &res {
-                    tracing::error!(
+                    log::error!(
                         "distribute audio sh frame data to {} failed: {:?}",
                         key,
                         err

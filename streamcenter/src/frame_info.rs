@@ -51,13 +51,13 @@ impl ChunkFrameData {
     pub fn log_runtime_stat(&self) {
         match self {
             ChunkFrameData::Video { meta, payload: _ } => {
-                tracing::info!("video message stat: {:?}", meta.runtime_stat);
+                log::info!("video message stat: {:?}", meta.runtime_stat);
             }
             ChunkFrameData::Audio { meta, payload: _ } => {
-                tracing::info!("audio message stat: {:?}", meta.runtime_stat);
+                log::info!("audio message stat: {:?}", meta.runtime_stat);
             }
             ChunkFrameData::Script { meta, payload: _ } => {
-                tracing::info!("meta message stat: {:?}", meta.runtime_stat);
+                log::info!("meta message stat: {:?}", meta.runtime_stat);
             }
             _ => {}
         }
@@ -67,25 +67,34 @@ impl ChunkFrameData {
 impl ChunkFrameData {
     #[inline]
     pub fn is_video(&self) -> bool {
-        matches!(self, ChunkFrameData::Video {
-            meta: _,
-            payload: _,
-        })
+        matches!(
+            self,
+            ChunkFrameData::Video {
+                meta: _,
+                payload: _,
+            }
+        )
     }
 
     #[inline]
     pub fn is_audio(&self) -> bool {
-        matches!(self, ChunkFrameData::Audio {
-            meta: _,
-            payload: _,
-        })
+        matches!(
+            self,
+            ChunkFrameData::Audio {
+                meta: _,
+                payload: _,
+            }
+        )
     }
 
     #[inline]
     pub fn is_script(&self) -> bool {
-        matches!(self, ChunkFrameData::Script {
-            meta: _,
-            payload: _,
-        })
+        matches!(
+            self,
+            ChunkFrameData::Script {
+                meta: _,
+                payload: _,
+            }
+        )
     }
 }

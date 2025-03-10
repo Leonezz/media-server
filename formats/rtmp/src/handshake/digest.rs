@@ -1,6 +1,5 @@
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
-use tracing::debug;
 
 use super::{
     consts::{RTMP_CLIENT_KEY, RTMP_HANDSHAKE_SIZE, SHA256_DIGEST_SIZE},
@@ -73,7 +72,7 @@ fn validate_c1_digest_with_schema(
     if &*digest == hash_digest {
         return Ok(digest);
     }
-    debug!(
+    log::debug!(
         "recived digest: {:?}, expected digest: {:?}, split at: {}",
         hash_digest, digest, index,
     );
