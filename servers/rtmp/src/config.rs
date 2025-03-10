@@ -1,6 +1,8 @@
+use std::net::IpAddr;
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RtmpServerConfig {
-    pub ip: String,
+    pub address: IpAddr,
     pub port: u16,
     pub chunk_size: u32,
     pub write_timeout_ms: u64,

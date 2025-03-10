@@ -21,6 +21,10 @@ tracing-subscriber = { version = "0.3.19", features = [
 ] }
 tracing-tracy = "0.11.3"
 tracing-futures = { version = "0.2.5", features = ["tokio"] }
+serde = { version = "1.0.216", features = ["derive"] }
+thiserror = "2.0.7"
+config = "0.15.9"
+clap = { version = "4.5.31", features = ["derive"] }
 
 [[bin]]
 name = "yam_server"
