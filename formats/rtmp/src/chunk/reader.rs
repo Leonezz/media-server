@@ -219,7 +219,7 @@ impl Reader {
         let csid = basic_header.chunk_stream_id;
         self.context.entry(csid).or_insert_with(|| {
             if fmt != 0 {
-                tracing::error!(
+                log::error!(
                     "new chunk must start with a type 0 message header, {:?}, {:?}",
                     basic_header,
                     message_header

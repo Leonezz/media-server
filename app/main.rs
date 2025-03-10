@@ -2,13 +2,14 @@ use http_server::{config::HttpServerConfig, server::HttpServer};
 use stream_center::stream_center;
 use time::macros::format_description;
 use tokio::signal;
-use tracing::{self, Dispatch, Level};
+use tracing::{self, Dispatch};
+use tracing_appender::rolling::Rotation;
 use tracing_subscriber::{self, EnvFilter, fmt::time::LocalTime};
 
 #[tokio::main]
 async fn main() {
+    let log_writer = tracing_appender::rolling::RollingFileAppender::new(Rotation::HOURLY, "./log", "yam.log.");
     let subscriber = tracing_subscriber::fmt()
-        .with_max_level(Level::TRACE)
         .with_timer(LocalTime::new(format_description!(
             "[year]-[month]-[day] [hour]:[minute]:[second] [unix_timestamp precision:nanosecond]"
         )))
@@ -23,6 +24,7 @@ async fn main() {
         // display the event's target (module path)
         .with_target(true)
         .with_env_filter(EnvFilter::from_env("LOG_LEVEL"))
+        .with_writer(log_writer)
         // Build the subscriber
         .finish();
     tracing::dispatcher::set_global_default(Dispatch::new(subscriber)).unwrap();

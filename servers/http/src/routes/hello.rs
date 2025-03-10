@@ -11,6 +11,6 @@ pub struct TestForm {
 
 #[get("/hello?<param..>")]
 pub fn hello(param: Option<TestForm>) -> String {
-    tracing::info!("param: {:?}", param);
+    log::info!("param: {:?}", param);
     "hello".into()
 }
