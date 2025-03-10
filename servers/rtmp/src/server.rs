@@ -13,11 +13,11 @@ pub struct RtmpServer {
 
 impl RtmpServer {
     pub fn new(
-        config: &RtmpServerConfig,
+        config: RtmpServerConfig,
         stream_center_event_sender: mpsc::UnboundedSender<StreamCenterEvent>,
     ) -> Self {
         Self {
-            config: config.clone(),
+            config: config,
             stream_center_event_sender,
         }
     }
@@ -25,7 +25,7 @@ impl RtmpServer {
     pub async fn run(&mut self) -> RtmpServerResult<()> {
         log::info!("rtmp server is running: {:?}", self.config);
         let listener =
-            tokio::net::TcpListener::bind((self.config.ip.as_str(), self.config.port)).await?;
+            tokio::net::TcpListener::bind((self.config.address, self.config.port)).await?;
         loop {
             let (tcp_stream, addr) = listener.accept().await?;
             let peer_addr = tcp_stream.peer_addr();
