@@ -69,10 +69,11 @@ impl From<FourCCInfo> for u8 {
 /// If the extended capabilities are expressed elsewhere they will not appear here
 /// (e.g., FourCC, HDR or VideoPacketType.Metadata support is not expressed in this property).
 /// When a specific flag is encountered:
-/// - The implementation might fully handle the feature by applying the appropriate logic.
-/// - Alternatively, if full support is not available, the implementation can still parse the bitstream correctly,
+///   - The implementation might fully handle the feature by applying the appropriate logic.
+///   - Alternatively, if full support is not available, the implementation can still parse the bitstream correctly,
 ///     ensuring graceful degradation.
-///   This allows continued operation, even with reduced functionality.
+/// 
+/// This allows continued operation, even with reduced functionality.
 pub mod caps_ex_mask {
     pub const RECONNECT: u8 = 0x01; // Support for reconnection
     pub const MULTI_TRACK: u8 = 0x02; // Support for multitrack

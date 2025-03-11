@@ -48,7 +48,7 @@ impl AppConfig {
     pub(crate) fn new(config_path: Option<String>) -> AppResult<Self> {
         let config_path_composed = config_path
             .map(|v| v.to_owned())
-            .or_else(|| env::var("YAM_CONFIG").map_or_else(|_| None, |v| Some(v)));
+            .or_else(|| env::var("YAM_CONFIG").ok());
         if config_path_composed.is_none() {
             return Err(AppError::ConfigError(ConfigError::NotFound(
                 "no config file is provided".to_owned(),

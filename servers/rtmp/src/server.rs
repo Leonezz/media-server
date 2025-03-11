@@ -17,7 +17,7 @@ impl RtmpServer {
         stream_center_event_sender: mpsc::UnboundedSender<StreamCenterEvent>,
     ) -> Self {
         Self {
-            config: config,
+            config,
             stream_center_event_sender,
         }
     }

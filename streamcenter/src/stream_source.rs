@@ -348,7 +348,7 @@ impl StreamSource {
             log::error!("append frame to gop cache failed: {:?}", err);
         }
 
-        if self.data_distributer.read().await.len() == 0 {
+        if self.data_distributer.read().await.is_empty() {
             return Ok(());
         }
 

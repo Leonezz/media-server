@@ -18,11 +18,7 @@ mod util;
 #[tokio::main]
 async fn main() {
     let cli = AppCli::parse();
-    let config = AppConfig::new(
-        cli.config
-            .clone()
-            .map_or(None, |v| Some(v.to_string_lossy().to_string())),
-    );
+    let config = AppConfig::new(cli.config.clone().map(|v| v.to_string_lossy().to_string()));
     match config {
         Err(err) => {
             panic!("parsing app config failed: {}", err);
@@ -144,7 +140,7 @@ async fn app_run(config: AppConfig) {
         }
     });
     {
-        let msg = format!("stream center is started\nall servers are started");
+        let msg = "stream center is started\nall servers are started".to_string();
         tracing::info!(msg);
         println!("{}", msg);
     }
