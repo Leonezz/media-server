@@ -780,7 +780,7 @@ impl RtmpSession {
         let mut tc_url_arg = HashMap::new();
         tc_url_arg.insert(
             "tcUrl".to_string(),
-            amf::string(new_tc_url, self.connect_info.object_encoding),
+            amf_formats::string(new_tc_url, self.connect_info.object_encoding),
         );
         self.chunk_stream.chunk_writer().write_on_status_response(
             response_level::STATUS,

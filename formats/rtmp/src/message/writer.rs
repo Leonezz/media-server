@@ -19,7 +19,7 @@ where
     pub fn write(
         &mut self,
         message: &RtmpUserMessageBody,
-        version: amf::Version,
+        version: amf_formats::Version,
     ) -> ChunkMessageResult<()> {
         match message {
             RtmpUserMessageBody::C2SCommand(command) => {

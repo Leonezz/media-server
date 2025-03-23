@@ -12,7 +12,7 @@ impl EncryptionTagHeader {
         R: io::Read,
     {
         let num_filters = reader.read_u8()?;
-        let name = amf::amf0::Value::read_from(reader.by_ref())?;
+        let name = amf_formats::amf0::Value::read_from(reader.by_ref())?;
         if name.is_none() {
             return Err(FLVError::UnexpectedValue(
                 "expect string for encryption tag header filter name but got none".to_string(),
@@ -21,7 +21,7 @@ impl EncryptionTagHeader {
 
         let name = name.expect("this cannot be none");
         let filter_name = match name {
-            amf::amf0::Value::String(str) => str,
+            amf_formats::amf0::Value::String(str) => str,
             _ => {
                 return Err(FLVError::UnexpectedValue(format!(
                     "expect string for encryption tag header filter name, got {:?} instead",

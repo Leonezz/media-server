@@ -22,7 +22,7 @@ where
 
     pub fn read_c2s(
         &mut self,
-        version: amf::Version,
+        version: amf_formats::Version,
         header: &ChunkMessageCommonHeader,
     ) -> ChunkMessageResult<RtmpUserMessageBody> {
         let mut payload = BytesMut::with_capacity(header.message_length as usize);

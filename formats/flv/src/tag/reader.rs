@@ -157,7 +157,7 @@ impl FLVTag {
     where
         Reader: io::Read,
     {
-        let name = amf::amf0::Value::read_from(reader.by_ref())?;
+        let name = amf_formats::amf0::Value::read_from(reader.by_ref())?;
         if name.is_none() {
             return Err(FLVError::UnexpectedValue(
                 "expect an amf string for meta name, got nothing".to_string(),
@@ -166,7 +166,7 @@ impl FLVTag {
 
         let name = name.expect("this cannot be none");
         let name_str = match name {
-            amf::amf0::Value::String(str) => str,
+            amf_formats::amf0::Value::String(str) => str,
             _ => {
                 return Err(FLVError::UnexpectedValue(format!(
                     "expect an amf string for meta name, got {:?} instead",
@@ -175,7 +175,7 @@ impl FLVTag {
             }
         };
 
-        let value = amf::amf0::Value::read_from(reader.by_ref())?;
+        let value = amf_formats::amf0::Value::read_from(reader.by_ref())?;
         if value.is_none() {
             return Err(FLVError::UnexpectedValue(
                 "expected an amf ECMA Array for meta value, got nothing".to_string(),
@@ -183,7 +183,7 @@ impl FLVTag {
         }
         let value = value.expect("this cannot be none");
         let value_arr = match value {
-            amf::amf0::Value::ECMAArray(arr) => arr,
+            amf_formats::amf0::Value::ECMAArray(arr) => arr,
             _ => {
                 return Err(FLVError::UnexpectedValue(format!(
                     "expect an amf ECMA Array for meta value, got {:?} instead",

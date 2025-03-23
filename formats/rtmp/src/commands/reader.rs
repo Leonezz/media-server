@@ -10,7 +10,7 @@ use super::{
     ReceiveAudioCommand, ReceiveVideoCommand, RtmpC2SCommands, RtmpS2CCommands,
     RtmpS2CCommandsType, SeekCommand, consts::c2s_command_names,
 };
-use amf::{Value as AmfValue, amf0::Value as Amf0Value, amf3::Value as Amf3Value};
+use amf_formats::{Value as AmfValue, amf0::Value as Amf0Value, amf3::Value as Amf3Value};
 use std::{
     backtrace::Backtrace,
     collections::HashMap,
@@ -21,14 +21,14 @@ use tokio_util::either::Either;
 #[derive(Debug)]
 pub struct Reader<R> {
     inner: R,
-    amf_version: amf::Version,
+    amf_version: amf_formats::Version,
 }
 
 impl<R> Reader<R>
 where
     R: io::Read,
 {
-    pub fn new(inner: R, amf_version: amf::Version) -> Self {
+    pub fn new(inner: R, amf_version: amf_formats::Version) -> Self {
         Self { inner, amf_version }
     }
 
@@ -454,7 +454,7 @@ where
     }
 
     fn read_amf_string(&mut self) -> ChunkMessageResult<String> {
-        let amf_str = amf::Value::read_from(self.inner.by_ref(), self.amf_version)?;
+        let amf_str = amf_formats::Value::read_from(self.inner.by_ref(), self.amf_version)?;
         if amf_str.is_none() {
             return Err(ChunkMessageError::Io(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
