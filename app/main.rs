@@ -47,6 +47,8 @@ async fn app_run(config: AppConfig) {
             "LOG_LEVEL",
             format!("{},rocket=off,hyper=off", config.logger.level),
         );
+        let log_level = env::var("LOG_LEVEL").unwrap();
+        println!("set env var LOG_LEVEL to {}", log_level);
     }
 
     let log_writer = tracing_appender::rolling::RollingFileAppender::new(

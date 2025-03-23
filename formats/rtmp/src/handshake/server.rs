@@ -37,7 +37,7 @@ pub trait AsyncHandshakeServer: Send {
         async {
             loop {
                 let state = self.state();
-                log::debug!("handshake with state: {:?}", state);
+                tracing::debug!("handshake with state: {:?}", state);
                 match state {
                     HandshakeServerState::Uninitialized => {
                         self.read_c0().await?;
@@ -106,19 +106,19 @@ where
     }
     async fn read_c0(&mut self) -> HandshakeResult<()> {
         self.io.read_u8().await?;
-        log::debug!("read c0");
+        tracing::debug!("read c0");
         Ok(())
     }
     async fn read_c1(&mut self) -> HandshakeResult<()> {
         self.c1_bytes.resize(RTMP_HANDSHAKE_SIZE, 0);
         let len = self.io.read_exact(&mut self.c1_bytes).await?;
-        log::debug!("read c1, {}", len);
+        tracing::debug!("read c1, {}", len);
         Ok(())
     }
     async fn read_c2(&mut self) -> HandshakeResult<()> {
         let mut buf: [u8; RTMP_HANDSHAKE_SIZE] = [0; RTMP_HANDSHAKE_SIZE];
         self.io.read_exact(&mut buf).await?;
-        log::debug!("read c2");
+        tracing::debug!("read c2");
         Ok(())
     }
     async fn write_s0(&mut self) -> HandshakeResult<()> {
@@ -131,7 +131,7 @@ where
         )?;
         self.io.write_all(&bytes).await?;
         self.io.flush().await?;
-        log::debug!("s0 bytes sent");
+        tracing::debug!("s0 bytes sent");
         Ok(())
     }
     async fn write_s1(&mut self) -> HandshakeResult<()> {
@@ -148,13 +148,13 @@ where
         )?;
         self.io.write_all(&bytes).await?;
         self.io.flush().await?;
-        log::debug!("s1 bytes sent, {:?}", self.io);
+        tracing::debug!("s1 bytes sent, {:?}", self.io);
         Ok(())
     }
     async fn write_s2(&mut self) -> HandshakeResult<()> {
         self.io.write_all(&self.c1_bytes).await?;
         self.io.flush().await?;
-        log::debug!("s2 bytes sent");
+        tracing::debug!("s2 bytes sent");
         Ok(())
     }
 }
@@ -203,13 +203,13 @@ where
     }
     async fn read_c0(&mut self) -> HandshakeResult<()> {
         self.io.read_u8().await?;
-        log::debug!("read c0");
+        tracing::debug!("read c0");
         Ok(())
     }
     async fn read_c1(&mut self) -> HandshakeResult<()> {
         self.c1_bytes.resize(RTMP_HANDSHAKE_SIZE, 0);
         let len = self.io.read_exact(&mut self.c1_bytes).await?;
-        log::debug!("read c1, {}", len);
+        tracing::debug!("read c1, {}", len);
         let mut bytes = [0_u8; RTMP_HANDSHAKE_SIZE];
         bytes.copy_from_slice(&self.c1_bytes);
 
@@ -220,13 +220,13 @@ where
             }));
         }
         self.c1_digest.copy_from_slice(&digest);
-        log::debug!("c1 validate success");
+        tracing::debug!("c1 validate success");
         Ok(())
     }
     async fn read_c2(&mut self) -> HandshakeResult<()> {
         let mut bytes = [0_u8; RTMP_HANDSHAKE_SIZE];
         self.io.read_exact(&mut bytes).await?;
-        log::debug!("read c2");
+        tracing::debug!("read c2");
         Ok(())
     }
     async fn write_s0(&mut self) -> HandshakeResult<()> {
@@ -236,7 +236,7 @@ where
             },
             &mut self.writer_buffer,
         )?;
-        log::debug!("write s0");
+        tracing::debug!("write s0");
         Ok(())
     }
     async fn write_s1(&mut self) -> HandshakeResult<()> {
@@ -256,7 +256,7 @@ where
         bytes.reader().read_exact(&mut bytes_array)?;
         let message = make_message(&RTMP_SERVER_KEY, &bytes_array)?;
         self.writer_buffer.extend_from_slice(&message);
-        log::debug!("write s1");
+        tracing::debug!("write s1");
         Ok(())
     }
     async fn write_s2(&mut self) -> HandshakeResult<()> {
@@ -287,7 +287,7 @@ where
             .concat()
             .as_slice(),
         );
-        log::debug!("write s2");
+        tracing::debug!("write s2");
         Ok(())
     }
 }
@@ -323,13 +323,13 @@ where
 
     pub async fn handshake(mut self, complex_only: bool) -> HandshakeResult<()> {
         if let Either::Left(mut h) = self.handshaker {
-            log::debug!("now do complex handshake");
+            tracing::debug!("now do complex handshake");
             match h.handshake().await {
                 Err(HandshakeError::DigestError(err)) => {
                     if complex_only {
                         return Err(HandshakeError::DigestError(err));
                     }
-                    log::trace!(
+                    tracing::trace!(
                         "complex handshake failed due to digest error: {}, retry with simple handshake",
                         err
                     );
@@ -338,7 +338,7 @@ where
                     self.handshaker = Either::Right(sim);
                 }
                 Err(err) => {
-                    log::error!("complex handshake failed: {}", err);
+                    tracing::error!("complex handshake failed: {}", err);
                     return Err(err);
                 }
                 Ok(()) => return Ok(()),
@@ -346,7 +346,7 @@ where
         }
 
         if let Either::Right(mut h) = self.handshaker {
-            log::debug!("now do simple handshake");
+            tracing::debug!("now do simple handshake");
             h.handshake().await?;
         }
 

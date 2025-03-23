@@ -5,7 +5,10 @@ use std::{
     collections::HashMap,
     io::{Cursor, Read, Write},
 };
-use tokio::{io::BufWriter, net::TcpStream};
+use tokio::{
+    io::{AsyncWrite, BufWriter},
+    net::TcpStream,
+};
 use tokio_util::{
     bytes::{Buf, BytesMut},
     either::Either,
@@ -75,7 +78,10 @@ impl Writer {
         self.bytes_written
     }
 
-    pub async fn write_to(&mut self, writer: &mut BufWriter<TcpStream>) -> ChunkMessageResult<()> {
+    pub async fn write_to<W: AsyncWrite + std::marker::Unpin>(
+        &mut self,
+        writer: &mut W,
+    ) -> ChunkMessageResult<()> {
         use tokio::io::AsyncWriteExt;
         writer.write_all(&self.inner).await?;
         self.inner.clear();

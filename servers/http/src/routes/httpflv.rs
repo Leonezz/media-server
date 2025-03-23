@@ -84,7 +84,7 @@ pub(crate) async fn serve(
     params: HttpFlvPullRequest,
 ) -> HttpServerResult<HttpFlvStream> {
     let stream = stream.0;
-    log::info!(
+    tracing::info!(
         "get http flv pull request, app: {}, stream: {}, params: {:?}",
         app,
         stream,

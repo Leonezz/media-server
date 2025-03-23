@@ -3,7 +3,9 @@ use core::time;
 use std::io::{self};
 
 mod reader;
+mod reader_test;
 mod writer;
+mod writer_test;
 
 use crate::errors::AmfResult;
 

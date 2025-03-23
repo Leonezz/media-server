@@ -51,13 +51,13 @@ impl ChunkFrameData {
     pub fn log_runtime_stat(&self) {
         match self {
             ChunkFrameData::Video { meta, payload: _ } => {
-                log::info!("video message stat: {:?}", meta.runtime_stat);
+                tracing::info!("video message stat: {:?}", meta.runtime_stat);
             }
             ChunkFrameData::Audio { meta, payload: _ } => {
-                log::info!("audio message stat: {:?}", meta.runtime_stat);
+                tracing::info!("audio message stat: {:?}", meta.runtime_stat);
             }
             ChunkFrameData::Script { meta, payload: _ } => {
-                log::info!("meta message stat: {:?}", meta.runtime_stat);
+                tracing::info!("meta message stat: {:?}", meta.runtime_stat);
             }
             _ => {}
         }

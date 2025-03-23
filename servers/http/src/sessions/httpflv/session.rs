@@ -154,7 +154,7 @@ impl HttpFlvSession {
                         .send(BytesMut::from(&bytes[..]));
                     bytes.clear();
                     if res.is_err() {
-                        log::error!(
+                        tracing::error!(
                             "send http response bytes to http request handler failed: {:?},
                             the receiver must been closed, which means the consumer must have unsubscribed. stream: {:?}",
                             res,
@@ -263,7 +263,7 @@ impl HttpFlvSession {
 
         let res = self.stream_center_event_sender.send(event);
         if res.is_err() {
-            log::error!(
+            tracing::error!(
                 "unsubscribe from stream center failed, stream: {:?}",
                 self.stream_properties
             );
@@ -274,14 +274,14 @@ impl HttpFlvSession {
 
         match rx.await {
             Err(_err) => {
-                log::error!(
+                tracing::error!(
                     "channel closed while trying receive unsubscribe result, stream: {:?}",
                     self.stream_properties
                 );
                 Err(HttpFlvSessionError::StreamEventSendFailed(None))
             }
             Ok(Err(err)) => {
-                log::error!(
+                tracing::error!(
                     "unsubscribe from stream center failed, {:?}, stream: {:?}",
                     err,
                     self.stream_properties
@@ -289,7 +289,7 @@ impl HttpFlvSession {
                 Err(err.into())
             }
             Ok(Ok(())) => {
-                log::info!(
+                tracing::info!(
                     "unsubscribe from stream center succeed, stream: {:?}, uuid: {:?}",
                     self.stream_properties,
                     self.play_id
@@ -312,7 +312,7 @@ impl HttpFlvSession {
         let res = self.stream_center_event_sender.send(event);
 
         if res.is_err() {
-            log::error!(
+            tracing::error!(
                 "subscribe from stream center failed, stream: {:?}",
                 self.stream_properties,
             );
@@ -323,14 +323,14 @@ impl HttpFlvSession {
 
         match rx.await {
             Err(_err) => {
-                log::error!(
+                tracing::error!(
                     "channel closed while trying receive subscribe result, stream: {:?}",
                     self.stream_properties,
                 );
                 Err(HttpFlvSessionError::StreamEventSendFailed(None))
             }
             Ok(Err(err)) => {
-                log::error!(
+                tracing::error!(
                     "subscribe from stream center failed, {:?}, stream: {:?}",
                     err,
                     self.stream_properties
@@ -338,7 +338,7 @@ impl HttpFlvSession {
                 Err(err.into())
             }
             Ok(Ok(res)) => {
-                log::info!(
+                tracing::info!(
                     "subscribe from stream center success, stream: {:?}, uuid: {}",
                     self.stream_properties,
                     res.subscribe_id
