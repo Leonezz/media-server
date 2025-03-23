@@ -72,9 +72,11 @@ fn validate_c1_digest_with_schema(
     if &*digest == hash_digest {
         return Ok(digest);
     }
-    log::debug!(
+    tracing::debug!(
         "recived digest: {:?}, expected digest: {:?}, split at: {}",
-        hash_digest, digest, index,
+        hash_digest,
+        digest,
+        index,
     );
 
     Err(DigestError::Invalid)

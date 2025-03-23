@@ -233,10 +233,7 @@ where
 #[cfg(test)]
 mod tests {
     use core::{f64, time};
-    use std::{
-        io::{self},
-        iter,
-    };
+    use std::io::{self};
 
     use crate::{
         amf0::{Value, amf0_marker},
@@ -343,7 +340,7 @@ mod tests {
             decode!("../../test_data/amf0-long-string.bin")
                 .unwrap()
                 .unwrap(),
-            Value::String(iter::repeat('a').take(0x10013).collect())
+            Value::String("a".repeat(0x10013))
         );
 
         assert_eof!("../../test_data/amf0-long-string-partial.bin");
@@ -367,6 +364,7 @@ mod tests {
             let pairs = vec![
                 ("".to_string(), Value::String("".to_string())),
                 ("foo".to_string(), Value::String("baz".to_string())),
+                #[allow(clippy::approx_constant)]
                 ("bar".to_string(), Value::Number(3.14)),
             ];
             let err = decode!("../../test_data/amf0-object.bin");
@@ -388,7 +386,7 @@ mod tests {
         let err = decode!("../../test_data/amf0-movieclip.bin").unwrap_err();
         match err {
             AmfError::Unsupported { marker } => assert_eq!(marker, amf0_marker::MOVIECLIP),
-            _ => assert!(false),
+            _ => panic!("unexpected error: {:?}", err),
         }
     }
 
@@ -414,6 +412,7 @@ mod tests {
     fn reference() {
         let pairs = vec![
             ("foo".to_string(), Value::String("baz".to_string())),
+            #[allow(clippy::approx_constant)]
             ("bar".to_string(), Value::Number(3.14)),
         ];
         let object = Value::Object {

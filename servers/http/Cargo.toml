@@ -9,14 +9,14 @@ stream-center = { path = "../../streamcenter" }
 flv = { path = "../../formats/flv" }
 
 thiserror = "2.0.7"
-tokio = { version = "1.42.0", features = ["full"] }
-tokio-util = "0.7.13"
+tokio = { version = "1.44.1", features = ["full"] }
+tokio-util = "0.7.14"
 byteorder = "1.5.0"
 
 rocket = { version = "0.5.1", features = ["json"] }
 figment = { version = "0.10", features = ["env", "toml", "json"] }
 base64 = "0.22.1"
-log = "0.4.26"
+tracing = "0.1.41"
 serde_json = "1.0.133"
 serde = { version = "1.0.216", features = ["derive"] }
 

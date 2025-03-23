@@ -259,6 +259,7 @@ mod tests {
             let arr = vec![
                 ("".to_string(), Value::String("".to_string())),
                 ("foo".to_string(), Value::String("baz".to_string())),
+                #[allow(clippy::approx_constant)]
                 ("bar".to_string(), Value::Number(3.14)),
             ];
 
@@ -306,6 +307,7 @@ mod tests {
     fn reference() {
         let pairs = vec![
             ("foo".to_string(), Value::String("baz".to_string())),
+            #[allow(clippy::approx_constant)]
             ("bar".to_string(), Value::Number(3.14)),
         ];
         let object = Value::Object {

@@ -87,7 +87,7 @@ where
     fn read_c2s_connect_command(&mut self) -> ChunkMessageResult<ConnectCommandRequest> {
         let transaction_id = self.read_amf_number()? as u8;
         if transaction_id != 1 {
-            log::warn!(
+            tracing::warn!(
                 "connect transaction_id should be 1, got {} instead",
                 transaction_id
             );
@@ -122,7 +122,7 @@ where
 
         let transaction_id = self.read_amf_number()? as u8;
         if transaction_id != 1 {
-            log::warn!(
+            tracing::warn!(
                 "connect response transaction_id should be 1, got {} instead",
                 transaction_id
             );
@@ -213,7 +213,7 @@ where
 
         let transaction_id = self.read_amf_number()?;
         if transaction_id as u8 != 0 {
-            log::warn!(
+            tracing::warn!(
                 "onStatus transaction_id should be 0, got {} instead",
                 transaction_id
             );
@@ -288,7 +288,7 @@ where
     fn read_c2s_play_command(&mut self) -> ChunkMessageResult<PlayCommand> {
         let transaction_id = self.read_amf_number()? as u8;
         if transaction_id != 0 {
-            log::warn!(
+            tracing::warn!(
                 "play transaction_id should be 0, got {} instead",
                 transaction_id
             );
@@ -311,7 +311,7 @@ where
     fn read_c2s_play2_command(&mut self) -> ChunkMessageResult<Play2Command> {
         let transaction_id = self.read_amf_number()? as u8;
         if transaction_id != 0 {
-            log::warn!(
+            tracing::warn!(
                 "play2 transaction_id should be 0, got {} instead",
                 transaction_id
             );
@@ -328,7 +328,7 @@ where
     fn read_c2s_delete_stream_command(&mut self) -> ChunkMessageResult<DeleteStreamCommand> {
         let transaction_id = self.read_amf_number()? as u8;
         if transaction_id != 0 {
-            log::warn!(
+            tracing::warn!(
                 "deleteStream transaction_id should be 0, got {} instead",
                 transaction_id
             );
@@ -346,7 +346,7 @@ where
         let transaction_id = self.read_amf_number()? as u8;
 
         if transaction_id != 0 {
-            log::warn!(
+            tracing::warn!(
                 "receiveAudio transaction_id should be 0, got {} instead",
                 transaction_id
             );
@@ -365,7 +365,7 @@ where
         let transaction_id = self.read_amf_number()? as u8;
 
         if transaction_id != 0 {
-            log::warn!(
+            tracing::warn!(
                 "receiveVideo transaction_id should be 0, got {} instead",
                 transaction_id
             );
@@ -384,7 +384,7 @@ where
         let transaction_id = self.read_amf_number()? as u8;
 
         if transaction_id != 0 {
-            log::warn!(
+            tracing::warn!(
                 "publish transaction_id should be 0, got {} instead",
                 transaction_id
             );

@@ -33,7 +33,7 @@ impl HttpServer {
     }
 
     pub async fn run(&mut self) -> HttpServerResult<()> {
-        log::info!("http server is running, config: {:?}", self.context.config);
+        tracing::info!("http server is running, config: {:?}", self.context.config);
         let figment = Figment::from(Config {
             log_level: rocket::config::LogLevel::Off,
             ident: Ident::try_new("zhuwenq").unwrap(),
@@ -51,14 +51,14 @@ impl HttpServer {
             .await
         {
             Ok(res) => {
-                log::info!(
+                tracing::info!(
                     "http server exit successfully, config: {:?}",
                     self.context.config
                 );
-                log::debug!("http server exit res: {:?}", res);
+                tracing::debug!("http server exit res: {:?}", res);
             }
             Err(err) => {
-                log::error!("http server exit with err: {:?}", err);
+                tracing::error!("http server exit with err: {:?}", err);
             }
         }
 

@@ -295,7 +295,7 @@ impl GopQueue {
                 runtime_stat: _,
             } => {
                 if header.is_sequence_header() {
-                    log::info!("audio header: {:?}", header);
+                    tracing::info!("audio header: {:?}", header);
                     self.audio_sequence_header = Some(frame.clone());
                     is_sequence_header = true
                 }
@@ -308,7 +308,7 @@ impl GopQueue {
             } => {
                 is_video = true;
                 if header.is_sequence_header() {
-                    log::info!("video header: {:?}", header);
+                    tracing::info!("video header: {:?}", header);
                     self.video_sequence_header = Some(frame.clone());
                     is_sequence_header = true;
                 } else if header.is_key_frame() {
@@ -322,7 +322,7 @@ impl GopQueue {
                 payload: _,
             } => {
                 self.script_frame = Some(frame.clone());
-                log::info!("meta, pts: {}, data: {:?}", pts, on_meta_data);
+                tracing::info!("meta, pts: {}, data: {:?}", pts, on_meta_data);
             }
         }
 

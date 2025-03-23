@@ -23,13 +23,13 @@ impl RtmpServer {
     }
 
     pub async fn run(&mut self) -> RtmpServerResult<()> {
-        log::info!("rtmp server is running: {:?}", self.config);
+        tracing::info!("rtmp server is running: {:?}", self.config);
         let listener =
             tokio::net::TcpListener::bind((self.config.address, self.config.port)).await?;
         loop {
             let (tcp_stream, addr) = listener.accept().await?;
             let peer_addr = tcp_stream.peer_addr();
-            log::info!(
+            tracing::info!(
                 "got new rtmp connection, addr: {}, peer addr: {:?}",
                 addr,
                 peer_addr
@@ -46,14 +46,14 @@ impl RtmpServer {
             tokio::spawn(async move {
                 match session.run().await {
                     Ok(()) => {
-                        log::info!(
+                        tracing::info!(
                             "rtmp session successfully closed, addr: {}, peer addr: {:?}",
                             addr,
                             peer_addr
                         );
                     }
                     Err(err) => {
-                        log::error!("{:?}", err);
+                        tracing::error!("{:?}", err);
                     }
                 };
                 session.log_stats().await;
