@@ -1,5 +1,5 @@
 [package]
-name = "rtp"
+name = "rtp-formats"
 version = "0.1.0"
 edition = "2024"
 

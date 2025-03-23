@@ -6,7 +6,7 @@ use std::{
     sync::Arc,
 };
 
-use flv::tag::{FLVTag, FLVTagType, on_meta_data::OnMetaData};
+use flv_formats::tag::{FLVTag, FLVTagType, on_meta_data::OnMetaData};
 use tokio::sync::{RwLock, mpsc};
 use tokio_util::bytes::{Buf, BytesMut};
 use utils::system::time::get_timestamp_ns;
@@ -283,7 +283,7 @@ impl StreamSource {
 
                 let mut cursor = Cursor::new(&mut payload);
                 let tag_header =
-                    flv::tag::audio_tag_header::AudioTagHeader::read_from(&mut cursor)?;
+                    flv_formats::tag::audio_tag_header::AudioTagHeader::read_from(&mut cursor)?;
 
                 meta.runtime_stat.stream_source_parse_time_ns = get_timestamp_ns().unwrap_or(0);
 
@@ -302,7 +302,7 @@ impl StreamSource {
 
                 let mut cursor = Cursor::new(&mut payload);
                 let tag_header =
-                    flv::tag::video_tag_header::VideoTagHeader::read_from(&mut cursor)?;
+                    flv_formats::tag::video_tag_header::VideoTagHeader::read_from(&mut cursor)?;
 
                 meta.runtime_stat.stream_source_parse_time_ns = get_timestamp_ns().unwrap_or(0);
 
@@ -321,7 +321,7 @@ impl StreamSource {
                 meta.runtime_stat.stream_source_parse_time_ns = get_timestamp_ns().unwrap_or(0);
                 let mut cursor = Cursor::new(payload);
                 let on_meta_data: Option<OnMetaData> =
-                    OnMetaData::read_from(&mut cursor, amf::Version::Amf0);
+                    OnMetaData::read_from(&mut cursor, amf_formats::Version::Amf0);
 
                 tracing::trace!("got script tag, onMetaData: {:?}", on_meta_data);
 

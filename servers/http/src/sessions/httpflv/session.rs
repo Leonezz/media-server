@@ -2,7 +2,7 @@ use std::{collections::HashMap, io::Write};
 
 use byteorder::{BigEndian, WriteBytesExt};
 
-use flv::{
+use flv_formats::{
     errors::FLVResult,
     header::FLVHeader,
     tag::{FLVTagHeader, FLVTagType},

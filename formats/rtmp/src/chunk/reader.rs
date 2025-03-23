@@ -134,8 +134,8 @@ impl Reader {
                             match message_type {
                                 RtmpMessageType::AMF3Command
                                 | RtmpMessageType::AMF3Data
-                                | RtmpMessageType::AMF3SharedObject => amf::Version::Amf3,
-                                _ => amf::Version::Amf0,
+                                | RtmpMessageType::AMF3SharedObject => amf_formats::Version::Amf3,
+                                _ => amf_formats::Version::Amf0,
                             },
                             &common_header,
                         )?,
@@ -147,8 +147,8 @@ impl Reader {
                             match message_type {
                                 RtmpMessageType::AMF3Command
                                 | RtmpMessageType::AMF3Data
-                                | RtmpMessageType::AMF3SharedObject => amf::Version::Amf3,
-                                _ => amf::Version::Amf0,
+                                | RtmpMessageType::AMF3SharedObject => amf_formats::Version::Amf3,
+                                _ => amf_formats::Version::Amf0,
                             },
                             &common_header,
                         )?,

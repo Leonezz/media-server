@@ -122,7 +122,7 @@ impl TryFrom<u8> for RtmpMessageType {
 impl RtmpUserMessageBody {
     pub fn read_c2s_from<R>(
         inner: R,
-        version: amf::Version,
+        version: amf_formats::Version,
         header: &ChunkMessageCommonHeader,
     ) -> ChunkMessageResult<RtmpUserMessageBody>
     where
@@ -133,7 +133,7 @@ impl RtmpUserMessageBody {
 
     pub fn read_s2c_from<R>(
         _inner: R,
-        _version: amf::Version,
+        _version: amf_formats::Version,
         _header: &ChunkMessageCommonHeader,
     ) -> ChunkMessageResult<RtmpUserMessageBody>
     where
@@ -142,7 +142,7 @@ impl RtmpUserMessageBody {
         todo!()
     }
 
-    pub fn write_c2s_to<W>(&self, inner: W, version: amf::Version) -> ChunkMessageResult<()>
+    pub fn write_c2s_to<W>(&self, inner: W, version: amf_formats::Version) -> ChunkMessageResult<()>
     where
         W: io::Write,
     {

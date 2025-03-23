@@ -1,6 +1,6 @@
 use std::{collections::HashMap, iter::zip};
 
-use amf::AmfComplexObject;
+use amf_formats::AmfComplexObject;
 
 use super::{
     audio_tag_header::SoundFormat,
@@ -73,8 +73,8 @@ pub struct OnMetaData {
     pub width: Option<f64>,
     /// "audioTrackIdInfoMap" and "videoTrackIdInfoMap" are way too complicated, sucks
     /// @see Enhanced RTMP v2-2024-10-22-b1 p15
-    pub audio_track_id_info_map: Option<HashMap<String, amf::Value>>,
-    pub video_track_id_info_map: Option<HashMap<String, amf::Value>>,
+    pub audio_track_id_info_map: Option<HashMap<String, amf_formats::Value>>,
+    pub video_track_id_info_map: Option<HashMap<String, amf_formats::Value>>,
 
     /// @see: http://www.cnblogs.com/musicfans/archive/2012/11/07/2819291.html
     /// "keyframes": {
@@ -84,12 +84,12 @@ pub struct OnMetaData {
     pub keyframes: Option<Vec<ScriptKeyframeInfo>>,
 }
 
-impl From<HashMap<String, amf::Value>> for OnMetaData {
-    fn from(value: HashMap<String, amf::Value>) -> Self {
+impl From<HashMap<String, amf_formats::Value>> for OnMetaData {
+    fn from(value: HashMap<String, amf_formats::Value>) -> Self {
         let extract_keyframe_info = || match value.extract_object_field("keyframes") {
             None => None,
             Some(pairs) => {
-                let mut map: HashMap<String, amf::Value> = HashMap::new();
+                let mut map: HashMap<String, amf_formats::Value> = HashMap::new();
                 for (k, v) in pairs {
                     map.insert(k, v);
                 }
@@ -156,7 +156,7 @@ impl From<HashMap<String, amf::Value>> for OnMetaData {
             width: value.extract_number_field("width"),
             audio_track_id_info_map: value.extract_object_field("audioTrackIdInfoMap").map(
                 |pairs| {
-                    let mut map: HashMap<String, amf::Value> = HashMap::new();
+                    let mut map: HashMap<String, amf_formats::Value> = HashMap::new();
                     for (k, v) in pairs {
                         map.insert(k, v);
                     }
@@ -165,7 +165,7 @@ impl From<HashMap<String, amf::Value>> for OnMetaData {
             ),
             video_track_id_info_map: value.extract_object_field("videoTrackIdInfoMap").map(
                 |pairs| {
-                    let mut map: HashMap<String, amf::Value> = HashMap::new();
+                    let mut map: HashMap<String, amf_formats::Value> = HashMap::new();
                     for (k, v) in pairs {
                         map.insert(k, v);
                     }

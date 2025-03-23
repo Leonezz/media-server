@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use flv::tag::{
+use flv_formats::tag::{
     audio_tag_header_info::AudioTagHeaderWithoutMultiTrack, on_meta_data::OnMetaData,
     video_tag_header_info::VideoTagHeaderWithoutMultiTrack,
 };
@@ -37,32 +37,41 @@ pub enum FLVMediaFrame {
 impl FLVMediaFrame {
     #[inline]
     pub fn is_video(&self) -> bool {
-        matches!(self, FLVMediaFrame::Video {
-            runtime_stat: _,
-            pts: _,
-            header: _,
-            payload: _,
-        })
+        matches!(
+            self,
+            FLVMediaFrame::Video {
+                runtime_stat: _,
+                pts: _,
+                header: _,
+                payload: _,
+            }
+        )
     }
 
     #[inline]
     pub fn is_audio(&self) -> bool {
-        matches!(self, FLVMediaFrame::Audio {
-            runtime_stat: _,
-            pts: _,
-            header: _,
-            payload: _,
-        })
+        matches!(
+            self,
+            FLVMediaFrame::Audio {
+                runtime_stat: _,
+                pts: _,
+                header: _,
+                payload: _,
+            }
+        )
     }
 
     #[inline]
     pub fn is_script(&self) -> bool {
-        matches!(self, FLVMediaFrame::Script {
-            runtime_stat: _,
-            pts: _,
-            payload: _,
-            on_meta_data: _,
-        })
+        matches!(
+            self,
+            FLVMediaFrame::Script {
+                runtime_stat: _,
+                pts: _,
+                payload: _,
+                on_meta_data: _,
+            }
+        )
     }
 
     #[inline]

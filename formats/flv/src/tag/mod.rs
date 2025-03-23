@@ -87,7 +87,7 @@ pub enum FLVTagBody {
         name: String,
         /// AMF arguments or object properties.
         /// SCRIPTDATAVALUE.Type = 8 (ECMA array)
-        value: Vec<(String, amf::amf0::Value)>,
+        value: Vec<(String, amf_formats::amf0::Value)>,
     },
 }
 

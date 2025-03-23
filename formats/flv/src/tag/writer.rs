@@ -66,8 +66,8 @@ where
                 self.inner.write_all(body)?;
             }
             FLVTagBody::Script { name, value } => {
-                amf::amf0::Value::String(name.clone()).write_to(self.inner.by_ref())?;
-                amf::amf0::Value::ECMAArray(value.clone()).write_to(self.inner.by_ref())?;
+                amf_formats::amf0::Value::String(name.clone()).write_to(self.inner.by_ref())?;
+                amf_formats::amf0::Value::ECMAArray(value.clone()).write_to(self.inner.by_ref())?;
             }
         }
         Ok(())

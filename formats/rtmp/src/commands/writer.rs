@@ -1,4 +1,4 @@
-use amf::{self, Value as AmfValue};
+use amf_formats::{self, Value as AmfValue};
 use std::{collections::HashMap, io};
 use tokio_util::either::Either;
 
@@ -13,14 +13,14 @@ use super::{
 };
 pub struct Writer<W> {
     inner: W,
-    amf_version: amf::Version,
+    amf_version: amf_formats::Version,
 }
 
 impl<W> Writer<W>
 where
     W: io::Write,
 {
-    pub fn new(inner: W, amf_version: amf::Version) -> Self {
+    pub fn new(inner: W, amf_version: amf_formats::Version) -> Self {
         Self { inner, amf_version }
     }
 

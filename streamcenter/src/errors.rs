@@ -16,7 +16,7 @@ pub enum StreamCenterError {
     #[error("invalid stream type: {0}")]
     InvalidStreamType(String),
     #[error("parse flv tag failed")]
-    ParseFLVTagFailed(#[from] flv::errors::FLVError),
+    ParseFLVTagFailed(#[from] flv_formats::errors::FLVError),
 }
 
 pub type StreamCenterResult<T> = Result<T, StreamCenterError>;

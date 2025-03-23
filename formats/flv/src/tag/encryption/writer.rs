@@ -11,7 +11,7 @@ impl EncryptionTagHeader {
         W: io::Write,
     {
         writer.write_u8(self.num_filters)?;
-        amf::amf0::Value::String(self.filter_name.clone()).write_to(writer.by_ref())?;
+        amf_formats::amf0::Value::String(self.filter_name.clone()).write_to(writer.by_ref())?;
         writer.write_u24::<BigEndian>(self.length)?;
         Ok(())
     }

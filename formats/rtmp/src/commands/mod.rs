@@ -1,6 +1,6 @@
 use std::{collections::HashMap, io};
 
-use amf::AmfComplexObject;
+use amf_formats::AmfComplexObject;
 use tokio_util::either::Either;
 
 use crate::chunk::errors::{ChunkMessageError, ChunkMessageResult};
@@ -72,7 +72,7 @@ impl From<FourCCInfo> for u8 {
 ///   - The implementation might fully handle the feature by applying the appropriate logic.
 ///   - Alternatively, if full support is not available, the implementation can still parse the bitstream correctly,
 ///     ensuring graceful degradation.
-/// 
+///
 /// This allows continued operation, even with reduced functionality.
 pub mod caps_ex_mask {
     pub const RECONNECT: u8 = 0x01; // Support for reconnection
@@ -135,7 +135,7 @@ pub struct ConnectCommandRequestObject {
     pub video_codecs: u16,
     pub video_function: u16,
     pub page_url: String,
-    pub object_encoding: amf::Version,
+    pub object_encoding: amf_formats::Version,
     // the below are from enhanced rtmp
     pub caps_ex_info: Option<CapsExInfo>,
     pub four_cc_list: Option<Vec<String>>,
@@ -143,9 +143,9 @@ pub struct ConnectCommandRequestObject {
     pub audio_four_cc_info: Option<HashMap<String, FourCCInfo>>,
 }
 
-impl TryFrom<HashMap<String, amf::Value>> for ConnectCommandRequestObject {
+impl TryFrom<HashMap<String, amf_formats::Value>> for ConnectCommandRequestObject {
     type Error = ChunkMessageError;
-    fn try_from(value: HashMap<String, amf::Value>) -> Result<Self, Self::Error> {
+    fn try_from(value: HashMap<String, amf_formats::Value>) -> Result<Self, Self::Error> {
         let extract_string_array_field = |key: &str| match value.extract_array_field(key) {
             Some(values) => {
                 let mut result = vec![];
@@ -201,11 +201,11 @@ impl TryFrom<HashMap<String, amf::Value>> for ConnectCommandRequestObject {
                 .unwrap_or("default".into()),
             object_encoding: match value
                 .extract_number_field("objectEncoding")
-                .unwrap_or((amf::Version::Amf0 as u8).into())
+                .unwrap_or((amf_formats::Version::Amf0 as u8).into())
                 as u8
             {
-                0 => amf::Version::Amf0,
-                3 => amf::Version::Amf3,
+                0 => amf_formats::Version::Amf0,
+                3 => amf_formats::Version::Amf3,
                 v => return Err(ChunkMessageError::UnknownAmfVersion(v)),
             },
             four_cc_list: extract_string_array_field("fourCcList"),
@@ -220,34 +220,34 @@ impl TryFrom<HashMap<String, amf::Value>> for ConnectCommandRequestObject {
     }
 }
 
-impl From<ConnectCommandRequestObject> for HashMap<String, amf::Value> {
+impl From<ConnectCommandRequestObject> for HashMap<String, amf_formats::Value> {
     fn from(value: ConnectCommandRequestObject) -> Self {
-        let mut map: HashMap<String, amf::Value> = HashMap::new();
+        let mut map: HashMap<String, amf_formats::Value> = HashMap::new();
         let version = value.object_encoding;
-        map.insert("app".into(), amf::string(value.app, version));
-        map.insert("flashver".into(), amf::string(value.flash_version, version));
-        map.insert("swfUrl".into(), amf::string(value.swf_url, version));
-        map.insert("tcUrl".into(), amf::string(value.tc_url, version));
-        map.insert("fpad".into(), amf::bool(value.fpad, version));
+        map.insert("app".into(), amf_formats::string(value.app, version));
+        map.insert("flashver".into(), amf_formats::string(value.flash_version, version));
+        map.insert("swfUrl".into(), amf_formats::string(value.swf_url, version));
+        map.insert("tcUrl".into(), amf_formats::string(value.tc_url, version));
+        map.insert("fpad".into(), amf_formats::bool(value.fpad, version));
         map.insert(
             "audioCodecs".into(),
-            amf::number(value.audio_codecs, version),
+            amf_formats::number(value.audio_codecs, version),
         );
         map.insert(
             "videoCodecs".into(),
-            amf::number(value.video_codecs, version),
+            amf_formats::number(value.video_codecs, version),
         );
         map.insert(
             "videoFunction".into(),
-            amf::number(value.video_function, version),
+            amf_formats::number(value.video_function, version),
         );
-        map.insert("pageUrl".into(), amf::string(value.page_url, version));
+        map.insert("pageUrl".into(), amf_formats::string(value.page_url, version));
         map.insert(
             "objectEncoding".into(),
-            amf::number::<u8>(
+            amf_formats::number::<u8>(
                 match value.object_encoding {
-                    amf::Version::Amf0 => 0,
-                    amf::Version::Amf3 => 3,
+                    amf_formats::Version::Amf0 => 0,
+                    amf_formats::Version::Amf3 => 3,
                 },
                 version,
             ),
@@ -261,7 +261,7 @@ pub struct ConnectCommandRequest {
     pub command_name: String, // "connect"
     pub transaction_id: u8,   // always 1
     pub command_object: ConnectCommandRequestObject,
-    pub optional_user_arguments: Option<HashMap<String, amf::Value>>,
+    pub optional_user_arguments: Option<HashMap<String, amf_formats::Value>>,
 }
 
 #[derive(Debug)]
@@ -269,31 +269,31 @@ pub struct ConnectCommandResponse {
     // command_name: String, // "_result" or "_error"
     pub success: bool,
     pub transaction_id: u8, // always 1
-    pub properties: Option<HashMap<String, amf::Value>>,
-    pub information: Option<Either<amf::Value, HashMap<String, amf::Value>>>,
+    pub properties: Option<HashMap<String, amf_formats::Value>>,
+    pub information: Option<Either<amf_formats::Value, HashMap<String, amf_formats::Value>>>,
 }
 
 #[derive(Debug)]
 pub struct CallCommandRequest {
     pub procedure_name: String,
     pub transaction_id: f64,
-    pub command_object: Option<HashMap<String, amf::Value>>,
-    pub optional_arguments: Option<Either<amf::Value, HashMap<String, amf::Value>>>,
+    pub command_object: Option<HashMap<String, amf_formats::Value>>,
+    pub optional_arguments: Option<Either<amf_formats::Value, HashMap<String, amf_formats::Value>>>,
 }
 
 #[derive(Debug)]
 pub struct CallCommandResponse {
     pub command_name: String,
     pub transaction_id: f64,
-    pub command_object: Option<HashMap<String, amf::Value>>,
-    pub response: Option<HashMap<String, amf::Value>>,
+    pub command_object: Option<HashMap<String, amf_formats::Value>>,
+    pub response: Option<HashMap<String, amf_formats::Value>>,
 }
 
 #[derive(Debug)]
 pub struct CreateStreamCommandRequest {
     pub command_name: String, // "createStream"
     pub transaction_id: f64,
-    pub command_object: Option<HashMap<String, amf::Value>>,
+    pub command_object: Option<HashMap<String, amf_formats::Value>>,
 }
 
 #[derive(Debug)]
@@ -301,7 +301,7 @@ pub struct CreateStreamCommandResponse {
     // command_name: String, // "_result" or "_error"
     pub success: bool,
     pub transaction_id: f64,
-    pub command_object: Option<HashMap<String, amf::Value>>,
+    pub command_object: Option<HashMap<String, amf_formats::Value>>,
     pub stream_id: f64,
 }
 
@@ -310,7 +310,7 @@ pub struct OnStatusCommand {
     pub command_name: String, // "onStatus"
     pub transaction_id: u8,   // 0
     // command_object is null
-    pub info_object: HashMap<String, amf::Value>, // at least: level, code, description
+    pub info_object: HashMap<String, amf_formats::Value>, // at least: level, code, description
 }
 
 #[derive(Debug)]
@@ -329,7 +329,7 @@ pub struct Play2Command {
     _command_name: String, // "play2"
     _transaction_id: u8,   // 0
     // command_object is null
-    parameters: HashMap<String, amf::Value>,
+    parameters: HashMap<String, amf_formats::Value>,
 }
 
 #[derive(Debug)]
@@ -416,7 +416,7 @@ pub enum RtmpS2CCommandsType {
 impl RtmpC2SCommands {
     pub fn read_from<R>(
         inner: R,
-        version: amf::Version,
+        version: amf_formats::Version,
     ) -> Result<RtmpC2SCommands, ChunkMessageError>
     where
         R: io::Read,
@@ -424,7 +424,7 @@ impl RtmpC2SCommands {
         reader::Reader::new(inner, version).read_c2s_command()
     }
 
-    pub fn write_to<W>(&self, inner: W, version: amf::Version) -> ChunkMessageResult<()>
+    pub fn write_to<W>(&self, inner: W, version: amf_formats::Version) -> ChunkMessageResult<()>
     where
         W: io::Write,
     {
@@ -436,7 +436,7 @@ impl RtmpS2CCommands {
     pub fn read_from<R>(
         inner: R,
         command_type: RtmpS2CCommandsType,
-        version: amf::Version,
+        version: amf_formats::Version,
     ) -> Result<RtmpS2CCommands, ChunkMessageError>
     where
         R: io::Read,
@@ -444,7 +444,7 @@ impl RtmpS2CCommands {
         reader::Reader::new(inner, version).read_s2c_command(command_type)
     }
 
-    pub fn write_to<W>(&self, inner: W, version: amf::Version) -> ChunkMessageResult<()>
+    pub fn write_to<W>(&self, inner: W, version: amf_formats::Version) -> ChunkMessageResult<()>
     where
         W: io::Write,
     {

@@ -10,9 +10,9 @@ use super::OnMetaData;
 impl OnMetaData {
     pub fn read_from(
         reader: &mut Cursor<&BytesMut>,
-        amf_version: amf::Version,
+        amf_version: amf_formats::Version,
     ) -> Option<OnMetaData> {
-        let name = amf::Value::read_from(reader.by_ref(), amf_version).unwrap_or(None);
+        let name = amf_formats::Value::read_from(reader.by_ref(), amf_version).unwrap_or(None);
         let name_valid = match name {
             None => false,
             Some(name) => match name.try_as_str() {
@@ -23,7 +23,7 @@ impl OnMetaData {
         if !name_valid {
             return None;
         }
-        let name = amf::Value::read_from(reader.by_ref(), amf_version).unwrap_or(None);
+        let name = amf_formats::Value::read_from(reader.by_ref(), amf_version).unwrap_or(None);
         let name_valid = match name {
             None => false,
             Some(name) => match name.try_as_str() {
@@ -36,13 +36,13 @@ impl OnMetaData {
             return None;
         }
 
-        let key_value_pairs = amf::Value::read_from(reader, amf_version).unwrap_or(None);
+        let key_value_pairs = amf_formats::Value::read_from(reader, amf_version).unwrap_or(None);
         match key_value_pairs {
             None => None,
             Some(value) => match value.try_into_pairs() {
                 Err(_err) => None,
                 Ok(pairs) => {
-                    let mut value_map: HashMap<String, amf::Value> = HashMap::new();
+                    let mut value_map: HashMap<String, amf_formats::Value> = HashMap::new();
                     for (k, v) in pairs {
                         value_map.insert(k, v);
                     }
