@@ -13,6 +13,12 @@ pub enum RtpError {
     WrongPayloadType(String),
     #[error("unknown sdes type: {0}")]
     UnknownSdesType(u8),
+    #[error("sdes value too large, exceeds u8 length: {0}")]
+    SDESValueTooLarge(String),
+    #[error("bye reason too large, exceeds u8 length: {0}")]
+    ByeReasonTooLarge(String),
+    #[error("sdes packet has too many chunks, exceeds 31")]
+    SDESTooManyChunks,
     #[error("invalid utf8 data: {0}")]
     InvalidUtf8(#[from] string::FromUtf8Error),
     #[error("invalid compound packet: empty")]
@@ -29,6 +35,8 @@ pub enum RtpError {
     BadPaddingSize(usize),
     #[error("too many csrc for a rtp header, exceeds 31")]
     TooManyCSRC,
+    #[error("too many report blocks in a report packet, exceeds 31")]
+    TooManyReportBlocks,
     #[error("invalid packet type for h264: {0}")]
     InvalidH264PacketType(u8),
     #[error("h264 codec error: {0:?}")]
@@ -37,6 +45,8 @@ pub enum RtpError {
     SequenceFUPacketsFailed(String),
     #[error("MTU is too small: {0}")]
     MTUTooSmall(usize),
+    #[error("payload too large, exceeds u16 length: {0}")]
+    PayloadTooLarge(usize),
 }
 
 pub type RtpResult<T> = Result<T, RtpError>;

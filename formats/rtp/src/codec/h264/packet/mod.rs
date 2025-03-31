@@ -9,7 +9,7 @@ use utils::traits::{dynamic_sized_packet::DynamicSizedPacket, reader::ReadFrom, 
 use crate::{
     errors::RtpError,
     header::RtpHeader,
-    util::{RtpPacketTrait, padding::rtp_need_padding},
+    util::{RtpPacketTrait, RtpPaddedPacketTrait, padding::rtp_need_padding},
 };
 
 use super::RtpH264NalUnit;
@@ -32,11 +32,13 @@ impl DynamicSizedPacket for RtpH264Packet {
     }
 }
 
-impl RtpPacketTrait for RtpH264Packet {
+impl RtpPaddedPacketTrait for RtpH264Packet {
     fn get_packet_bytes_count_without_padding(&self) -> usize {
         self.get_packet_bytes_count()
     }
+}
 
+impl RtpPacketTrait for RtpH264Packet {
     fn get_header(&self) -> RtpHeader {
         let raw_size = self.get_packet_bytes_count_without_padding();
         RtpHeader {

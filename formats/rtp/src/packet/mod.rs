@@ -1,5 +1,5 @@
 pub mod builder;
-
+pub mod framed;
 use std::io::{self, Read};
 
 use builder::RtpTrivialPacketBuilder;
@@ -13,15 +13,15 @@ use crate::{
     errors::RtpError,
     header::RtpHeader,
     util::{
-        RtpPacketTrait,
+        RtpPacketTrait, RtpPaddedPacketTrait,
         padding::{rtp_get_padding_size, rtp_make_padding_bytes, rtp_need_padding},
     },
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RtpTrivialPacket {
-    header: RtpHeader,
-    payload: Bytes,
+    pub header: RtpHeader,
+    pub payload: Bytes,
 }
 
 impl RtpTrivialPacket {
@@ -44,10 +44,13 @@ impl DynamicSizedPacket for RtpTrivialPacket {
     }
 }
 
-impl RtpPacketTrait for RtpTrivialPacket {
+impl RtpPaddedPacketTrait for RtpTrivialPacket {
     fn get_packet_bytes_count_without_padding(&self) -> usize {
         self.header.get_packet_bytes_count() + self.payload.len()
     }
+}
+
+impl RtpPacketTrait for RtpTrivialPacket {
     fn get_header(&self) -> RtpHeader {
         let raw_size = self.get_packet_bytes_count_without_padding();
         RtpHeader {

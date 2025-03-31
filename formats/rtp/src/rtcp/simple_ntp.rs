@@ -1,6 +1,6 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct SimpleNtp {
     seconds: u32,
     fraction: u32,
@@ -59,7 +59,7 @@ impl From<SimpleNtp> for SystemTime {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct SimpleShortNtp {
     seconds: u16,
     fraction: u16,
@@ -70,6 +70,15 @@ impl From<u32> for SimpleShortNtp {
         Self {
             seconds: ((value >> 16) & 0xFFFF) as u16,
             fraction: (value & 0xFFFF) as u16,
+        }
+    }
+}
+
+impl From<SimpleNtp> for SimpleShortNtp {
+    fn from(value: SimpleNtp) -> Self {
+        Self {
+            seconds: value.seconds as u16,
+            fraction: value.fraction as u16,
         }
     }
 }

@@ -1,6 +1,7 @@
 use std::io::{self};
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+
 use tokio_util::bytes::Bytes;
 use utils::traits::{
     dynamic_sized_packet::DynamicSizedPacket,
@@ -10,15 +11,13 @@ use utils::traits::{
 };
 
 use crate::{
-    errors::RtpError,
+    errors::{RtpError, RtpResult},
     util::padding::{rtp_get_padding_size, rtp_make_padding_bytes, rtp_need_padding},
 };
 
 use super::{
-    RtcpPacketTrait,
-    common_header::RtcpCommonHeader,
-    payload_types::RtcpPayloadType,
-    simple_ntp::{SimpleNtp, SimpleShortNtp},
+    RtcpPacketSizeTrait, common_header::RtcpCommonHeader, payload_types::RtcpPayloadType,
+    report_block::ReportBlock, simple_ntp::SimpleNtp,
 };
 
 // @see: RFC 3550 6.4.1 SR: Sender Report RTCP Packet
@@ -58,12 +57,12 @@ use super::{
 ///        |                profile-specific extensions                    |
 ///        +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
-#[derive(Debug)]
+#[derive(Debug, Default, Clone)]
 pub struct SenderInfo {
-    ntp_timestamp: SimpleNtp,
-    rtp_timestamp: u32,
-    sender_packet_count: u32,
-    sender_octet_count: u32,
+    pub ntp_timestamp: SimpleNtp,
+    pub rtp_timestamp: u32,
+    pub sender_packet_count: u32,
+    pub sender_octet_count: u32,
 }
 
 impl FixedPacket for SenderInfo {
@@ -99,75 +98,19 @@ impl<W: io::Write> WriteTo<W> for SenderInfo {
     }
 }
 
-#[derive(Debug)]
-pub struct ReportBlock {
-    ssrc: u32,
-    fraction_lost: u8,
-    cumulative_packet_lost: u32,
-    highest_sequence_number_received: u16,
-    sequence_number_cycles: u16,
-    interarrival_jitter: u32,
-    last_sender_report_timestamp: SimpleShortNtp,
-    /// The delay, expressed in units of 1/65536 seconds,
-    /// between receiving the last SR packet from source SSRC n
-    /// and sending this reception report block.
-    /// If no SR packet has been received yet from SSRC n,
-    /// the DLSR field is set to zero.
-    delay_since_last_sender_report: u32,
-}
-
-impl FixedPacket for ReportBlock {
-    fn bytes_count() -> usize {
-        24
-    }
-}
-
-impl<R: io::Read> ReadFrom<R> for ReportBlock {
-    type Error = RtpError;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
-        let ssrc = reader.read_u32::<BigEndian>()?;
-        let fraction_lost = reader.read_u8()?;
-        let cumulative_packet_lost = reader.read_u24::<BigEndian>()?;
-        let sequence_number_cycles = reader.read_u16::<BigEndian>()?;
-        let highest_sequence_number_received = reader.read_u16::<BigEndian>()?;
-        let interarrival_jitter = reader.read_u32::<BigEndian>()?;
-        let last_sender_report_timestamp = reader.read_u32::<BigEndian>()?;
-        let delay_since_last_sender_report = reader.read_u32::<BigEndian>()?;
-        Ok(Self {
-            ssrc,
-            fraction_lost,
-            cumulative_packet_lost,
-            highest_sequence_number_received,
-            sequence_number_cycles,
-            interarrival_jitter,
-            last_sender_report_timestamp: last_sender_report_timestamp.into(),
-            delay_since_last_sender_report,
-        })
-    }
-}
-
-impl<W: io::Write> WriteTo<W> for ReportBlock {
-    type Error = RtpError;
-    fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
-        writer.write_u32::<BigEndian>(self.ssrc)?;
-        writer.write_u8(self.fraction_lost)?;
-        writer.write_u24::<BigEndian>(self.cumulative_packet_lost)?;
-        writer.write_u16::<BigEndian>(self.sequence_number_cycles)?;
-        writer.write_u16::<BigEndian>(self.highest_sequence_number_received)?;
-        writer.write_u32::<BigEndian>(self.interarrival_jitter)?;
-        writer.write_u32::<BigEndian>(self.last_sender_report_timestamp.into())?;
-        writer.write_u32::<BigEndian>(self.delay_since_last_sender_report)?;
-        Ok(())
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, Default, Clone)]
 pub struct RtcpSenderReport {
-    _header: RtcpCommonHeader,
-    sender_ssrc: u32,
-    sender_info: SenderInfo,
-    report_blocks: Vec<ReportBlock>,
-    profile_specific_extension: Option<Bytes>,
+    pub header: RtcpCommonHeader,
+    pub sender_ssrc: u32,
+    pub sender_info: SenderInfo,
+    pub report_blocks: Vec<ReportBlock>,
+    pub profile_specific_extension: Option<Bytes>,
+}
+
+impl RtcpSenderReport {
+    pub fn builder() -> RtcpSenderReportBuilder {
+        RtcpSenderReportBuilder::new()
+    }
 }
 
 impl DynamicSizedPacket for RtcpSenderReport {
@@ -177,7 +120,7 @@ impl DynamicSizedPacket for RtcpSenderReport {
     }
 }
 
-impl RtcpPacketTrait for RtcpSenderReport {
+impl RtcpPacketSizeTrait for RtcpSenderReport {
     fn get_packet_bytes_count_without_padding(&self) -> usize {
         RtcpCommonHeader::bytes_count() // header
             + 4 // ssrc
@@ -225,7 +168,7 @@ impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpSenderReport {
         };
 
         Ok(Self {
-            _header: header,
+            header,
             sender_ssrc,
             sender_info,
             report_blocks,
@@ -256,93 +199,59 @@ impl<W: io::Write> WriteTo<W> for RtcpSenderReport {
     }
 }
 
-#[derive(Debug)]
-pub struct RtcpReceiverReport {
-    _header: RtcpCommonHeader,
-    sender_ssrc: u32,
-    report_blocks: Vec<ReportBlock>,
-    profile_specific_extension: Option<Bytes>,
-}
+#[derive(Debug, Default)]
+pub struct RtcpSenderReportBuilder(RtcpSenderReport);
 
-impl DynamicSizedPacket for RtcpReceiverReport {
-    fn get_packet_bytes_count(&self) -> usize {
-        let raw_size = self.get_packet_bytes_count_without_padding();
-        raw_size + rtp_get_padding_size(raw_size)
+impl RtcpSenderReportBuilder {
+    pub fn new() -> Self {
+        Default::default()
     }
-}
 
-impl RtcpPacketTrait for RtcpReceiverReport {
-    fn get_packet_bytes_count_without_padding(&self) -> usize {
-        RtcpCommonHeader::bytes_count() // header
-            + 4 // sender ssrc
-            + self.report_blocks.len() * ReportBlock::bytes_count() // report blocks
-            + self.profile_specific_extension.as_ref().map_or_else(|| 0, |extension| extension.len()) // extension
+    pub fn ssrc(mut self, ssrc: u32) -> Self {
+        self.0.sender_ssrc = ssrc;
+        self
     }
-    fn get_header(&self) -> RtcpCommonHeader {
-        let raw_size = self.get_packet_bytes_count_without_padding();
-        RtcpCommonHeader {
-            version: 2,
-            padding: rtp_need_padding(raw_size),
-            count: self.report_blocks.len() as u8,
-            payload_type: RtcpPayloadType::ReceiverReport,
-            length: (self.get_packet_bytes_count() / 4 - 1) as u16,
-        }
+
+    pub fn ntp(mut self, ntp: SimpleNtp) -> Self {
+        self.0.sender_info.ntp_timestamp = ntp;
+        self
     }
-}
 
-impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpReceiverReport {
-    type Error = RtpError;
-    fn read_remaining_from(header: RtcpCommonHeader, mut reader: R) -> Result<Self, Self::Error> {
-        if header.payload_type != RtcpPayloadType::ReceiverReport {
-            return Err(RtpError::WrongPayloadType(format!(
-                "expect receiver report payload type but got {:?} instead",
-                header.payload_type
-            )));
-        }
-
-        let sender_ssrc = reader.read_u32::<BigEndian>()?;
-        let mut report_blocks = Vec::with_capacity(header.count as usize);
-        for _ in 0..header.count {
-            report_blocks.push(ReportBlock::read_from(reader.by_ref())?);
-        }
-
-        let mut buffer = Vec::new();
-        reader.read_to_end(&mut buffer)?;
-
-        let profile_specific_extension = if !buffer.is_empty() {
-            Some(Bytes::from(buffer))
-        } else {
-            None
-        };
-
-        Ok(Self {
-            _header: header,
-            sender_ssrc,
-            report_blocks,
-            profile_specific_extension,
-        })
+    pub fn rtp_timestamp(mut self, rtp_timestamp: u32) -> Self {
+        self.0.sender_info.rtp_timestamp = rtp_timestamp;
+        self
     }
-}
 
-impl<W: io::Write> WriteTo<W> for RtcpReceiverReport {
-    type Error = RtpError;
-    fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
-        let raw_size = self.get_packet_bytes_count_without_padding();
-        self.get_header().write_to(writer.by_ref())?;
-        writer.write_u32::<BigEndian>(self.sender_ssrc)?;
+    pub fn sender_packet_count(mut self, packet_count: u32) -> Self {
+        self.0.sender_info.sender_packet_count = packet_count;
+        self
+    }
 
-        self.report_blocks
-            .iter()
-            .try_for_each(|block| block.write_to(writer.by_ref()))?;
+    pub fn sender_octet_count(mut self, octet_count: u32) -> Self {
+        self.0.sender_info.sender_octet_count = octet_count;
+        self
+    }
 
-        if let Some(buffer) = &self.profile_specific_extension {
-            writer.write_all(buffer)?;
+    pub fn report_block(mut self, block: ReportBlock) -> Self {
+        self.0.report_blocks.push(block);
+        self
+    }
+
+    pub fn report_blocks(mut self, mut blocks: Vec<ReportBlock>) -> Self {
+        self.0.report_blocks.append(&mut blocks);
+        self
+    }
+
+    pub fn extension(mut self, extension_bytes: Bytes) -> Self {
+        self.0.profile_specific_extension = Some(extension_bytes);
+        self
+    }
+
+    pub fn build(mut self) -> RtpResult<RtcpSenderReport> {
+        if self.0.report_blocks.len() > 31 {
+            return Err(RtpError::TooManyReportBlocks);
         }
-
-        if let Some(padding) = rtp_make_padding_bytes(raw_size) {
-            writer.write_all(&padding)?;
-        }
-
-        Ok(())
+        self.0.header = self.0.get_header();
+        Ok(self.0)
     }
 }

@@ -6,9 +6,9 @@ use tokio_util::{
 
 use super::{Reader, Value, Writer};
 
-pub struct Amf0ValueCodec;
+pub struct Amf0ValueFramed;
 
-impl Decoder for Amf0ValueCodec {
+impl Decoder for Amf0ValueFramed {
     type Error = AmfError;
     type Item = Value;
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -17,7 +17,7 @@ impl Decoder for Amf0ValueCodec {
     }
 }
 
-impl Encoder<Value> for Amf0ValueCodec {
+impl Encoder<Value> for Amf0ValueFramed {
     type Error = AmfError;
     fn encode(&mut self, item: Value, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let bytes_writer = dst.writer();

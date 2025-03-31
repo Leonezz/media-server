@@ -6,7 +6,7 @@ use utils::traits::{fixed_packet::FixedPacket, reader::TryReadFrom, writer::Writ
 
 use super::payload_types::RtcpPayloadType;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct RtcpCommonHeader {
     pub version: u8,
     pub padding: bool,
