@@ -12,15 +12,18 @@ use utils::traits::{
 use crate::errors::{RtpError, RtpResult};
 
 use super::{
-    RtcpPacket, RtcpPacketTrait, common_header::RtcpCommonHeader, payload_types::RtcpPayloadType,
-    rtp_get_padding_size,
+    RtcpPacket, RtcpPacketSizeTrait, RtcpPacketTrait, common_header::RtcpCommonHeader,
+    payload_types::RtcpPayloadType, rtp_get_padding_size,
 };
 
-pub struct CompoundPacket(pub Vec<RtcpPacket>);
+#[derive(Debug, Default, Clone)]
+pub struct RtcpCompoundPacket {
+    packets: Vec<RtcpPacket>,
+}
 
-impl RtcpPacketTrait for CompoundPacket {
+impl RtcpPacketSizeTrait for RtcpCompoundPacket {
     fn get_packet_bytes_count_without_padding(&self) -> usize {
-        self.0
+        self.packets()
             .iter()
             .fold(0, |sum, v| sum + v.get_packet_bytes_count_without_padding())
     }
@@ -29,17 +32,14 @@ impl RtcpPacketTrait for CompoundPacket {
     }
 }
 
-impl DynamicSizedPacket for CompoundPacket {
+impl DynamicSizedPacket for RtcpCompoundPacket {
     fn get_packet_bytes_count(&self) -> usize {
-        let raw_size = self
-            .0
-            .iter()
-            .fold(0, |sum, v| sum + v.get_packet_bytes_count());
+        let raw_size = self.get_packet_bytes_count_without_padding();
         raw_size + rtp_get_padding_size(raw_size)
     }
 }
 
-impl<R: AsRef<[u8]>> TryReadFrom<R> for CompoundPacket {
+impl<R: AsRef<[u8]>> TryReadFrom<R> for RtcpCompoundPacket {
     type Error = RtpError;
     fn try_read_from(reader: &mut std::io::Cursor<R>) -> Result<Option<Self>, Self::Error> {
         let mut packets = vec![];
@@ -55,31 +55,62 @@ impl<R: AsRef<[u8]>> TryReadFrom<R> for CompoundPacket {
             }
             packets.push(packet.unwrap());
         }
-        let result = Self(packets);
+        let result = Self { packets };
         result.validate()?;
         Ok(Some(result))
     }
 }
 
-impl<W: io::Write> WriteTo<W> for CompoundPacket {
+impl<W: io::Write> WriteTo<W> for RtcpCompoundPacket {
     type Error = RtpError;
     fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
         self.validate()?;
-        self.0
+        self.packets()
             .iter()
             .try_for_each(|packet| packet.write_to(writer.by_ref()))?;
         Ok(())
     }
 }
 
-impl CompoundPacket {
-    pub fn append(&mut self, packet: RtcpPacket) {
-        self.0.push(packet);
-        self.sort();
+#[derive(Debug, Default)]
+pub struct RtcpCompoundPacketBuilder(RtcpCompoundPacket);
+
+impl RtcpCompoundPacketBuilder {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn packet(mut self, packet: RtcpPacket) -> Self {
+        self.0.packets_mut().push(packet);
+        self
+    }
+
+    pub fn packets(mut self, mut packets: Vec<RtcpPacket>) -> Self {
+        self.0.packets_mut().append(&mut packets);
+        self
+    }
+
+    pub fn build(mut self) -> RtpResult<RtcpCompoundPacket> {
+        self.0.sort();
+        self.0.validate().map(|()| self.0)
+    }
+}
+
+impl RtcpCompoundPacket {
+    pub fn builder() -> RtcpCompoundPacketBuilder {
+        RtcpCompoundPacketBuilder::new()
+    }
+
+    pub fn packets(&self) -> &Vec<RtcpPacket> {
+        &self.packets
+    }
+
+    pub fn packets_mut(&mut self) -> &mut Vec<RtcpPacket> {
+        &mut self.packets
     }
 
     pub fn sort(&mut self) {
-        self.0.sort_by(|l, r| {
+        self.packets_mut().sort_by(|l, r| {
             let l_type = l.payload_type();
             let r_type = r.payload_type();
             if l_type == RtcpPayloadType::SenderReport || l_type == RtcpPayloadType::ReceiverReport
@@ -105,12 +136,12 @@ impl CompoundPacket {
     }
 
     pub fn validate(&self) -> RtpResult<()> {
-        if self.0.is_empty() {
+        if self.packets().is_empty() {
             return Err(RtpError::EmptyRtcpCompoundPacket);
         }
 
         {
-            let payload_type = self.0[0].payload_type();
+            let payload_type = self.packets()[0].payload_type();
             if payload_type != RtcpPayloadType::SenderReport
                 && payload_type != RtcpPayloadType::ReceiverReport
             {
@@ -118,7 +149,7 @@ impl CompoundPacket {
             }
         }
 
-        for packet in self.0[1..].iter() {
+        for packet in self.packets()[1..].iter() {
             if packet.payload_type() == RtcpPayloadType::ReceiverReport {
                 continue;
             }

@@ -4,8 +4,10 @@ use app::RtcpAppPacket;
 use bye::RtcpByePacket;
 use common_header::RtcpCommonHeader;
 use payload_types::RtcpPayloadType;
-use report::{RtcpReceiverReport, RtcpSenderReport};
+use receiver_report::RtcpReceiverReport;
+use report_block::ReportBlock;
 use sdes::RtcpSourceDescriptionPacket;
+use sender_report::{RtcpSenderReport, SenderInfo};
 use tokio_util::bytes::Buf;
 use utils::traits::{
     dynamic_sized_packet::DynamicSizedPacket,
@@ -19,17 +21,29 @@ pub mod app;
 pub mod bye;
 pub mod common_header;
 pub mod compound_packet;
+pub mod framed;
 pub mod payload_types;
-pub mod report;
+pub mod receiver_report;
+pub mod report_block;
 pub mod sdes;
+pub mod sender_report;
 pub mod simple_ntp;
 
-pub trait RtcpPacketTrait: DynamicSizedPacket {
+pub trait RtcpPacketSizeTrait: DynamicSizedPacket {
     fn get_packet_bytes_count_without_padding(&self) -> usize;
     fn get_header(&self) -> RtcpCommonHeader;
 }
 
-#[derive(Debug)]
+pub trait RtcpPacketTrait {
+    fn sender_ssrc(&self) -> Option<u32>;
+    fn csrc_list(&self) -> Vec<u32>;
+    fn payload_type(&self) -> RtcpPayloadType;
+    fn sender_info(&self) -> Option<SenderInfo>;
+    fn report_blocks(&self) -> Option<Vec<ReportBlock>>;
+    fn sde_chunks(&self) -> Option<Vec<sdes::SDESChunk>>;
+}
+
+#[derive(Debug, Clone)]
 pub enum RtcpPacket {
     SenderReport(RtcpSenderReport),
     ReceiverReport(RtcpReceiverReport),
@@ -38,8 +52,8 @@ pub enum RtcpPacket {
     App(RtcpAppPacket),
 }
 
-impl RtcpPacket {
-    pub fn payload_type(&self) -> RtcpPayloadType {
+impl RtcpPacketTrait for RtcpPacket {
+    fn payload_type(&self) -> RtcpPayloadType {
         match self {
             RtcpPacket::SenderReport(_) => RtcpPayloadType::SenderReport,
             RtcpPacket::ReceiverReport(_) => RtcpPayloadType::ReceiverReport,
@@ -48,9 +62,57 @@ impl RtcpPacket {
             RtcpPacket::App(_) => RtcpPayloadType::App,
         }
     }
+
+    fn sender_ssrc(&self) -> Option<u32> {
+        match self {
+            RtcpPacket::ReceiverReport(packet) => Some(packet.sender_ssrc),
+            RtcpPacket::SenderReport(packet) => Some(packet.sender_ssrc),
+            RtcpPacket::SourceDescription(_) => None,
+            RtcpPacket::Bye(_) => None,
+            RtcpPacket::App(packet) => Some(packet.ssrc),
+        }
+    }
+
+    fn csrc_list(&self) -> Vec<u32> {
+        match self {
+            RtcpPacket::ReceiverReport(packet) => {
+                packet.report_blocks.iter().map(|item| item.ssrc).collect()
+            }
+            RtcpPacket::SenderReport(packet) => {
+                packet.report_blocks.iter().map(|item| item.ssrc).collect()
+            }
+            RtcpPacket::SourceDescription(packet) => {
+                packet.chunks.iter().map(|item| item.ssrc).collect()
+            }
+            RtcpPacket::Bye(packet) => packet.ssrc_list.clone(),
+            RtcpPacket::App(_) => vec![],
+        }
+    }
+
+    fn report_blocks(&self) -> Option<Vec<ReportBlock>> {
+        match self {
+            RtcpPacket::ReceiverReport(packet) => Some(packet.report_blocks.clone()),
+            RtcpPacket::SenderReport(packet) => Some(packet.report_blocks.clone()),
+            _ => None,
+        }
+    }
+
+    fn sender_info(&self) -> Option<SenderInfo> {
+        match self {
+            RtcpPacket::SenderReport(packet) => Some(packet.sender_info.clone()),
+            _ => None,
+        }
+    }
+
+    fn sde_chunks(&self) -> Option<Vec<sdes::SDESChunk>> {
+        match self {
+            RtcpPacket::SourceDescription(packet) => Some(packet.chunks.clone()),
+            _ => None,
+        }
+    }
 }
 
-impl RtcpPacketTrait for RtcpPacket {
+impl RtcpPacketSizeTrait for RtcpPacket {
     fn get_packet_bytes_count_without_padding(&self) -> usize {
         match self {
             RtcpPacket::SenderReport(packet) => packet.get_packet_bytes_count_without_padding(),

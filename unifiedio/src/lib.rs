@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::{fmt::Debug, net::SocketAddr};
 
 use tokio::io::{AsyncRead, AsyncWrite};
 mod errors;
@@ -16,6 +16,6 @@ pub enum UnderlyingIO {
     },
 }
 
-pub trait UnifiedIO: AsyncRead + AsyncWrite {
+pub trait UnifiedIO: AsyncRead + AsyncWrite + Debug {
     fn get_underlying_io(&self) -> UnderlyingIO;
 }

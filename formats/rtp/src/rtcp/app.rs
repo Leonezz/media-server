@@ -12,7 +12,7 @@ use crate::{
     util::padding::{rtp_get_padding_size, rtp_make_padding_bytes},
 };
 
-use super::{RtcpPacketTrait, common_header::RtcpCommonHeader, payload_types::RtcpPayloadType};
+use super::{RtcpPacketSizeTrait, common_header::RtcpCommonHeader, payload_types::RtcpPayloadType};
 
 // @see: RFC 3550 6.7 APP: Application-Defined RTCP Packet
 ///  0                   1                   2                   3
@@ -27,15 +27,15 @@ use super::{RtcpPacketTrait, common_header::RtcpCommonHeader, payload_types::Rtc
 /// |                   application-dependent data                ...
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RtcpAppPacket {
-    _header: RtcpCommonHeader,
-    ssrc: u32,
-    name: [u8; 4],
-    payload: Bytes,
+    pub header: RtcpCommonHeader,
+    pub ssrc: u32,
+    pub name: [u8; 4],
+    pub payload: Bytes,
 }
 
-impl RtcpPacketTrait for RtcpAppPacket {
+impl RtcpPacketSizeTrait for RtcpAppPacket {
     fn get_packet_bytes_count_without_padding(&self) -> usize {
         RtcpCommonHeader::bytes_count() // header
          + 4 // ssrc
@@ -69,7 +69,7 @@ impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpAppPacket {
         let mut payload = Vec::new();
         reader.read_to_end(&mut payload)?;
         Ok(Self {
-            _header: header,
+            header,
             ssrc,
             name,
             payload: Bytes::from(payload),

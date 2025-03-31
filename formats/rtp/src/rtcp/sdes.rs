@@ -1,4 +1,5 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use num::ToPrimitive;
 use std::io::{self};
 use utils::traits::{
     dynamic_sized_packet::DynamicSizedPacket,
@@ -8,11 +9,14 @@ use utils::traits::{
 };
 
 use crate::{
-    errors::RtpError,
-    util::padding::{rtp_get_padding_size, rtp_make_padding_bytes, rtp_need_padding},
+    errors::{RtpError, RtpResult},
+    util::{
+        RtpPaddedPacketTrait,
+        padding::{rtp_get_padding_size, rtp_make_padding_bytes, rtp_need_padding},
+    },
 };
 
-use super::{RtcpPacketTrait, common_header::RtcpCommonHeader, payload_types::RtcpPayloadType};
+use super::{RtcpPacketSizeTrait, common_header::RtcpCommonHeader, payload_types::RtcpPayloadType};
 
 // @see: RFC 3550 6.5 SDES: Source Description RTCP Packet
 ///         0                   1                   2                   3
@@ -67,10 +71,23 @@ impl TryFrom<u8> for SDESItemType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SDESBody {
     length: u8,
     value: String,
+}
+
+impl TryFrom<String> for SDESBody {
+    type Error = RtpError;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        if value.len() > 255 {
+            return Err(RtpError::SDESValueTooLarge(value));
+        }
+        Ok(Self {
+            length: value.len().to_u8().unwrap(),
+            value,
+        })
+    }
 }
 
 impl DynamicSizedPacket for SDESBody {
@@ -101,7 +118,7 @@ impl<W: io::Write> WriteTo<W> for SDESBody {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SDESItem {
     item_type: SDESItemType,
     item_body: SDESBody,
@@ -138,14 +155,25 @@ impl<W: io::Write> WriteTo<W> for SDESItem {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SDESChunk {
-    ssrc: u32,
-    items: Vec<SDESItem>,
+    pub ssrc: u32,
+    pub items: Vec<SDESItem>,
 }
 
 impl DynamicSizedPacket for SDESChunk {
     fn get_packet_bytes_count(&self) -> usize {
+        let len = self.get_packet_bytes_count_without_padding();
+        if len % 4 == 0 {
+            len + 4
+        } else {
+            rtp_get_padding_size(len) + len
+        }
+    }
+}
+
+impl RtpPaddedPacketTrait for SDESChunk {
+    fn get_packet_bytes_count_without_padding(&self) -> usize {
         4 + self
             .items
             .iter()
@@ -186,15 +214,21 @@ impl<W: io::Write> WriteTo<W> for SDESChunk {
         self.items
             .iter()
             .try_for_each(|item| item.write_to(writer.by_ref()))?;
-
+        let raw_len = self.get_packet_bytes_count_without_padding();
+        let padding_size = rtp_get_padding_size(raw_len);
+        if padding_size == 0 {
+            writer.write_u32::<BigEndian>(0)?;
+        } else {
+            writer.write_all(&vec![0_u8; padding_size])?;
+        }
         Ok(())
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default, Clone)]
 pub struct RtcpSourceDescriptionPacket {
-    _header: RtcpCommonHeader,
-    chunks: Vec<SDESChunk>,
+    pub header: RtcpCommonHeader,
+    pub chunks: Vec<SDESChunk>,
 }
 
 impl DynamicSizedPacket for RtcpSourceDescriptionPacket {
@@ -204,7 +238,7 @@ impl DynamicSizedPacket for RtcpSourceDescriptionPacket {
     }
 }
 
-impl RtcpPacketTrait for RtcpSourceDescriptionPacket {
+impl RtcpPacketSizeTrait for RtcpSourceDescriptionPacket {
     fn get_packet_bytes_count_without_padding(&self) -> usize {
         RtcpCommonHeader::bytes_count()
             + self
@@ -239,10 +273,7 @@ impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpSourceDescripti
             chunks.push(SDESChunk::read_from(reader.by_ref())?);
         }
 
-        Ok(Self {
-            _header: header,
-            chunks,
-        })
+        Ok(Self { header, chunks })
     }
 }
 
@@ -263,16 +294,105 @@ impl<W: io::Write> WriteTo<W> for RtcpSourceDescriptionPacket {
 }
 
 impl RtcpSourceDescriptionPacket {
+    pub fn builder() -> RtcpSourceDescriptionPacketBuilder {
+        RtcpSourceDescriptionPacketBuilder::new()
+    }
     pub fn get_cname(&self) -> Option<String> {
-        let mut result = None;
-        for chunk in &self.chunks {
-            for item in &chunk.items {
-                if item.item_type == SDESItemType::CNAME {
-                    result = Some(item.item_body.value.clone());
-                    break;
+        self.chunks.iter().find_map(|v| {
+            v.items.iter().find_map(|item| {
+                if !matches!(item.item_type, SDESItemType::CNAME) {
+                    return None;
                 }
+                Some(item.item_body.value.clone())
+            })
+        })
+    }
+    pub fn get_cname_of(&self, ssrc: u32) -> Option<String> {
+        self.chunks.iter().find_map(|v| {
+            if v.ssrc != ssrc {
+                return None;
             }
+            v.items.iter().find_map(|item| {
+                if !matches!(item.item_type, SDESItemType::CNAME) {
+                    return None;
+                }
+
+                Some(item.item_body.value.clone())
+            })
+        })
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct RtcpSourceDescriptionPacketBuilder(RtcpSourceDescriptionPacket);
+
+impl RtcpSourceDescriptionPacketBuilder {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn build(mut self) -> RtpResult<RtcpSourceDescriptionPacket> {
+        if self.0.chunks.len() > 31 {
+            return Err(RtpError::SDESTooManyChunks);
         }
-        result
+        self.0.header = self.0.get_header();
+        Ok(self.0)
+    }
+
+    pub fn item(mut self, ssrc: u32, item: SDESItem) -> Self {
+        if let Some(chunk) = self.0.chunks.iter_mut().find(|v| v.ssrc == ssrc) {
+            chunk.items.push(item);
+        } else {
+            self.0.chunks.push(SDESChunk {
+                ssrc,
+                items: vec![item],
+            });
+        }
+        self
+    }
+
+    fn item_from_parts(self, ssrc: u32, item_type: SDESItemType, value: String) -> RtpResult<Self> {
+        let item_body = SDESBody::try_from(value);
+        item_body.map(|v| {
+            self.item(
+                ssrc,
+                SDESItem {
+                    item_type,
+                    item_body: v,
+                },
+            )
+        })
+    }
+
+    pub fn cname(self, ssrc: u32, cname: String) -> RtpResult<Self> {
+        self.item_from_parts(ssrc, SDESItemType::CNAME, cname)
+    }
+
+    pub fn name(self, ssrc: u32, name: String) -> RtpResult<Self> {
+        self.item_from_parts(ssrc, SDESItemType::NAME, name)
+    }
+
+    pub fn email(self, ssrc: u32, email: String) -> RtpResult<Self> {
+        self.item_from_parts(ssrc, SDESItemType::EMAIL, email)
+    }
+
+    pub fn phone(self, ssrc: u32, phone: String) -> RtpResult<Self> {
+        self.item_from_parts(ssrc, SDESItemType::PHONE, phone)
+    }
+
+    pub fn loc(self, ssrc: u32, loc: String) -> RtpResult<Self> {
+        self.item_from_parts(ssrc, SDESItemType::LOC, loc)
+    }
+
+    pub fn tool(self, ssrc: u32, tool: String) -> RtpResult<Self> {
+        self.item_from_parts(ssrc, SDESItemType::TOOL, tool)
+    }
+
+    pub fn note(self, ssrc: u32, note: String) -> RtpResult<Self> {
+        self.item_from_parts(ssrc, SDESItemType::TOOL, note)
+    }
+
+    pub fn private(self, ssrc: u32, value: String) -> RtpResult<Self> {
+        self.item_from_parts(ssrc, SDESItemType::PRIV, value)
     }
 }

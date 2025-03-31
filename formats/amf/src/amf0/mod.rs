@@ -8,7 +8,7 @@ pub use self::writer::Writer;
 use crate::amf3;
 use crate::errors::AmfResult;
 
-mod codec;
+mod framed;
 mod reader;
 mod writer;
 
