@@ -57,7 +57,7 @@ pub mod status_description {
 
 #[repr(u16)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Status {
+pub enum RtspStatus {
     Continue = 100,
     OK = 200,
     MovedPermanently = 301,
@@ -108,13 +108,13 @@ pub enum Status {
     ProxyUnavailable = 553,
 }
 
-impl From<Status> for u16 {
-    fn from(value: Status) -> Self {
+impl From<RtspStatus> for u16 {
+    fn from(value: RtspStatus) -> Self {
         value as u16
     }
 }
 
-impl TryFrom<u16> for Status {
+impl TryFrom<u16> for RtspStatus {
     type Error = RTSPMessageError;
     fn try_from(value: u16) -> Result<Self, Self::Error> {
         match value {
@@ -166,75 +166,91 @@ impl TryFrom<u16> for Status {
             505 => Ok(Self::RtspVersionNotSupported),
             551 => Ok(Self::OptionNotSupported),
             553 => Ok(Self::ProxyUnavailable),
-            _ => Err(RTSPMessageError::UnknownStatusCode(value)),
+            _ => Err(RTSPMessageError::UnknownStatusCode(Some(value))),
         }
     }
 }
 
-impl Display for Status {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let description = match self {
-            Self::Continue => status_description::CONTINUE,
-            Self::OK => status_description::OK,
-            Self::MovedPermanently => status_description::MOVED_PERMANENTLY,
-            Self::Found => status_description::FOUND,
-            Self::SeeOther => status_description::SEE_OTHER,
-            Self::NotModified => status_description::NOT_MODIFIED,
-            Self::UseProxy => status_description::USE_PROXY,
-            Self::BadRequest => status_description::BAD_REQUEST,
-            Self::Unauthorized => status_description::UNAUTHORIZED,
-            Self::PaymentRequired => status_description::PAYMENT_REQUIRED,
-            Self::Forbidden => status_description::FORBIDDEN,
-            Self::NotFound => status_description::NOT_FOUND,
-            Self::MethodNotAllowed => status_description::METHOD_NOT_ALLOWED,
-            Self::NotAcceptable => status_description::NOT_ACCEPTABLE,
-            Self::ProxyAuthenticationRequired => status_description::PROXY_AUTHENTICATION_REQUIRED,
-            Self::RequestTimeout => status_description::REQUEST_TIMEOUT,
-            Self::Gone => status_description::GONE,
-            Self::PreconditionFailed => status_description::PRECONDITION_FAILED,
-            Self::RequestMessageBodyTooLarge => status_description::REQUEST_MESSAGE_BODY_TOO_LARGE,
-            Self::RequestUriTooLong => status_description::REQUEST_URI_TOO_LONG,
-            Self::UnsupportedMediaType => status_description::UNSUPPORTED_MEDIA_TYPE,
-            Self::ParameterNotUnderstood => status_description::PARAMETER_NOT_UNDERSTOOD,
-            Self::Reserved => status_description::RESERVED,
-            Self::NotEnoughBandwidth => status_description::NOT_ENOUGH_BANDWIDTH,
-            Self::SessionNotFound => status_description::SESSION_NOT_FOUND,
-            Self::MethodNotValidInThisState => status_description::METHOD_NOT_VALID_IN_THIS_STATE,
-            Self::HeaderFieldNotValidForResource => {
+impl From<RtspStatus> for &'static str {
+    fn from(val: RtspStatus) -> Self {
+        match val {
+            RtspStatus::Continue => status_description::CONTINUE,
+            RtspStatus::OK => status_description::OK,
+            RtspStatus::MovedPermanently => status_description::MOVED_PERMANENTLY,
+            RtspStatus::Found => status_description::FOUND,
+            RtspStatus::SeeOther => status_description::SEE_OTHER,
+            RtspStatus::NotModified => status_description::NOT_MODIFIED,
+            RtspStatus::UseProxy => status_description::USE_PROXY,
+            RtspStatus::BadRequest => status_description::BAD_REQUEST,
+            RtspStatus::Unauthorized => status_description::UNAUTHORIZED,
+            RtspStatus::PaymentRequired => status_description::PAYMENT_REQUIRED,
+            RtspStatus::Forbidden => status_description::FORBIDDEN,
+            RtspStatus::NotFound => status_description::NOT_FOUND,
+            RtspStatus::MethodNotAllowed => status_description::METHOD_NOT_ALLOWED,
+            RtspStatus::NotAcceptable => status_description::NOT_ACCEPTABLE,
+            RtspStatus::ProxyAuthenticationRequired => {
+                status_description::PROXY_AUTHENTICATION_REQUIRED
+            }
+            RtspStatus::RequestTimeout => status_description::REQUEST_TIMEOUT,
+            RtspStatus::Gone => status_description::GONE,
+            RtspStatus::PreconditionFailed => status_description::PRECONDITION_FAILED,
+            RtspStatus::RequestMessageBodyTooLarge => {
+                status_description::REQUEST_MESSAGE_BODY_TOO_LARGE
+            }
+            RtspStatus::RequestUriTooLong => status_description::REQUEST_URI_TOO_LONG,
+            RtspStatus::UnsupportedMediaType => status_description::UNSUPPORTED_MEDIA_TYPE,
+            RtspStatus::ParameterNotUnderstood => status_description::PARAMETER_NOT_UNDERSTOOD,
+            RtspStatus::Reserved => status_description::RESERVED,
+            RtspStatus::NotEnoughBandwidth => status_description::NOT_ENOUGH_BANDWIDTH,
+            RtspStatus::SessionNotFound => status_description::SESSION_NOT_FOUND,
+            RtspStatus::MethodNotValidInThisState => {
+                status_description::METHOD_NOT_VALID_IN_THIS_STATE
+            }
+            RtspStatus::HeaderFieldNotValidForResource => {
                 status_description::HEADER_FIELD_NOT_VALID_FOR_RESOURCE
             }
-            Self::InvalidRange => status_description::INVALID_RANGE,
-            Self::ParameterIsReadOnly => status_description::PARAMETER_IS_READ_ONLY,
-            Self::AggregateOperationNotAllowed => {
+            RtspStatus::InvalidRange => status_description::INVALID_RANGE,
+            RtspStatus::ParameterIsReadOnly => status_description::PARAMETER_IS_READ_ONLY,
+            RtspStatus::AggregateOperationNotAllowed => {
                 status_description::AGGREGATE_OPERATION_NOT_ALLOWED
             }
-            Self::OnlyAggregateOperationAllowed => {
+            RtspStatus::OnlyAggregateOperationAllowed => {
                 status_description::ONLY_AGGREGATE_OPERATION_ALLOWED
             }
-            Self::UnsupportedTransport => status_description::UNSUPPORTED_TRANSPORT,
-            Self::DestinationUnreachable => status_description::DESTINATION_UNREACHABLE,
-            Self::DestinationProhibited => status_description::DESTINATION_PROHIBITED,
-            Self::DataTransportNotReadyYet => status_description::DATA_TRANSPORT_NOT_READY_YET,
-            Self::NotificationReasonUnknown => status_description::NOTIFICATION_REASON_UNKNOWN,
-            Self::KeyManagementError => status_description::KEY_MANAGEMENT_ERROR,
-            Self::ConnectionAuthorizationRequired => {
+            RtspStatus::UnsupportedTransport => status_description::UNSUPPORTED_TRANSPORT,
+            RtspStatus::DestinationUnreachable => status_description::DESTINATION_UNREACHABLE,
+            RtspStatus::DestinationProhibited => status_description::DESTINATION_PROHIBITED,
+            RtspStatus::DataTransportNotReadyYet => {
+                status_description::DATA_TRANSPORT_NOT_READY_YET
+            }
+            RtspStatus::NotificationReasonUnknown => {
+                status_description::NOTIFICATION_REASON_UNKNOWN
+            }
+            RtspStatus::KeyManagementError => status_description::KEY_MANAGEMENT_ERROR,
+            RtspStatus::ConnectionAuthorizationRequired => {
                 status_description::CONNECTION_AUTHORIZATION_REQUIRED
             }
-            Self::ConnectionCredentialsNotAccepted => {
+            RtspStatus::ConnectionCredentialsNotAccepted => {
                 status_description::CONNECTION_CREDENTIALS_NOT_ACCEPTED
             }
-            Self::FailureToEstablishSecureConnection => {
+            RtspStatus::FailureToEstablishSecureConnection => {
                 status_description::FAILURE_TO_ESTABLISH_SECURE_CONNECTION
             }
-            Self::InternalServerError => status_description::INTERNAL_SERVER_ERROR,
-            Self::NotImplemented => status_description::NOT_IMPLEMENTED,
-            Self::BadGateWay => status_description::BAD_GATEWAY,
-            Self::ServiceUnavailable => status_description::SERVICE_UNAVAILABLE,
-            Self::GatewayTimeout => status_description::GATEWAY_TIMEOUT,
-            Self::RtspVersionNotSupported => status_description::RTSP_VERSION_NOT_SUPPORTED,
-            Self::OptionNotSupported => status_description::OPTION_NOT_SUPPORTED,
-            Self::ProxyUnavailable => status_description::PROXY_UNAVAILABLE,
-        };
+            RtspStatus::InternalServerError => status_description::INTERNAL_SERVER_ERROR,
+            RtspStatus::NotImplemented => status_description::NOT_IMPLEMENTED,
+            RtspStatus::BadGateWay => status_description::BAD_GATEWAY,
+            RtspStatus::ServiceUnavailable => status_description::SERVICE_UNAVAILABLE,
+            RtspStatus::GatewayTimeout => status_description::GATEWAY_TIMEOUT,
+            RtspStatus::RtspVersionNotSupported => status_description::RTSP_VERSION_NOT_SUPPORTED,
+            RtspStatus::OptionNotSupported => status_description::OPTION_NOT_SUPPORTED,
+            RtspStatus::ProxyUnavailable => status_description::PROXY_UNAVAILABLE,
+        }
+    }
+}
+
+impl Display for RtspStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let description: &str = (*self).into();
         f.write_str(format!("{} {}", Into::<u16>::into(*self), description).as_str())
     }
 }
