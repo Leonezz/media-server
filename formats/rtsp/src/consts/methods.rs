@@ -1,5 +1,7 @@
 //! @see: RFC 7826 Table 7
 
+use std::fmt;
+
 use crate::errors::RTSPMessageError;
 
 pub mod method_names {
@@ -29,8 +31,8 @@ pub enum RtspMethod {
     TearDown,
 }
 
-impl From<RtspMethod> for &'static str {
-    fn from(value: RtspMethod) -> Self {
+impl From<&RtspMethod> for &'static str {
+    fn from(value: &RtspMethod) -> Self {
         match value {
             RtspMethod::Describe => method_names::DESCRIBE,
             RtspMethod::GetParameter => method_names::GET_PARAMETER,
@@ -54,13 +56,20 @@ impl TryFrom<&str> for RtspMethod {
             method_names::GET_PARAMETER => Ok(Self::GetParameter),
             method_names::OPTIONS => Ok(Self::Options),
             method_names::PAUSE => Ok(Self::Pause),
-            method_names::PLAY => Ok(Self::PlayNotify),
+            method_names::PLAY => Ok(Self::Play),
             method_names::PLAY_NOTIFY => Ok(Self::PlayNotify),
             method_names::REDIRECT => Ok(Self::Redirect),
             method_names::SETUP => Ok(Self::Setup),
             method_names::SET_PARAMETER => Ok(Self::SetParameter),
             method_names::TEARDOWN => Ok(Self::TearDown),
-            _ => Err(RTSPMessageError::UnknownMethod(value.into())),
+            _ => Err(RTSPMessageError::UnknownMethod(Some(value.into()))),
         }
+    }
+}
+
+impl fmt::Display for RtspMethod {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let str: &str = self.into();
+        f.write_str(str)
     }
 }
