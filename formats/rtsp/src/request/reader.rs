@@ -1,4 +1,7 @@
-use std::io::{self, BufRead, Read};
+use std::{
+    io::{self, BufRead, Read},
+    str::FromStr,
+};
 
 use tokio_util::bytes::Buf;
 use url::Url;
@@ -7,26 +10,25 @@ use utils::traits::reader::{ReadFrom, ReadRemainingFrom, TryReadFrom, TryReadRem
 use crate::{
     consts::{
         common::{CR_STR, LF, LF_STR, SPACE, SPACE_STR},
-        headers::RtspHeader,
         methods::RtspMethod,
         version::RtspVersion,
     },
-    errors::RTSPMessageError,
-    header::RtspHeaders,
+    errors::RtspMessageError,
+    header::{RtspHeader, RtspHeaders},
     util::TextReader,
 };
 
 use super::RtspRequest;
 
 impl<R: io::BufRead> ReadRemainingFrom<RtspMethod, R> for RtspRequest {
-    type Error = RTSPMessageError;
+    type Error = RtspMessageError;
     fn read_remaining_from(header: RtspMethod, mut reader: R) -> Result<Self, Self::Error> {
         let buffer = reader.fill_buf()?;
         let (res, position) = {
             let mut cursor = io::Cursor::new(buffer);
             (
                 Self::try_read_remaining_from(header, &mut cursor)?.ok_or(
-                    RTSPMessageError::InvalidRtspMessageFormat(format!(
+                    RtspMessageError::InvalidRtspMessageFormat(format!(
                         "rtsp request is not complete: {}",
                         String::from_utf8_lossy(buffer)
                     )),
@@ -43,14 +45,14 @@ impl<R: io::BufRead> ReadRemainingFrom<RtspMethod, R> for RtspRequest {
 }
 
 impl<R: io::BufRead> ReadFrom<R> for RtspRequest {
-    type Error = RTSPMessageError;
+    type Error = RtspMessageError;
     fn read_from(mut reader: R) -> Result<Self, Self::Error> {
         let buffer = reader.fill_buf()?;
         let (res, position) = {
             let mut cursor = io::Cursor::new(&buffer);
             (
                 Self::try_read_from(&mut cursor)?.ok_or(
-                    RTSPMessageError::InvalidRtspMessageFormat(format!(
+                    RtspMessageError::InvalidRtspMessageFormat(format!(
                         "rtsp request is not complete: {}",
                         String::from_utf8_lossy(buffer)
                     )),
@@ -65,8 +67,15 @@ impl<R: io::BufRead> ReadFrom<R> for RtspRequest {
     }
 }
 
+impl FromStr for RtspRequest {
+    type Err = RtspMessageError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::read_from(s.as_bytes())
+    }
+}
+
 impl<R: AsRef<[u8]>> TryReadRemainingFrom<RtspMethod, R> for RtspRequest {
-    type Error = RTSPMessageError;
+    type Error = RtspMessageError;
     fn try_read_remaining_from(
         header: RtspMethod,
         reader: &mut io::Cursor<R>,
@@ -75,7 +84,7 @@ impl<R: AsRef<[u8]>> TryReadRemainingFrom<RtspMethod, R> for RtspRequest {
             return Ok(None);
         }
         if !TextReader::new(reader.by_ref()).expect(&[SPACE])? {
-            return Err(RTSPMessageError::InvalidRtspMessageFormat(
+            return Err(RtspMessageError::InvalidRtspMessageFormat(
                 "rtsp request first line expect a space".to_string(),
             ));
         }
@@ -86,11 +95,11 @@ impl<R: AsRef<[u8]>> TryReadRemainingFrom<RtspMethod, R> for RtspRequest {
         let line = line.unwrap();
         let trimed_line_parts: Vec<_> = line.trim().split(SPACE_STR).collect();
         if trimed_line_parts.len() != 2 {
-            return Err(RTSPMessageError::InvalidRtspMessageFormat(line));
+            return Err(RtspMessageError::InvalidRtspMessageFormat(line));
         }
 
         let uri = trimed_line_parts[0].parse::<Url>()?;
-        let version = RtspVersion::try_from(trimed_line_parts[1])?;
+        let version: RtspVersion = trimed_line_parts[1].parse()?;
         let headers = RtspHeaders::try_read_from(reader.by_ref())?;
         if headers.is_none() {
             return Ok(None);
@@ -131,7 +140,7 @@ impl<R: AsRef<[u8]>> TryReadRemainingFrom<RtspMethod, R> for RtspRequest {
 }
 
 impl<R: AsRef<[u8]>> TryReadFrom<R> for RtspRequest {
-    type Error = RTSPMessageError;
+    type Error = RtspMessageError;
     fn try_read_from(reader: &mut io::Cursor<R>) -> Result<Option<Self>, Self::Error> {
         if !reader.fill_buf()?.contains(&LF) {
             return Ok(None);
@@ -140,12 +149,12 @@ impl<R: AsRef<[u8]>> TryReadFrom<R> for RtspRequest {
         reader.fill_buf()?.read_line(&mut first_line)?;
 
         if let Some((first_word, _)) = first_line.split_once(SPACE_STR) {
-            if let Ok(method) = RtspMethod::try_from(first_word) {
+            if let Ok(method) = RtspMethod::from_str(first_word) {
                 reader.consume(first_word.len());
                 return Self::try_read_remaining_from(method, reader.by_ref());
             }
         }
-        Err(RTSPMessageError::InvalidRtspMessageFormat(format!(
+        Err(RtspMessageError::InvalidRtspMessageFormat(format!(
             "message is not rtsp request, first line: {}",
             first_line
         )))

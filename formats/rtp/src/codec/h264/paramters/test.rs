@@ -1,11 +1,13 @@
 #[cfg(test)]
 mod tests {
-    use crate::codec::h264::paramters::{H264SDPParameters, packetization_mode::PacketizationMode};
+    use crate::codec::h264::paramters::{
+        H264SDPFormatParameters, packetization_mode::PacketizationMode,
+    };
 
     #[test]
     fn test_simple() {
         let parameters = "profile-level-id=42e016;max-mbps=108000;max-fs=3600";
-        let parsed: H264SDPParameters = parameters.parse().unwrap();
+        let parsed: H264SDPFormatParameters = parameters.parse().unwrap();
         assert_eq!(parsed.profile_level_id, Some([0x42, 0xe0, 0x16]));
         assert_eq!(parsed.max_mbps, Some(108000));
         assert_eq!(parsed.max_fs, Some(3600));
@@ -17,7 +19,7 @@ mod tests {
     #[test]
     fn test_simple2() {
         let parameters = "profile-level-id=42A01E; packetization-mode=2; sprop-parameter-sets=<parameter sets data#2>; sprop-interleaving-depth=45; sprop-deint-buf-req=64000; sprop-init-buf-time=102478; deint-buf-cap=128000";
-        let parsed: H264SDPParameters = parameters.parse().unwrap();
+        let parsed: H264SDPFormatParameters = parameters.parse().unwrap();
         assert_eq!(parsed.profile_level_id, Some([0x42, 0xa0, 0x1e]));
         assert_eq!(
             parsed.packetization_mode,

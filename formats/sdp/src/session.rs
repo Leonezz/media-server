@@ -1,17 +1,18 @@
 //! @see: RFC 8866 SDP: Session Description Protocol
-use std::fmt;
+use std::{fmt, io, str::FromStr};
 
 use url::Url;
+use utils::traits::reader::ReadFrom;
 
 use crate::{CRLF, attributes::SDPAttribute, errors::SDPError, reader::SessionDescriptionReader};
 
 /// 5.1. Protocol Version ("v=")
 /// v=0
-type SDPVersion = u32;
+pub type SDPVersion = u32;
 
 /// 5.2. Origin ("o=")
 /// o=<username> <sess-id> <sess-version> <nettype> <addrtype> <unicast-address>
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub enum SDPNetType {
     #[default]
     IN,
@@ -35,14 +36,18 @@ impl From<&str> for SDPNetType {
 
 impl fmt::Display for SDPNetType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", match self {
-            Self::IN => "IN",
-            Self::Other(str) => str,
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::IN => "IN",
+                Self::Other(str) => str,
+            }
+        )
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub enum SDPAddrType {
     #[default]
     IP4,
@@ -68,11 +73,15 @@ impl From<&str> for SDPAddrType {
 
 impl fmt::Display for SDPAddrType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", match self {
-            Self::IP4 => "IP4",
-            Self::IP6 => "IP6",
-            Self::Other(str) => str,
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::IP4 => "IP4",
+                Self::IP6 => "IP6",
+                Self::Other(str) => str,
+            }
+        )
     }
 }
 
@@ -122,7 +131,7 @@ type SDPPhoneNumber = String;
 
 /// 5.7. Connection Information ("c=")
 /// c=<nettype> <addrtype> <connection-address>
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct SDPAddress {
     pub address: String,
     pub ttl: Option<u64>,
@@ -142,7 +151,7 @@ impl fmt::Display for SDPAddress {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct SDPConnectionInformation {
     pub net_type: SDPNetType,
     pub addr_type: SDPAddrType,
@@ -159,11 +168,43 @@ impl fmt::Display for SDPConnectionInformation {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum SDPBandwidthType {
+    AS, // AS
+    CT, // CT
+    Other(String),
+}
+
+impl FromStr for SDPBandwidthType {
+    type Err = SDPError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "AS" => Ok(Self::AS),
+            "CT" => Ok(Self::CT),
+            _ => Ok(Self::Other(s.to_owned())),
+        }
+    }
+}
+
+impl fmt::Display for SDPBandwidthType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::AS => "AS",
+                Self::CT => "CT",
+                Self::Other(str) => str,
+            }
+        )
+    }
+}
+
 /// 5.8. Bandwidth Information ("b=")
 /// b=<bwtype>:<bandwidth>
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SDPBandWidthInformation {
-    pub bw_type: String,
+    pub bw_type: SDPBandwidthType,
     pub bandwidth: u64,
 }
 
@@ -245,7 +286,7 @@ impl fmt::Display for SDPTimeZoneAdjustment {
 /// k=<method>
 /// k=<method>:<encryption key>
 /// obsolete
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SDPEncryptionKeys {
     pub method: String,
     pub key: Option<String>,
@@ -265,7 +306,7 @@ impl fmt::Display for SDPEncryptionKeys {
 
 /// 5.14. Media Descriptions ("m=")
 /// m=<media> <port> <proto> <fmt> ...
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub enum SDPMediaType {
     #[default]
     Audio, // audio
@@ -279,15 +320,19 @@ pub enum SDPMediaType {
 
 impl fmt::Display for SDPMediaType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", match self {
-            Self::Audio => "audio",
-            Self::Video => "video",
-            Self::Text => "text",
-            Self::Application => "application",
-            Self::Message => "message",
-            Self::Image => "image",
-            Self::Other(str) => str,
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::Audio => "audio",
+                Self::Video => "video",
+                Self::Text => "text",
+                Self::Application => "application",
+                Self::Message => "message",
+                Self::Image => "image",
+                Self::Other(str) => str,
+            }
+        )
     }
 }
 
@@ -305,7 +350,7 @@ impl From<&str> for SDPMediaType {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct SDPRangedPort {
     pub port: u16,
     pub range: Option<u16>,
@@ -349,7 +394,7 @@ impl TryFrom<&str> for SDPRangedPort {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub enum SDPMediaProtocol {
     #[default]
     UDP, // udp
@@ -361,13 +406,17 @@ pub enum SDPMediaProtocol {
 
 impl fmt::Display for SDPMediaProtocol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", match self {
-            Self::UDP => "udp",
-            Self::RtpAvp => "RTP/AVP",
-            Self::RtpSAvp => "RTP/SAVP",
-            Self::RtpSAvpF => "RTP/SAVPF",
-            Self::Other(str) => str,
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::UDP => "udp",
+                Self::RtpAvp => "RTP/AVP",
+                Self::RtpSAvp => "RTP/SAVP",
+                Self::RtpSAvpF => "RTP/SAVPF",
+                Self::Other(str) => str,
+            }
+        )
     }
 }
 
@@ -383,7 +432,7 @@ impl From<&str> for SDPMediaProtocol {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct SDPMediaLine {
     pub media_type: SDPMediaType,
     pub port: SDPRangedPort,
@@ -401,7 +450,7 @@ impl fmt::Display for SDPMediaLine {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct SDPMediaDescription {
     pub media_line: SDPMediaLine,
     pub media_title: Option<SDPSessionInformation>,
@@ -449,6 +498,21 @@ pub struct SessionDescription {
     pub encryption_keys: Option<SDPEncryptionKeys>,
     pub attributes: Vec<SDPAttribute>,
     pub media_description: Vec<SDPMediaDescription>,
+}
+
+impl SessionDescription {
+    pub fn reader() -> SessionDescriptionReader {
+        SessionDescriptionReader::new()
+    }
+}
+
+impl<R: io::BufRead> ReadFrom<R> for SessionDescription {
+    type Error = SDPError;
+    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+        let mut text = String::new();
+        reader.read_to_string(&mut text)?;
+        Self::reader().read_from(&text)
+    }
 }
 
 impl fmt::Display for SessionDescription {

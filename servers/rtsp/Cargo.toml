@@ -1,0 +1,20 @@
+[package]
+name = "rtsp-server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+thiserror = "2.0.7"
+tokio = { version = "1.44.1", features = ["full"] }
+tokio-util = { version = "0.7.13", features = ["full"] }
+futures = "0.3.31"
+tracing = "0.1.41"
+unified-io = { path = "../../unifiedio" }
+rtsp-formats = { path = "../../formats/rtsp" }
+sdp-formats = { path = "../../formats/sdp" }
+rtp-session = { path = "../rtp" }
+rtp-formats = { path = "../../formats/rtp" }
+utils = { path = "../../utils" }
+uuid = { version = "1.0", features = ["v7"] }
+url = "2.5.4"
+chrono = "0.4.40"

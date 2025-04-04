@@ -38,10 +38,19 @@ pub(crate) struct HttpServer {
 
 #[derive(Debug, Deserialize)]
 #[allow(unused)]
+pub(crate) struct RtspServer {
+    pub(crate) enable: bool,
+    pub(crate) address: IpAddr,
+    pub(crate) port: u16,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(unused)]
 pub(crate) struct AppConfig {
     pub(crate) logger: Logger,
     pub(crate) rtmp_server: RtmpServer,
     pub(crate) http_server: HttpServer,
+    pub(crate) rtsp_server: RtspServer,
 }
 
 impl AppConfig {
@@ -75,6 +84,9 @@ impl AppConfig {
             self.http_server.port = cli_args.http_port.unwrap();
         }
 
+        if cli_args.rtsp_port.is_some() {
+            self.rtsp_server.port = cli_args.rtsp_port.unwrap();
+        }
         Ok(())
     }
 

@@ -1,84 +1,16 @@
-//! @see: RFC 7826 Table 1
-use std::fmt;
+pub mod header_names;
+pub mod transport;
+use std::{
+    fmt,
+    io::{self, Read},
+    str::FromStr,
+};
 
-use crate::errors::RTSPMessageError;
+use tokio_util::bytes::Buf;
+use transport::TransportHeader;
+use utils::traits::reader::{ReadFrom, TryReadFrom};
 
-pub mod header_names {
-    pub const ACCEPT: &str = "Accept";
-    pub const ACCEPT_CREDENTIALS: &str = "Accept-Credentials";
-    pub const ACCEPT_ENCODING: &str = "Accept-Encoding";
-    pub const ACCEPT_LANGUAGE: &str = "Accept-Language";
-    pub const ACCEPT_RANGES: &str = "Accept-Ranges";
-    pub const ALLOW: &str = "Allow";
-    pub const AUTHENTICATION_INFO: &str = "Authentication-Info";
-    pub const AUTHORIZATION: &str = "Authorization";
-
-    pub const BANDWIDTH: &str = "Bandwidth";
-    pub const BLOCKSIZE: &str = "Blocksize";
-
-    pub const CACHE_CONTROL: &str = "Cache-Control";
-    pub const CONNECTION: &str = "Connection";
-    pub const CONNECTION_CREDENTIALS: &str = "Connection-Credentials";
-    pub const CONTENT_BASE: &str = "Content-Base";
-    pub const CONTENT_ENCODING: &str = "Content-Encoding";
-    pub const CONTENT_LANGUAGE: &str = "Content-Language";
-    pub const CONTENT_LENGTH: &str = "Content-Length";
-    pub const CONTENT_LOCATION: &str = "Content-Location";
-    pub const CONTENT_TYPE: &str = "Content-Type";
-    pub const C_SEQ: &str = "CSeq";
-
-    pub const DATE: &str = "Date";
-
-    pub const EXPIRES: &str = "Expires";
-
-    pub const FROM: &str = "From";
-
-    pub const IF_MATCH: &str = "If-Match";
-    pub const IF_MODIFIED_SINCE: &str = "If-Modified-Since";
-    pub const IF_NONE_MATCH: &str = "If-None-Match";
-
-    pub const LAST_MODIFIED: &str = "Last-Modified";
-    pub const LOCATION: &str = "Location";
-
-    pub const MEDIA_PROPERTIES: &str = "Media-Properties";
-    pub const MEDIA_RANGE: &str = "Media-Range";
-    pub const M_TAG: &str = "MTag";
-
-    pub const NOTIFY_REASON: &str = "Notify-Reason";
-
-    pub const PIPELINED_REQUESTS: &str = "Pipelined-Requests";
-    pub const PROXY_AUTHENTICATE: &str = "Proxy-Authenticate";
-    pub const PROXY_AUTHENTICATION_INFO: &str = "Proxy-Authentication-Info";
-    pub const PROXY_AUTHORIZATION: &str = "Proxy-Authorization";
-    pub const PROXY_REQUIRE: &str = "Proxy-Require";
-    pub const PROXY_SUPPORTED: &str = "Proxy-Supported";
-    pub const PUBLIC: &str = "Public";
-
-    pub const RANGE: &str = "Range";
-    pub const REFERRER: &str = "Referrer";
-    pub const REQUEST_STATUS: &str = "Request-Status";
-    pub const REQUIRE: &str = "Require";
-    pub const RETRY_AFTER: &str = "Retry-After";
-    pub const RTP_INFO: &str = "RTP-Info";
-
-    pub const SCALE: &str = "Scale";
-    pub const SEEK_STYLE: &str = "Seek-Style";
-    pub const SERVER: &str = "Server";
-    pub const SESSION: &str = "Session";
-    pub const SPEED: &str = "Speed";
-    pub const SUPPORTED: &str = "Supported";
-
-    pub const TERMINATE_REASON: &str = "Terminate-Reason";
-    pub const TIMESTAMP: &str = "Timestamp";
-    pub const TRANSPORT: &str = "Transport";
-
-    pub const UNSUPPORTED: &str = "Unsupported";
-    pub const USER_AGENT: &str = "User-Agent";
-
-    pub const VIA: &str = "Via";
-
-    pub const WWW_AUTHENTICATE: &str = "WWW-Authenticate";
-}
+use crate::{consts::common::CRLF_STR, errors::RtspMessageError, util::TextReader};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RtspHeader {
@@ -246,10 +178,10 @@ impl fmt::Display for RtspHeader {
     }
 }
 
-impl TryFrom<&str> for RtspHeader {
-    type Error = RTSPMessageError;
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
+impl FromStr for RtspHeader {
+    type Err = RtspMessageError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
             header_names::ACCEPT => Ok(Self::Accept),
             header_names::ACCEPT_CREDENTIALS => Ok(Self::AcceptCredentials),
             header_names::ACCEPT_ENCODING => Ok(Self::AcceptEncoding),
@@ -325,7 +257,127 @@ impl TryFrom<&str> for RtspHeader {
 
             header_names::WWW_AUTHENTICATE => Ok(Self::WWWAuthenticate),
 
-            _ => Err(RTSPMessageError::UnknownHeader(Some(value.into()))),
+            _ => Err(RtspMessageError::UnknownHeader(Some(s.into()))),
         }
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct RtspHeaders(Vec<(RtspHeader, String)>);
+
+impl RtspHeaders {
+    pub fn new(items: Vec<(RtspHeader, String)>) -> Self {
+        Self(items)
+    }
+    pub fn push(&mut self, key: RtspHeader, value: String) {
+        self.0.push((key, value));
+    }
+
+    pub fn append(&mut self, mut items: Vec<(RtspHeader, String)>) {
+        self.0.append(&mut items);
+    }
+
+    pub fn get(&self, key: RtspHeader) -> Vec<&String> {
+        self.0
+            .iter()
+            .filter(|(k, _)| k.eq(&key))
+            .map(|(_, value)| value)
+            .collect()
+    }
+
+    pub fn get_unique(&self, key: RtspHeader) -> Option<&String> {
+        self.get(key).first().copied()
+    }
+
+    pub fn contains(&self, key: RtspHeader) -> bool {
+        self.0.iter().any(|(k, _)| k.eq(&key))
+    }
+
+    pub fn remove(&mut self, key: RtspHeader) {
+        self.0.retain(|(k, _)| k.ne(&key));
+    }
+
+    pub fn entries(&self) -> &Vec<(RtspHeader, String)> {
+        &self.0
+    }
+
+    pub fn entries_mut(&mut self) -> &mut Vec<(RtspHeader, String)> {
+        &mut self.0
+    }
+
+    pub fn set<S: Into<String>>(&mut self, key: RtspHeader, value: S) {
+        self.remove(key);
+        self.push(key, value.into());
+    }
+
+    pub fn cseq(&self) -> Option<u32> {
+        self.get_unique(RtspHeader::CSeq)
+            .and_then(|cseq| cseq.parse().ok())
+    }
+
+    pub fn transport(&self) -> Option<TransportHeader> {
+        self.get_unique(RtspHeader::Transport)
+            .and_then(|trans| trans.parse().ok())
+    }
+}
+
+impl fmt::Display for RtspHeaders {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.entries().iter().try_for_each(|(key, value)| {
+            f.write_fmt(format_args!("{}: {}{}", key, value, CRLF_STR))
+        })
+    }
+}
+
+impl<R: io::BufRead> ReadFrom<R> for RtspHeaders {
+    type Error = RtspMessageError;
+    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+        let buffer = reader.fill_buf()?.to_vec();
+        let mut cursor = io::Cursor::new(&buffer);
+        if let Some(headers) = Self::try_read_from(cursor.by_ref())? {
+            reader.consume(cursor.position() as usize);
+            return Ok(headers);
+        }
+        Err(RtspMessageError::InvalidRtspMessageFormat(format!(
+            "the message is incomplete: {}",
+            String::from_utf8_lossy(&buffer),
+        )))
+    }
+}
+
+impl<R: AsRef<[u8]>> TryReadFrom<R> for RtspHeaders {
+    type Error = RtspMessageError;
+    fn try_read_from(reader: &mut io::Cursor<R>) -> Result<Option<Self>, Self::Error> {
+        if !reader.has_remaining() {
+            return Ok(None);
+        }
+        let mut text_reader = TextReader::new(reader.by_ref());
+        let mut headers = vec![];
+        loop {
+            let line = text_reader.read_line()?;
+            if line.is_none() {
+                // at least CRLF should be there
+                return Ok(None);
+            }
+
+            let line = line.unwrap();
+            let trimmed_line = line.trim();
+            if trimmed_line.is_empty() {
+                break;
+            }
+            let parts: Vec<_> = trimmed_line.split(":").collect();
+            if parts.len() < 2 {
+                return Err(RtspMessageError::InvalidRtspMessageFormat(format!(
+                    "invalid header line: {}",
+                    line
+                )));
+            }
+
+            let key = parts[0].parse()?;
+            let value = parts[1..].join(":");
+            headers.push((key, value.trim().to_owned()));
+        }
+
+        Ok(Some(Self(headers)))
     }
 }

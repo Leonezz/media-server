@@ -5,7 +5,8 @@ mod tests {
     use utils::traits::reader::{ReadFrom, TryReadFrom};
 
     use crate::{
-        consts::{headers::RtspHeader, status::RtspStatus, version::RtspVersion},
+        consts::{status::RtspStatus, version::RtspVersion},
+        header::RtspHeader,
         response::RtspResponse,
     };
 
@@ -14,17 +15,17 @@ mod tests {
         let response = RtspResponse::builder()
             .version(crate::consts::version::RtspVersion::V2)
             .status(crate::consts::status::RtspStatus::OK)
-            .header(crate::consts::headers::RtspHeader::CSeq, "1")
+            .header(RtspHeader::CSeq, "1")
             .header(
-                crate::consts::headers::RtspHeader::Public,
+                RtspHeader::Public,
                 "DESCRIBE, SETUP, TEARDOWN, PLAY, PAUSE, OPTIONS",
             )
             .header(
-                crate::consts::headers::RtspHeader::Supported,
+                RtspHeader::Supported,
                 "play.basic, setup.rtp.rtcp.mux, play.scale",
             )
             .header(
-                crate::consts::headers::RtspHeader::Server,
+                RtspHeader::Server,
                 "PhonyServer/1.1",
             )
             .build();
@@ -59,21 +60,21 @@ a=control:video";
         let response = RtspResponse::builder()
             .version(crate::consts::version::RtspVersion::V2)
             .status(crate::consts::status::RtspStatus::OK)
-            .header(crate::consts::headers::RtspHeader::CSeq, "312")
+            .header(RtspHeader::CSeq, "312")
             .header(
-                crate::consts::headers::RtspHeader::Date,
+                RtspHeader::Date,
                 "Thu, 23 Jan 1997 15:35:06 GMT",
             )
             .header(
-                crate::consts::headers::RtspHeader::Server,
+                RtspHeader::Server,
                 "PhonyServer/1.1",
             )
             .header(
-                crate::consts::headers::RtspHeader::ContentBase,
+                RtspHeader::ContentBase,
                 "rtsp://server.example.com/fizzle/foo/",
             )
             .header(
-                crate::consts::headers::RtspHeader::ContentType,
+                RtspHeader::ContentType,
                 "application/sdp",
             )
             .body(body.to_owned())

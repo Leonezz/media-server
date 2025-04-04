@@ -44,8 +44,8 @@ impl RtspRequest {
         &self.headers
     }
 
-    pub fn body(&self) -> &Option<String> {
-        &self.body
+    pub fn body(&self) -> Option<&String> {
+        self.body.as_ref()
     }
 }
 

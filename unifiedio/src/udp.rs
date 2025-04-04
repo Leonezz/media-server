@@ -1,4 +1,8 @@
-use std::{net::SocketAddr, task::Poll};
+use std::{
+    net::{Ipv4Addr, SocketAddr},
+    str::FromStr,
+    task::Poll,
+};
 
 use tokio::{
     io::{AsyncRead, AsyncWrite},
@@ -24,6 +28,25 @@ impl UdpIO {
             },
             Err(err) => Err(UnifiedIOError::Io(err)),
         }
+    }
+
+    pub async fn new_with_remote_addr(
+        local_port_start_from: u16,
+        remote_addr: SocketAddr,
+    ) -> UnifiedIOResult<(u16, Self)> {
+        for port in (local_port_start_from..=u16::MAX).step_by(1) {
+            let local_addr =
+                SocketAddr::new(std::net::IpAddr::V4("0.0.0.0".parse().unwrap()), port);
+            match Self::new(local_addr, remote_addr).await {
+                Ok(io) => return Ok((port, io)),
+                Err(err) => {
+                    tracing::trace!("Failed to bind to port {}: {:?}", port, err);
+                }
+            }
+        }
+        Err(UnifiedIOError::Io(std::io::Error::other(
+            "Failed to bind to any port",
+        )))
     }
 }
 

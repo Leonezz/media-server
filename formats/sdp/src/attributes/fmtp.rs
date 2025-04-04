@@ -2,10 +2,10 @@ use std::{fmt, str::FromStr};
 
 use crate::errors::SDPError;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FormatParameters {
-    fmt: u8,
-    params: String,
+    pub fmt: u8,
+    pub params: String,
 }
 
 impl FromStr for FormatParameters {

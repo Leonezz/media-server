@@ -76,11 +76,11 @@ mod tests {
             }),
             bandwidth_information: vec![
                 SDPBandWidthInformation {
-                    bw_type: "X-YZ".to_string(),
+                    bw_type: "X-YZ".parse()?,
                     bandwidth: 128,
                 },
                 SDPBandWidthInformation {
-                    bw_type: "AS".to_string(),
+                    bw_type: "AS".parse()?,
                     bandwidth: 12345,
                 },
             ],
@@ -147,7 +147,7 @@ mod tests {
                         },
                     }],
                     bandwidth: vec![SDPBandWidthInformation {
-                        bw_type: "X-YZ".to_string(),
+                        bw_type: "X-YZ".parse()?,
                         bandwidth: 128,
                     }],
                     encryption_key: Some(SDPEncryptionKeys {

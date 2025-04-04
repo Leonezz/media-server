@@ -2,7 +2,7 @@ use std::{fmt, str::FromStr};
 
 use crate::errors::SDPError;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RtpMap {
     pub payload_type: u8,
     pub encoding_name: String,

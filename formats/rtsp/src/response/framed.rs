@@ -6,7 +6,7 @@ use tokio_util::{
 };
 use utils::traits::reader::TryReadFrom;
 
-use crate::errors::RTSPMessageError;
+use crate::errors::RtspMessageError;
 
 use super::RtspResponse;
 
@@ -14,7 +14,7 @@ use super::RtspResponse;
 pub struct RtspResponseFramed;
 
 impl Encoder<RtspResponse> for RtspResponseFramed {
-    type Error = RTSPMessageError;
+    type Error = RtspMessageError;
     fn encode(
         &mut self,
         item: RtspResponse,
@@ -26,7 +26,7 @@ impl Encoder<RtspResponse> for RtspResponseFramed {
 }
 
 impl Decoder for RtspResponseFramed {
-    type Error = RTSPMessageError;
+    type Error = RtspMessageError;
     type Item = RtspResponse;
     fn decode(
         &mut self,

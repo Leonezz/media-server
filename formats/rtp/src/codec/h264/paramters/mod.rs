@@ -10,7 +10,7 @@ use itertools::Itertools;
 use packetization_mode::PacketizationMode;
 
 #[derive(Debug, Clone, Default)]
-pub struct H264SDPParameters {
+pub struct H264SDPFormatParameters {
     pub profile_level_id: Option<[u8; 3]>, // TODO: make this a concrete level id
     pub max_recv_level: Option<[u8; 2]>,
     pub packetization_mode: Option<PacketizationMode>, // 0, 1, 2. default to 0
@@ -37,7 +37,7 @@ pub struct H264SDPParameters {
     pub unknown: Vec<String>,
 }
 
-impl H264SDPParameters {
+impl H264SDPFormatParameters {
     pub fn new() -> Self {
         Self::default()
     }
@@ -75,7 +75,7 @@ fn parse_max_recv_level(value: &str) -> Result<[u8; 2], H264SDPError> {
     Ok(result)
 }
 
-impl FromStr for H264SDPParameters {
+impl FromStr for H264SDPFormatParameters {
     type Err = H264SDPError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut result = Self::default();
@@ -305,7 +305,7 @@ impl FromStr for H264SDPParameters {
     }
 }
 
-impl fmt::Display for H264SDPParameters {
+impl fmt::Display for H264SDPFormatParameters {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut result: Vec<String> = Vec::new();
         if let Some(profile_level_id) = self.profile_level_id {

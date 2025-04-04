@@ -1,4 +1,4 @@
-use std::io;
+use std::{fmt, io};
 
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use tokio_util::bytes::Bytes;
@@ -137,11 +137,22 @@ impl FixedPacket for NaluHeader {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct NalUnit {
     pub header: NaluHeader,
     // bytes in body does not include the header byte
     pub body: Bytes,
+}
+
+impl fmt::Debug for NalUnit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "nal_header: {:?}, payload length: {}",
+            self.header,
+            self.body.len()
+        )
+    }
 }
 
 /// read all the remaining bytes as body, the header was read ahead

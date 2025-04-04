@@ -21,7 +21,8 @@ use crate::{
     rtp_observer::RtpObserver,
 };
 
-#[derive(Debug)]
+pub trait RtpSessionObserver: RtpObserver + RtcpObserver + Send + Sync {}
+
 pub(crate) struct RtcpContext {
     ssrc: u32,
     tp: SystemTime,
@@ -34,6 +35,8 @@ pub(crate) struct RtcpContext {
     about_to_send_bye: bool,
 
     rtp_clockrate: u64,
+
+    session_observers: Vec<Box<dyn RtpSessionObserver>>,
 }
 
 impl RtcpObserver for RtcpContext {
@@ -64,6 +67,10 @@ impl RtcpObserver for RtcpContext {
             }
         });
         self.update_avg_rtcp_size(packet.get_packet_bytes_count().to_u64().unwrap());
+
+        self.session_observers
+            .iter_mut()
+            .for_each(|item| item.on_rtcp_compound_packet_received(packet, timestamp));
     }
 
     fn on_rtcp_compound_packet_sent(
@@ -84,6 +91,10 @@ impl RtcpObserver for RtcpContext {
         self.participants
             .entry(self.ssrc)
             .and_modify(|p| p.on_rtcp_compound_packet_received(packet, timestamp));
+
+        self.session_observers
+            .iter_mut()
+            .for_each(|item| item.on_rtcp_compound_packet_sent(packet, timestamp));
     }
 }
 
@@ -105,6 +116,10 @@ impl RtpObserver for RtcpContext {
                 .entry(*csrc)
                 .and_modify(|p| p.on_rtp_packet_sent(packet, timestamp));
         });
+
+        self.session_observers
+            .iter_mut()
+            .for_each(|item| item.on_rtp_packet_received(packet, timestamp));
     }
 
     fn on_rtp_packet_sent(
@@ -115,11 +130,15 @@ impl RtpObserver for RtcpContext {
         self.participants
             .entry(self.ssrc)
             .and_modify(|p| p.on_rtp_packet_sent(packet, timestamp));
+
+        self.session_observers
+            .iter_mut()
+            .for_each(|item| item.on_rtp_packet_sent(packet, timestamp));
     }
 }
 
 impl RtcpContext {
-    pub fn new(session_bandwidth: u64, rtp_clockrate: u64) -> Self {
+    pub fn new(session_bandwidth: u64, rtp_clockrate: u64, cname: Option<String>) -> Self {
         let mut ctx = RtcpContext {
             ssrc: 0,
             tp: UNIX_EPOCH,
@@ -131,10 +150,15 @@ impl RtcpContext {
             initial: true,
             about_to_send_bye: false,
             rtp_clockrate,
+            session_observers: Vec::new(),
         };
 
-        ctx.reset(None, None, session_bandwidth, rtp_clockrate);
+        ctx.reset(None, cname, session_bandwidth, rtp_clockrate);
         ctx
+    }
+
+    pub fn with_observer(&mut self, observer: Box<dyn RtpSessionObserver>) {
+        self.session_observers.push(observer);
     }
 
     pub fn reset(
@@ -370,6 +394,7 @@ impl RtcpContext {
         current_timestamp: SystemTime,
         bye: bool,
         bye_reason: Option<String>,
+        with_packets: Vec<RtcpPacket>,
     ) -> RtpSessionResult<RtcpCompoundPacket> {
         let mut builder = RtcpCompoundPacket::builder();
         if self
@@ -393,6 +418,7 @@ impl RtcpContext {
         }
 
         builder = builder.packet(RtcpPacket::SourceDescription(self.generate_sdes()?));
+        builder = builder.packets(with_packets);
         if bye {
             let mut bye_packet_builder = RtcpByePacket::builder().ssrc(self.ssrc);
             if let Some(r) = bye_reason {

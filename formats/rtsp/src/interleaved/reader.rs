@@ -1,4 +1,4 @@
-use crate::errors::RTSPMessageError;
+use crate::errors::RtspMessageError;
 use byteorder::ReadBytesExt;
 use tokio_util::bytes::{Buf, Bytes};
 use utils::traits::reader::{TryReadFrom, TryReadRemainingFrom};
@@ -6,13 +6,13 @@ use utils::traits::reader::{TryReadFrom, TryReadRemainingFrom};
 use super::{DOLLAR_SIGN, RtspInterleavedPacket};
 
 impl<R: AsRef<[u8]>> TryReadRemainingFrom<u8, R> for RtspInterleavedPacket {
-    type Error = RTSPMessageError;
+    type Error = RtspMessageError;
     fn try_read_remaining_from(
         header: u8,
         reader: &mut std::io::Cursor<R>,
     ) -> Result<Option<Self>, Self::Error> {
         if header != DOLLAR_SIGN {
-            return Err(RTSPMessageError::InvalidInterleavedSign(header));
+            return Err(RtspMessageError::InvalidInterleavedSign(header));
         }
 
         if reader.remaining() < 3 {
@@ -35,7 +35,7 @@ impl<R: AsRef<[u8]>> TryReadRemainingFrom<u8, R> for RtspInterleavedPacket {
 }
 
 impl<R: AsRef<[u8]>> TryReadFrom<R> for RtspInterleavedPacket {
-    type Error = RTSPMessageError;
+    type Error = RtspMessageError;
     fn try_read_from(reader: &mut std::io::Cursor<R>) -> Result<Option<Self>, Self::Error> {
         if reader.remaining() < 4 {
             return Ok(None);
@@ -43,7 +43,7 @@ impl<R: AsRef<[u8]>> TryReadFrom<R> for RtspInterleavedPacket {
 
         let sign = reader.read_u8()?;
         if sign != DOLLAR_SIGN {
-            return Err(RTSPMessageError::InvalidInterleavedSign(sign));
+            return Err(RtspMessageError::InvalidInterleavedSign(sign));
         }
         Self::try_read_remaining_from(sign, reader)
     }

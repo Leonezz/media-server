@@ -33,8 +33,16 @@ impl RtspResponse {
         &self.version
     }
 
+    pub fn set_version(&mut self, version: RtspVersion) {
+        self.version = version;
+    }
+
     pub fn headers(&self) -> &RtspHeaders {
         &self.headers
+    }
+
+    pub fn headers_mut(&mut self) -> &mut RtspHeaders {
+        &mut self.headers
     }
 
     pub fn body(&self) -> &Option<String> {

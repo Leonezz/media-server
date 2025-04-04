@@ -6,7 +6,7 @@ use tokio_util::{
 };
 use utils::traits::{reader::TryReadFrom, writer::WriteTo};
 
-use crate::errors::RTSPMessageError;
+use crate::errors::RtspMessageError;
 
 use super::RtspInterleavedPacket;
 
@@ -14,7 +14,7 @@ use super::RtspInterleavedPacket;
 pub struct RtspInterleavedPacketFramed;
 
 impl Encoder<RtspInterleavedPacket> for RtspInterleavedPacketFramed {
-    type Error = RTSPMessageError;
+    type Error = RtspMessageError;
     fn encode(
         &mut self,
         item: RtspInterleavedPacket,
@@ -25,7 +25,7 @@ impl Encoder<RtspInterleavedPacket> for RtspInterleavedPacketFramed {
 }
 
 impl Decoder for RtspInterleavedPacketFramed {
-    type Error = RTSPMessageError;
+    type Error = RtspMessageError;
     type Item = RtspInterleavedPacket;
 
     fn decode(

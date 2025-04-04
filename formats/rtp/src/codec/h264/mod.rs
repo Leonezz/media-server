@@ -38,7 +38,7 @@ impl From<PayloadStructureType> for u8 {
 impl TryFrom<u8> for PayloadStructureType {
     type Error = RtpH264Error;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
+        match value & 0x1F {
             v if (1..=23).contains(&v) => Ok(Self::SingleNALUPacket(v)),
             v if (24..=27).contains(&v) => Ok(Self::AggregationPacket(
                 AggregationPacketType::try_from(v).unwrap(),

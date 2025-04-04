@@ -11,7 +11,7 @@ use ::stream_center::{
     frame_info::{AggregateMeta, AudioMeta, VideoMeta},
     stream_source::{StreamIdentifier, StreamType},
 };
-use flv::tag::{FLVTagType, on_meta_data::OnMetaData};
+use flv_formats::tag::{FLVTagType, on_meta_data::OnMetaData};
 use rtmp_formats::{
     chunk::{
         ChunkMessage, ChunkMessageCommonHeader, RtmpChunkMessageBody, errors::ChunkMessageError,
@@ -571,7 +571,7 @@ impl RtmpSession {
 
                 let mut cursor = Cursor::new(&mut payload);
                 let tag_header =
-                    flv::tag::audio_tag_header::AudioTagHeader::read_from(&mut cursor)?;
+                    flv_formats::tag::audio_tag_header::AudioTagHeader::read_from(&mut cursor)?;
 
                 runtime_stat.stream_source_parse_time_ns = get_timestamp_ns().unwrap_or(0);
 
@@ -587,7 +587,7 @@ impl RtmpSession {
 
                 let mut cursor = Cursor::new(&mut payload);
                 let tag_header =
-                    flv::tag::video_tag_header::VideoTagHeader::read_from(&mut cursor)?;
+                    flv_formats::tag::video_tag_header::VideoTagHeader::read_from(&mut cursor)?;
 
                 runtime_stat.stream_source_parse_time_ns = get_timestamp_ns().unwrap_or(0);
 
@@ -603,7 +603,7 @@ impl RtmpSession {
                 runtime_stat.stream_source_parse_time_ns = get_timestamp_ns().unwrap_or(0);
                 let mut cursor = Cursor::new(payload);
                 let on_meta_data: Option<OnMetaData> =
-                    OnMetaData::read_from(&mut cursor, amf::Version::Amf0);
+                    OnMetaData::read_from(&mut cursor, amf_formats::Version::Amf0);
 
                 tracing::trace!("got script tag, onMetaData: {:?}", on_meta_data);
 
@@ -636,7 +636,7 @@ impl RtmpSession {
         let mut timestamp_delta = None;
         let mut result = vec![];
         while cursor.has_remaining() {
-            let flv_tag_header = flv::tag::FLVTag::read_tag_header_from(&mut cursor)?;
+            let flv_tag_header = flv_formats::tag::FLVTag::read_tag_header_from(&mut cursor)?;
             let mut body_bytes = BytesMut::with_capacity(flv_tag_header.data_size as usize);
 
             body_bytes.resize(flv_tag_header.data_size as usize, 0);

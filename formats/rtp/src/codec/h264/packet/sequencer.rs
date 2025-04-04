@@ -14,11 +14,13 @@ use crate::{
         aggregation::AggregationNalUnits,
         errors::{RtpH264Error, RtpH264Result},
         fragmented::FragmentedUnit,
-        paramters::packetization_mode::PacketizationMode,
+        paramters::{H264SDPFormatParameters, packetization_mode::PacketizationMode},
         single_nalu::SingleNalUnit,
         util::don_diff,
     },
+    errors::RtpError,
     header::RtpHeader,
+    packet::sequencer::{RtpBufferItem, RtpBufferVideoItem, RtpBufferedSequencer},
 };
 
 use super::RtpH264Packet;
@@ -48,6 +50,17 @@ pub struct DeInterleavingParameters {
     pub sprop_deint_buf_req: Option<u64>,
     pub sprop_init_buf_time: Option<u64>,
     pub sprop_max_don_diff: Option<u64>,
+}
+
+impl From<H264SDPFormatParameters> for DeInterleavingParameters {
+    fn from(value: H264SDPFormatParameters) -> Self {
+        Self {
+            sprop_interleaving_depth: value.sprop_interleaving_depth.map(|v| v.into()),
+            sprop_deint_buf_req: value.sprop_deint_buf_req,
+            sprop_init_buf_time: value.sprop_init_buf_time,
+            sprop_max_don_diff: value.sprop_max_don_diff.map(|v| v.into()),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -491,7 +504,7 @@ impl RtpH264Sequencer {
         Ok(())
     }
 
-    pub fn enqueue(&mut self, packet: RtpH264Packet) -> RtpH264Result<()> {
+    pub fn on_packet(&mut self, packet: RtpH264Packet) -> RtpH264Result<()> {
         self.check_packet(&packet)?;
         let rtp_header = packet.header;
         match packet.payload {
@@ -514,11 +527,30 @@ impl RtpH264Sequencer {
         Ok(())
     }
 
-    pub fn try_dump(&mut self) -> Vec<RtpH264BufferItem> {
+    pub fn try_dump_packets(&mut self) -> Vec<RtpH264BufferItem> {
         let mut result: Vec<RtpH264BufferItem> = Vec::with_capacity(self.decoder_buffer.len());
         while let Some(item) = self.decoder_buffer.pop_front() {
             result.push(item);
         }
         result
+    }
+}
+
+impl RtpBufferedSequencer for RtpH264Sequencer {
+    fn enqueue(&mut self, packet: crate::packet::RtpTrivialPacket) -> Result<(), RtpError> {
+        let h264_packet: RtpH264Packet = packet
+            .try_into()
+            .map_err(|err| RtpError::InvalidH264Codec(format!("{}", err)))?;
+        self.on_packet(h264_packet)
+            .map_err(|err| RtpError::InvalidH264Codec(format!("{}", err)))?;
+        Ok(())
+    }
+
+    fn try_dump(&mut self) -> Vec<crate::packet::sequencer::RtpBufferItem> {
+        let packets = self.try_dump_packets();
+        packets
+            .into_iter()
+            .map(|item| RtpBufferItem::Video(RtpBufferVideoItem::H264(item)))
+            .collect()
     }
 }

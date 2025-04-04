@@ -1,7 +1,7 @@
 use crate::{
-    consts::{headers::RtspHeader, status::RtspStatus, version::RtspVersion},
-    errors::{RTSPMessageError, RTSPResult},
-    header::RtspHeaders,
+    consts::{status::RtspStatus, version::RtspVersion},
+    errors::{RtspMessageError, RtspMessageResult},
+    header::{RtspHeader, RtspHeaders},
 };
 
 use super::RtspResponse;
@@ -44,15 +44,15 @@ impl RtspResponseBuilder {
         self
     }
 
-    pub fn build(mut self) -> RTSPResult<RtspResponse> {
+    pub fn build(mut self) -> RtspMessageResult<RtspResponse> {
         if self.status.is_none() {
-            return Err(RTSPMessageError::UnknownStatusCode(None));
+            return Err(RtspMessageError::UnknownStatusCode(None));
         }
 
         if let Some(body) = &self.body {
             // TODO: check weather the method allows a body
             if !self.headers.contains(RtspHeader::ContentType) {
-                return Err(RTSPMessageError::MissingContentType);
+                return Err(RtspMessageError::MissingContentType);
             }
 
             self.headers.remove(RtspHeader::ContentLength);

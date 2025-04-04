@@ -2,7 +2,7 @@ use std::{fmt, str::FromStr};
 
 use crate::errors::SDPError;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum ConferenceType {
     Broadcast,
     Meeting,

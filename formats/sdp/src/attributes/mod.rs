@@ -16,7 +16,7 @@ use crate::{CRLF, errors::SDPError};
 /// 5.13. Attributes ("a=")
 /// a=<attribute-name>
 /// a=<attribute-name>:<attribute-value>
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SDPTrivialAttribute {
     pub name: String,
     pub value: Option<String>,
@@ -34,7 +34,7 @@ impl fmt::Display for SDPTrivialAttribute {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SDPAttribute {
     Trivial(SDPTrivialAttribute),
     #[deprecated]

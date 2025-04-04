@@ -3,8 +3,10 @@ use std::{
     io::{self, Read},
 };
 
+use tokio_util::bytes::Buf;
 use utils::traits::{
     dynamic_sized_packet::DynamicSizedPacket,
+    fixed_packet::FixedPacket,
     reader::{TryReadFrom, TryReadRemainingFrom},
     writer::WriteTo,
 };
@@ -44,6 +46,9 @@ impl<R: AsRef<[u8]>> TryReadFrom<R> for RtcpCompoundPacket {
     fn try_read_from(reader: &mut std::io::Cursor<R>) -> Result<Option<Self>, Self::Error> {
         let mut packets = vec![];
         loop {
+            if reader.remaining() < RtcpCommonHeader::bytes_count() {
+                return Ok(None);
+            }
             let header = RtcpCommonHeader::try_read_from(reader.by_ref())?;
             if header.is_none() {
                 break;

@@ -2,7 +2,7 @@ use std::{fmt, str::FromStr};
 
 use crate::errors::SDPError;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, Copy)]
 pub enum MediaDirection {
     #[default]
     SendRecv,

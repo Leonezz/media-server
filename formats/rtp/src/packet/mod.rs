@@ -1,5 +1,6 @@
 pub mod builder;
 pub mod framed;
+pub mod sequencer;
 use std::io::{self, Read};
 
 use builder::RtpTrivialPacketBuilder;
