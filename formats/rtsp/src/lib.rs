@@ -1,6 +1,7 @@
 use std::{
     fmt::{self, Write},
     io::{self, BufRead, Read, Seek},
+    str::FromStr,
 };
 
 use byteorder::ReadBytesExt;
@@ -9,7 +10,7 @@ use consts::{
     methods::RtspMethod,
     version::RtspVersion,
 };
-use errors::RTSPMessageError;
+use errors::RtspMessageError;
 use interleaved::{DOLLAR_SIGN, RtspInterleavedPacket};
 use request::RtspRequest;
 use response::RtspResponse;
@@ -29,6 +30,8 @@ pub mod header;
 pub mod interleaved;
 pub mod request;
 pub mod response;
+pub mod sdp_extension;
+pub mod time;
 mod util;
 
 #[derive(Debug)]
@@ -39,12 +42,12 @@ pub enum RtspMessage {
 }
 
 impl<R: io::BufRead> ReadFrom<R> for RtspMessage {
-    type Error = RTSPMessageError;
+    type Error = RtspMessageError;
     fn read_from(mut reader: R) -> Result<Self, Self::Error> {
         let buffer = reader.fill_buf()?;
         let mut cursor = io::Cursor::new(buffer);
         Self::try_read_from(cursor.by_ref()).map(|msg| {
-            msg.ok_or(RTSPMessageError::InvalidRtspMessageFormat(
+            msg.ok_or(RtspMessageError::InvalidRtspMessageFormat(
                 "rtsp message is incomplete".to_string(),
             ))
         })?
@@ -52,7 +55,7 @@ impl<R: io::BufRead> ReadFrom<R> for RtspMessage {
 }
 
 impl<R: AsRef<[u8]>> TryReadFrom<R> for RtspMessage {
-    type Error = RTSPMessageError;
+    type Error = RtspMessageError;
     fn try_read_from(reader: &mut io::Cursor<R>) -> Result<Option<Self>, Self::Error> {
         if !reader.has_remaining() {
             return Ok(None);
@@ -71,20 +74,20 @@ impl<R: AsRef<[u8]>> TryReadFrom<R> for RtspMessage {
         let mut first_line = String::new();
         reader.fill_buf()?.read_line(&mut first_line)?;
         if let Some((first_word, _)) = first_line.split_once(SPACE_STR) {
-            if let Ok(method) = RtspMethod::try_from(first_word) {
+            if let Ok(method) = RtspMethod::from_str(first_word) {
                 reader.consume(first_word.len());
                 return RtspRequest::try_read_remaining_from(method, reader)
                     .map(|req| req.map(Self::Request));
             }
 
-            if let Ok(version) = RtspVersion::try_from(first_word) {
+            if let Ok(version) = RtspVersion::from_str(first_word) {
                 reader.consume(first_word.len());
                 return RtspResponse::try_read_remaining_from(version, reader)
                     .map(|res| res.map(Self::Response));
             }
         }
 
-        Err(RTSPMessageError::InvalidRtspMessageFormat(format!(
+        Err(RtspMessageError::InvalidRtspMessageFormat(format!(
             "not a rtsp message: {}",
             first_line
         )))
@@ -92,7 +95,7 @@ impl<R: AsRef<[u8]>> TryReadFrom<R> for RtspMessage {
 }
 
 impl<W: io::Write> WriteTo<W> for RtspMessage {
-    type Error = RTSPMessageError;
+    type Error = RtspMessageError;
     fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
         match self {
             Self::Request(req) => write!(writer, "{}", req)?,
@@ -123,7 +126,7 @@ impl fmt::Display for RtspMessage {
 pub struct RtspMessageFramed;
 
 impl Encoder<RtspMessage> for RtspMessageFramed {
-    type Error = RTSPMessageError;
+    type Error = RtspMessageError;
 
     fn encode(
         &mut self,
@@ -136,7 +139,7 @@ impl Encoder<RtspMessage> for RtspMessageFramed {
 }
 
 impl Decoder for RtspMessageFramed {
-    type Error = RTSPMessageError;
+    type Error = RtspMessageError;
     type Item = RtspMessage;
 
     fn decode(

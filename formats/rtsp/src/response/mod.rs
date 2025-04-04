@@ -37,6 +37,11 @@ impl RtspResponse {
         &self.headers
     }
 
+    pub fn headers_mut(&mut self) -> &mut RtspHeaders {
+        &mut self.headers
+    }
+
+
     pub fn body(&self) -> &Option<String> {
         &self.body
     }

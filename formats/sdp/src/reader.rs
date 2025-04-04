@@ -1,6 +1,7 @@
 use std::{
     io::{BufRead, Cursor, Read, Seek},
     net::{Ipv4Addr, Ipv6Addr},
+    str::FromStr,
 };
 
 use tokio_util::bytes::Buf;
@@ -1006,5 +1007,12 @@ impl SessionDescriptionReader {
 impl Default for SessionDescriptionReader {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl FromStr for SessionDescription {
+    type Err = SDPError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::reader().read_from(s)
     }
 }

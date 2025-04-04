@@ -1,4 +1,7 @@
-use std::io::{self, BufRead, Read};
+use std::{
+    io::{self, BufRead, Read},
+    str::FromStr,
+};
 
 use tokio_util::bytes::Buf;
 use utils::traits::reader::{ReadFrom, ReadRemainingFrom, TryReadFrom, TryReadRemainingFrom};
@@ -6,26 +9,25 @@ use utils::traits::reader::{ReadFrom, ReadRemainingFrom, TryReadFrom, TryReadRem
 use crate::{
     consts::{
         common::{CR_STR, LF, LF_STR, SPACE, SPACE_STR},
-        headers::RtspHeader,
         status::RtspStatus,
         version::RtspVersion,
     },
-    errors::RTSPMessageError,
-    header::RtspHeaders,
+    errors::RtspMessageError,
+    header::{RtspHeader, RtspHeaders},
     util::TextReader,
 };
 
 use super::RtspResponse;
 
 impl<R: io::BufRead> ReadRemainingFrom<RtspVersion, R> for RtspResponse {
-    type Error = RTSPMessageError;
+    type Error = RtspMessageError;
     fn read_remaining_from(header: RtspVersion, mut reader: R) -> Result<Self, Self::Error> {
         let buffer = reader.fill_buf()?;
         let (res, position) = {
             let mut cursor = io::Cursor::new(&buffer);
             (
                 Self::try_read_remaining_from(header, &mut cursor)?.ok_or(
-                    RTSPMessageError::InvalidRtspMessageFormat(format!(
+                    RtspMessageError::InvalidRtspMessageFormat(format!(
                         "rtsp response is incomplete: {}",
                         String::from_utf8_lossy(buffer)
                     )),
@@ -41,7 +43,7 @@ impl<R: io::BufRead> ReadRemainingFrom<RtspVersion, R> for RtspResponse {
 }
 
 impl<R: io::BufRead> ReadFrom<R> for RtspResponse {
-    type Error = RTSPMessageError;
+    type Error = RtspMessageError;
     fn read_from(mut reader: R) -> Result<Self, Self::Error> {
         let buffer = reader.fill_buf()?;
         let (res, position) = {
@@ -49,7 +51,7 @@ impl<R: io::BufRead> ReadFrom<R> for RtspResponse {
 
             (
                 Self::try_read_from(&mut cursor)?.ok_or(
-                    RTSPMessageError::InvalidRtspMessageFormat(format!(
+                    RtspMessageError::InvalidRtspMessageFormat(format!(
                         "rtsp response is not complete: {}",
                         String::from_utf8_lossy(buffer)
                     )),
@@ -64,8 +66,15 @@ impl<R: io::BufRead> ReadFrom<R> for RtspResponse {
     }
 }
 
+impl FromStr for RtspResponse {
+    type Err = RtspMessageError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::read_from(s.as_bytes())
+    }
+}
+
 impl<R: AsRef<[u8]>> TryReadRemainingFrom<RtspVersion, R> for RtspResponse {
-    type Error = RTSPMessageError;
+    type Error = RtspMessageError;
     fn try_read_remaining_from(
         header: RtspVersion,
         reader: &mut io::Cursor<R>,
@@ -75,7 +84,7 @@ impl<R: AsRef<[u8]>> TryReadRemainingFrom<RtspVersion, R> for RtspResponse {
         }
 
         if !TextReader::new(reader.by_ref()).expect(&[SPACE])? {
-            return Err(RTSPMessageError::InvalidRtspMessageFormat(
+            return Err(RtspMessageError::InvalidRtspMessageFormat(
                 "rtsp response first line expect a space".to_string(),
             ));
         }
@@ -87,13 +96,13 @@ impl<R: AsRef<[u8]>> TryReadRemainingFrom<RtspVersion, R> for RtspResponse {
         let line = line.unwrap();
         let trimed_line_parts: Vec<_> = line.trim().split(SPACE_STR).collect();
         if trimed_line_parts.len() < 2 {
-            return Err(RTSPMessageError::InvalidRtspMessageFormat(line));
+            return Err(RtspMessageError::InvalidRtspMessageFormat(line));
         }
 
         let status: RtspStatus = trimed_line_parts[0]
             .parse::<u16>()
             .map_err(|_| {
-                RTSPMessageError::InvalidRtspMessageFormat(format!(
+                RtspMessageError::InvalidRtspMessageFormat(format!(
                     "invalid status code: {}",
                     trimed_line_parts[0]
                 ))
@@ -136,7 +145,7 @@ impl<R: AsRef<[u8]>> TryReadRemainingFrom<RtspVersion, R> for RtspResponse {
 }
 
 impl<R: AsRef<[u8]>> TryReadFrom<R> for RtspResponse {
-    type Error = RTSPMessageError;
+    type Error = RtspMessageError;
     fn try_read_from(reader: &mut io::Cursor<R>) -> Result<Option<Self>, Self::Error> {
         if !reader.fill_buf()?.contains(&LF) {
             return Ok(None);
@@ -145,12 +154,12 @@ impl<R: AsRef<[u8]>> TryReadFrom<R> for RtspResponse {
         reader.fill_buf()?.read_line(&mut first_line)?;
 
         if let Some((first_word, _)) = first_line.split_once(SPACE_STR) {
-            if let Ok(version) = RtspVersion::try_from(first_word) {
+            if let Ok(version) = RtspVersion::from_str(first_word) {
                 reader.consume(first_word.len());
                 return Self::try_read_remaining_from(version, reader);
             }
         }
-        Err(RTSPMessageError::InvalidRtspMessageFormat(format!(
+        Err(RtspMessageError::InvalidRtspMessageFormat(format!(
             "message is not a rtsp response, first line: {}",
             first_line
         )))

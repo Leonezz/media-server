@@ -1,3 +1,4 @@
+mod channel;
 mod errors;
 mod participant;
 mod rtcp_context;

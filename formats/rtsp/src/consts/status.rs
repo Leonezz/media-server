@@ -1,7 +1,7 @@
 //! @ses: RFC 7826 Table 4
 use std::fmt::Display;
 
-use crate::errors::RTSPMessageError;
+use crate::errors::RtspMessageError;
 
 pub mod status_description {
     pub const CONTINUE: &str = "Continue";
@@ -115,7 +115,7 @@ impl From<RtspStatus> for u16 {
 }
 
 impl TryFrom<u16> for RtspStatus {
-    type Error = RTSPMessageError;
+    type Error = RtspMessageError;
     fn try_from(value: u16) -> Result<Self, Self::Error> {
         match value {
             100 => Ok(Self::Continue),
@@ -166,7 +166,7 @@ impl TryFrom<u16> for RtspStatus {
             505 => Ok(Self::RtspVersionNotSupported),
             551 => Ok(Self::OptionNotSupported),
             553 => Ok(Self::ProxyUnavailable),
-            _ => Err(RTSPMessageError::UnknownStatusCode(Some(value))),
+            _ => Err(RtspMessageError::UnknownStatusCode(Some(value))),
         }
     }
 }

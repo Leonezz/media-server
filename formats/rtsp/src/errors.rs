@@ -4,7 +4,7 @@ use thiserror::Error;
 use url::Url;
 
 #[derive(Debug, Error)]
-pub enum RTSPMessageError {
+pub enum RtspMessageError {
     #[error("io error: {0}")]
     Io(#[from] io::Error),
     #[error("format error: {0}")]
@@ -31,6 +31,16 @@ pub enum RTSPMessageError {
     InvalidInterleavedSign(u8),
     #[error("Invalid interleaved data length: {0}")]
     InvalidInterleavedDataLength(usize),
+    #[error("Invalid sdp control attribute: {0}")]
+    InvalidSdpControlAttribute(String),
+    #[error("Invalid sdp time range: {0}")]
+    InvalidSdpRangeAttribute(String),
+    #[error("Invalid Absolute Time: {0}")]
+    InvalidAbsoluteTime(String),
+    #[error("Invalid npt: {0}")]
+    InvalidNPT(String),
+    #[error("Invalid smpte: {0}")]
+    InvalidSMPTE(String),
 }
 
-pub type RTSPResult<T> = Result<T, RTSPMessageError>;
+pub type RtspMessageResult<T> = Result<T, RtspMessageError>;

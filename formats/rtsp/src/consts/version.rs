@@ -1,6 +1,6 @@
-use std::fmt;
+use std::{fmt, str::FromStr};
 
-use crate::errors::RTSPMessageError;
+use crate::errors::RtspMessageError;
 
 #[derive(Debug, Default, Clone)]
 pub enum RtspVersion {
@@ -10,19 +10,19 @@ pub enum RtspVersion {
     Other(String),
 }
 
-impl TryFrom<&str> for RtspVersion {
-    type Error = RTSPMessageError;
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
+impl FromStr for RtspVersion {
+    type Err = RtspMessageError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
             "RTSP/1.0" => Ok(Self::V1),
             "RTSP/2.0" => Ok(Self::V2),
             value if value.starts_with("RTSP/1.") || value.starts_with("RTSP/2.") => {
                 if value.strip_prefix("RTSP/").unwrap().parse::<f64>().is_err() {
-                    return Err(RTSPMessageError::UnknownRtspVersion(Some(value.to_owned())));
+                    return Err(RtspMessageError::UnknownRtspVersion(Some(value.to_owned())));
                 }
                 Ok(Self::Other(value.to_owned()))
             }
-            _ => Err(RTSPMessageError::UnknownRtspVersion(Some(value.to_owned()))),
+            _ => Err(RtspMessageError::UnknownRtspVersion(Some(s.to_owned()))),
         }
     }
 }

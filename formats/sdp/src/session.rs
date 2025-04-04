@@ -1,13 +1,14 @@
 //! @see: RFC 8866 SDP: Session Description Protocol
-use std::fmt;
+use std::{fmt, io};
 
 use url::Url;
+use utils::traits::reader::ReadFrom;
 
 use crate::{CRLF, attributes::SDPAttribute, errors::SDPError, reader::SessionDescriptionReader};
 
 /// 5.1. Protocol Version ("v=")
 /// v=0
-type SDPVersion = u32;
+pub type SDPVersion = u32;
 
 /// 5.2. Origin ("o=")
 /// o=<username> <sess-id> <sess-version> <nettype> <addrtype> <unicast-address>
@@ -35,10 +36,14 @@ impl From<&str> for SDPNetType {
 
 impl fmt::Display for SDPNetType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", match self {
-            Self::IN => "IN",
-            Self::Other(str) => str,
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::IN => "IN",
+                Self::Other(str) => str,
+            }
+        )
     }
 }
 
@@ -68,11 +73,15 @@ impl From<&str> for SDPAddrType {
 
 impl fmt::Display for SDPAddrType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", match self {
-            Self::IP4 => "IP4",
-            Self::IP6 => "IP6",
-            Self::Other(str) => str,
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::IP4 => "IP4",
+                Self::IP6 => "IP6",
+                Self::Other(str) => str,
+            }
+        )
     }
 }
 
@@ -279,15 +288,19 @@ pub enum SDPMediaType {
 
 impl fmt::Display for SDPMediaType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", match self {
-            Self::Audio => "audio",
-            Self::Video => "video",
-            Self::Text => "text",
-            Self::Application => "application",
-            Self::Message => "message",
-            Self::Image => "image",
-            Self::Other(str) => str,
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::Audio => "audio",
+                Self::Video => "video",
+                Self::Text => "text",
+                Self::Application => "application",
+                Self::Message => "message",
+                Self::Image => "image",
+                Self::Other(str) => str,
+            }
+        )
     }
 }
 
@@ -361,13 +374,17 @@ pub enum SDPMediaProtocol {
 
 impl fmt::Display for SDPMediaProtocol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", match self {
-            Self::UDP => "udp",
-            Self::RtpAvp => "RTP/AVP",
-            Self::RtpSAvp => "RTP/SAVP",
-            Self::RtpSAvpF => "RTP/SAVPF",
-            Self::Other(str) => str,
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::UDP => "udp",
+                Self::RtpAvp => "RTP/AVP",
+                Self::RtpSAvp => "RTP/SAVP",
+                Self::RtpSAvpF => "RTP/SAVPF",
+                Self::Other(str) => str,
+            }
+        )
     }
 }
 
@@ -449,6 +466,21 @@ pub struct SessionDescription {
     pub encryption_keys: Option<SDPEncryptionKeys>,
     pub attributes: Vec<SDPAttribute>,
     pub media_description: Vec<SDPMediaDescription>,
+}
+
+impl SessionDescription {
+    pub fn reader() -> SessionDescriptionReader {
+        SessionDescriptionReader::new()
+    }
+}
+
+impl<R: io::BufRead> ReadFrom<R> for SessionDescription {
+    type Error = SDPError;
+    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+        let mut text = String::new();
+        reader.read_to_string(&mut text)?;
+        Self::reader().read_from(&text)
+    }
 }
 
 impl fmt::Display for SessionDescription {

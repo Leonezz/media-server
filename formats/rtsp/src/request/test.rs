@@ -6,7 +6,8 @@ mod tests {
     use utils::traits::reader::{ReadFrom, TryReadFrom};
 
     use crate::{
-        consts::{headers::RtspHeader, methods::RtspMethod, version::RtspVersion},
+        consts::{methods::RtspMethod, version::RtspVersion},
+        header::RtspHeader,
         request::RtspRequest,
     };
 
@@ -16,16 +17,10 @@ mod tests {
             .method(crate::consts::methods::RtspMethod::Options)
             .uri("rtsp://server.example.com".parse::<Url>().unwrap())
             .version(RtspVersion::V2)
-            .header(crate::consts::headers::RtspHeader::CSeq, "1")
-            .header(
-                crate::consts::headers::RtspHeader::UserAgent,
-                "PhonyClient/1.2",
-            )
-            .header(
-                crate::consts::headers::RtspHeader::ProxyRequire,
-                "gzipped-messages",
-            )
-            .header(crate::consts::headers::RtspHeader::Supported, "play.basic")
+            .header(RtspHeader::CSeq, "1")
+            .header(RtspHeader::UserAgent, "PhonyClient/1.2")
+            .header(RtspHeader::ProxyRequire, "gzipped-messages")
+            .header(RtspHeader::Supported, "play.basic")
             .build();
         assert!(request.is_ok());
 
@@ -51,15 +46,9 @@ Supported: play.basic\r\n\r\n";
                     .unwrap(),
             )
             .version(RtspVersion::V2)
-            .header(crate::consts::headers::RtspHeader::CSeq, "312")
-            .header(
-                crate::consts::headers::RtspHeader::UserAgent,
-                "PhonyClient/1.2",
-            )
-            .header(
-                crate::consts::headers::RtspHeader::Accept,
-                "application/sdp, application/example",
-            )
+            .header(RtspHeader::CSeq, "312")
+            .header(RtspHeader::UserAgent, "PhonyClient/1.2")
+            .header(RtspHeader::Accept, "application/sdp, application/example")
             .build();
         assert!(request.is_ok());
         let text = "DESCRIBE rtsp://server.example.com/fizzle/foo RTSP/2.0\r\n\
@@ -78,10 +67,10 @@ Accept: application/sdp, application/example\r\n\r\n";
             .method(crate::consts::methods::RtspMethod::Setup)
             .uri("rtsp://example.com/foo/bar/baz.rm".parse::<Url>().unwrap())
             .version(RtspVersion::V2)
-            .header(crate::consts::headers::RtspHeader::CSeq, "302")
-            .header(crate::consts::headers::RtspHeader::Transport, "RTP/AVP;unicast;dest_addr=\":4588\"/\":4589\", RTP/AVP/TCP;unicast;interleaved=0-1")
-            .header(crate::consts::headers::RtspHeader::AcceptRanges, "npt, clock")
-            .header(crate::consts::headers::RtspHeader::UserAgent, "PhonyClient/1.2")
+            .header(RtspHeader::CSeq, "302")
+            .header(RtspHeader::Transport, "RTP/AVP;unicast;dest_addr=\":4588\"/\":4589\", RTP/AVP/TCP;unicast;interleaved=0-1")
+            .header(RtspHeader::AcceptRanges, "npt, clock")
+            .header(RtspHeader::UserAgent, "PhonyClient/1.2")
             .build();
 
         assert!(request.is_ok());
@@ -222,13 +211,13 @@ Content-Length: 24\r\n";
         let text = format!("{}\r\n{}", text, body);
         assert_eq!(text.trim_end(), format!("{}", request).trim_end());
         assert!(request.body().is_some());
-        assert_eq!(request.body().clone().unwrap(), body);
+        assert_eq!(request.body().unwrap(), body);
         let parsed = RtspRequest::read_from(text.as_bytes());
         assert!(parsed.is_ok());
         let parsed = parsed.unwrap();
         assert_eq!(text, format!("{}", parsed));
         assert!(parsed.clone().body().is_some());
-        assert_eq!(parsed.clone().body().clone().unwrap(), body);
+        assert_eq!(parsed.clone().body().unwrap(), body);
     }
 
     #[test]
@@ -275,13 +264,13 @@ Content-Length: 18\r\n";
         let text = format!("{}\r\n{}", text, body);
         assert_eq!(text.trim_end(), format!("{}", request).trim_end());
         assert!(request.body().is_some());
-        assert_eq!(request.body().clone().unwrap(), body);
+        assert_eq!(request.body().unwrap(), body);
 
         let parsed = RtspRequest::read_from(text.as_bytes());
         assert!(parsed.is_ok());
         let parsed = parsed.unwrap();
         assert_eq!(text.trim_end(), format!("{}", parsed));
-        assert_eq!(body, parsed.body().clone().unwrap());
+        assert_eq!(body, parsed.body().unwrap());
     }
 
     #[test]
