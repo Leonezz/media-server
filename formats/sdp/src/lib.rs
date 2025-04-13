@@ -1,3 +1,5 @@
+pub mod attributes;
+pub mod builder;
 pub mod errors;
 pub mod reader;
 pub mod session;

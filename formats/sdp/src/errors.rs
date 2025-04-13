@@ -1,4 +1,4 @@
-use std::{fmt, io, num::ParseIntError};
+use std::{fmt, io};
 
 use thiserror::Error;
 
@@ -10,14 +10,15 @@ pub enum SDPError {
     FMTError(#[from] fmt::Error),
     #[error("invalid payload")]
     InvalidPayload(String),
-    #[error("parse string to integer failed: {0}")]
-    ParseToIntegerFailed(#[from] ParseIntError),
+
     #[error("integer overflow: {0}")]
     IntegerOverflow(String),
     #[error("parse url failed: {0}")]
     ParseUrlFailed(#[from] url::ParseError),
     #[error("syntax error: {0}")]
     SyntaxError(String),
+    #[error("invalid attribute line: {0}")]
+    InvalidAttributeLine(String),
 }
 
 pub type SDPResult<T> = Result<T, SDPError>;

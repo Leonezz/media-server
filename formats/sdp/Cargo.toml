@@ -9,3 +9,4 @@ tracing = "0.1.41"
 utils = { path = "../../utils" }
 url = "2.5.4"
 tokio-util = { version = "0.7.13", features = ["full"] }
+itertools = "0.14.0"

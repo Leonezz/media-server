@@ -4,12 +4,13 @@ mod tests {
     use url::Url;
 
     use crate::{
+        attributes::{SDPAttribute, SDPTrivialAttribute},
         errors::SDPResult,
         reader::SessionDescriptionReader,
         session::{
-            SDPAddress, SDPAttribute, SDPBandWidthInformation, SDPConnectionInformation,
-            SDPEncryptionKeys, SDPMediaDescription, SDPMediaLine, SDPOrigin, SDPRangedPort,
-            SDPRepeatTime, SDPTimeInformation, SDPTimeZoneAdjustment, SessionDescription,
+            SDPAddress, SDPBandWidthInformation, SDPConnectionInformation, SDPEncryptionKeys,
+            SDPMediaDescription, SDPMediaLine, SDPOrigin, SDPRangedPort, SDPRepeatTime,
+            SDPTimeInformation, SDPTimeZoneAdjustment, SessionDescription,
         },
     };
 
@@ -115,14 +116,14 @@ mod tests {
                 key: None,
             }),
             attributes: vec![
-                SDPAttribute {
+                SDPAttribute::Trivial(SDPTrivialAttribute {
                     name: "candidate".to_string(),
                     value: Some("0 1 UDP 2113667327 203.0.113.1 54400 typ host".to_string()),
-                },
-                SDPAttribute {
+                }),
+                SDPAttribute::Trivial(SDPTrivialAttribute {
                     name: "recvonly".to_string(),
                     value: None,
-                },
+                }),
             ],
             media_description: vec![
                 SDPMediaDescription {
@@ -153,10 +154,10 @@ mod tests {
                         method: "prompt".to_string(),
                         key: None,
                     }),
-                    attributes: vec![SDPAttribute {
+                    attributes: vec![SDPAttribute::Trivial(SDPTrivialAttribute {
                         name: "sendrecv".to_string(),
                         value: None,
-                    }],
+                    })],
                 },
                 SDPMediaDescription {
                     media_line: SDPMediaLine {
@@ -172,10 +173,10 @@ mod tests {
                     connection_information: vec![],
                     bandwidth: vec![],
                     encryption_key: None,
-                    attributes: vec![SDPAttribute {
+                    attributes: vec![SDPAttribute::Trivial(SDPTrivialAttribute {
                         name: "rtpmap".to_string(),
                         value: Some("99 h263-1998/90000".to_string()),
-                    }],
+                    })],
                 },
             ],
         };
@@ -183,7 +184,7 @@ mod tests {
         let actual = format!("{}", sd);
         assert!(
             actual == CANONICAL_MARSHAL_SDP,
-            "error:\n\nEXPECTED:\n{CANONICAL_MARSHAL_SDP}\nACTUAL:\n{actual}!!!!\n"
+            "error:\n\nEXPECTED:\n{CANONICAL_MARSHAL_SDP}\nACTUAL:\n{actual}\n!!!!\n"
         );
 
         Ok(())

@@ -8,11 +8,11 @@ use url::Url;
 
 use crate::{
     CRLF, LF,
+    attributes::SDPAttribute,
     errors::{SDPError, SDPResult},
     session::{
-        SDPAttribute, SDPBandWidthInformation, SDPConnectionInformation, SDPEncryptionKeys,
-        SDPMediaDescription, SDPRepeatTime, SDPTimeInformation, SDPTimeZoneAdjustment,
-        SessionDescription,
+        SDPBandWidthInformation, SDPConnectionInformation, SDPEncryptionKeys, SDPMediaDescription,
+        SDPRepeatTime, SDPTimeInformation, SDPTimeZoneAdjustment, SessionDescription,
     },
 };
 
@@ -374,7 +374,9 @@ impl SessionDescriptionReader {
     fn read_version_line(&mut self, reader: &mut Cursor<&[u8]>) -> SDPResult<()> {
         Self::expect_line_type(reader, b"v=")?;
         let version = Self::read_line(reader)?;
-        self.session_description.version = version.parse::<u32>()?;
+        self.session_description.version = version.parse::<u32>().map_err(|err| {
+            SDPError::SyntaxError(format!("parse version failed: {}, {}", version, err))
+        })?;
 
         self.read_state = SessionDescriptionReadState::Origin;
         Ok(())
@@ -392,8 +394,16 @@ impl SessionDescriptionReader {
         }
 
         self.session_description.origin.user_name = fields[0].to_owned();
-        self.session_description.origin.session_id = fields[1].parse::<_>()?;
-        self.session_description.origin.session_version = fields[2].parse::<_>()?;
+        self.session_description.origin.session_id = fields[1].parse::<_>().map_err(|err| {
+            SDPError::SyntaxError(format!("parse session id failed: {}, {}", fields[1], err))
+        })?;
+        self.session_description.origin.session_version =
+            fields[2].parse::<_>().map_err(|err| {
+                SDPError::SyntaxError(format!(
+                    "parse session version failed: {}, {}",
+                    fields[2], err
+                ))
+            })?;
         self.session_description.origin.net_type = fields[3].into();
         self.session_description.origin.addr_type = fields[4].into();
         self.session_description.origin.unicast_address = fields[5].to_owned();
@@ -579,10 +589,20 @@ impl SessionDescriptionReader {
             .parse::<Ipv4Addr>()
             .is_ok()
         {
-            let ttl: u8 = connection_address_fields[1].parse()?;
+            let ttl: u8 = connection_address_fields[1].parse().map_err(|err| {
+                SDPError::SyntaxError(format!(
+                    "parse connection ttl failed: {}, {}",
+                    connection_address_fields[1], err
+                ))
+            })?;
             result.connection_address.ttl = Some(ttl.into());
             if connection_address_fields.len() == 3 {
-                let number_addr: u64 = connection_address_fields[2].parse()?;
+                let number_addr: u64 = connection_address_fields[2].parse().map_err(|err| {
+                    SDPError::SyntaxError(format!(
+                        "parse connection address range failed: {}, {}",
+                        connection_address_fields[2], err
+                    ))
+                })?;
                 result.connection_address.range = Some(number_addr);
             }
         } else if result
@@ -598,7 +618,12 @@ impl SessionDescriptionReader {
                 )));
             }
 
-            let number_addr: u64 = fields[1].parse()?;
+            let number_addr: u64 = fields[1].parse().map_err(|err| {
+                SDPError::SyntaxError(format!(
+                    "parse connection address range failed: {}, {}",
+                    fields[1], err
+                ))
+            })?;
             result.connection_address.range = Some(number_addr);
         }
 
@@ -644,7 +669,12 @@ impl SessionDescriptionReader {
             )));
         }
 
-        let bandwidth: u64 = bandwidth_fields[1].parse()?;
+        let bandwidth: u64 = bandwidth_fields[1].parse().map_err(|err| {
+            SDPError::SyntaxError(format!(
+                "parse bandwidth failed: {}, {}",
+                bandwidth_fields[1], err
+            ))
+        })?;
         Ok(SDPBandWidthInformation {
             bw_type: bandwidth_fields[0].to_owned(),
             bandwidth,
@@ -693,8 +723,18 @@ impl SessionDescriptionReader {
         }
 
         Ok(SDPTimeInformation {
-            start_time: time_fields[0].parse()?,
-            stop_time: time_fields[1].parse()?,
+            start_time: time_fields[0].parse().map_err(|err| {
+                SDPError::SyntaxError(format!(
+                    "parse start time failed: {}, {}",
+                    time_fields[0], err
+                ))
+            })?,
+            stop_time: time_fields[1].parse().map_err(|err| {
+                SDPError::SyntaxError(format!(
+                    "parse stop time failed: {}, {}",
+                    time_fields[1], err
+                ))
+            })?,
             repeat_times: Vec::new(),
         })
     }
@@ -709,10 +749,18 @@ impl SessionDescriptionReader {
         const TYPED_TIME_OFFSETS: [char; 4] = ['d', 'h', 'm', 's'];
         let last_char = text.chars().last().unwrap();
         if !TYPED_TIME_OFFSETS.contains(&last_char) {
-            return Ok(text.parse()?);
+            return text.parse().map_err(|err| {
+                SDPError::SyntaxError(format!("parse time field failed: {}, {}", text, err))
+            });
         }
 
-        let unit_number: i64 = text.strip_suffix(TYPED_TIME_OFFSETS).unwrap().parse()?;
+        let unit_number: i64 = text
+            .strip_suffix(TYPED_TIME_OFFSETS)
+            .unwrap()
+            .parse()
+            .map_err(|err| {
+                SDPError::SyntaxError(format!("parse time unit number failed: {}, {}", text, err))
+            })?;
 
         match last_char {
             'd' => Ok(unit_number.checked_mul(86400).ok_or_else(|| {
@@ -773,7 +821,12 @@ impl SessionDescriptionReader {
 
         let mut result: Vec<SDPTimeZoneAdjustment> = Vec::with_capacity(zone_fields.len() / 2);
         zone_fields.chunks(2).try_for_each(|item| {
-            let adjust: i64 = item[0].parse()?;
+            let adjust: i64 = item[0].parse().map_err(|err| {
+                SDPError::SyntaxError(format!(
+                    "parse time zone adjustment failed: {}, {}",
+                    item[0], err
+                ))
+            })?;
             result.push(SDPTimeZoneAdjustment {
                 adjustment_time: adjust,
                 offset: Self::parse_typed_time(item[1])?,
@@ -876,24 +929,25 @@ impl SessionDescriptionReader {
     }
 
     fn parse_attribute(text: &str) -> SDPResult<SDPAttribute> {
-        let fields: Vec<&str> = text.split(':').collect();
-        if fields.is_empty() {
-            return Err(SDPError::SyntaxError(format!(
-                "invalid attribute line: {}",
-                text
-            )));
-        }
-        if fields.len() == 1 {
-            return Ok(SDPAttribute {
-                name: fields[0].to_owned(),
-                value: None,
-            });
-        }
+        text.parse()
+        // let fields: Vec<&str> = text.split(':').collect();
+        // if fields.is_empty() {
+        //     return Err(SDPError::SyntaxError(format!(
+        //         "invalid attribute line: {}",
+        //         text
+        //     )));
+        // }
+        // if fields.len() == 1 {
+        //     return Ok(SDPTrivialAttribute {
+        //         name: fields[0].to_owned(),
+        //         value: None,
+        //     });
+        // }
 
-        Ok(SDPAttribute {
-            name: fields[0].to_owned(),
-            value: Some(fields[1..].join(":").to_owned()),
-        })
+        // Ok(SDPTrivialAttribute {
+        //     name: fields[0].to_owned(),
+        //     value: Some(fields[1..].join(":").to_owned()),
+        // })
     }
 
     fn read_attribute_line(
