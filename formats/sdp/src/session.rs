@@ -3,7 +3,7 @@ use std::fmt;
 
 use url::Url;
 
-use crate::{CRLF, errors::SDPError};
+use crate::{CRLF, attributes::SDPAttribute, errors::SDPError, reader::SessionDescriptionReader};
 
 /// 5.1. Protocol Version ("v=")
 /// v=0
@@ -263,27 +263,6 @@ impl fmt::Display for SDPEncryptionKeys {
     }
 }
 
-/// 5.13. Attributes ("a=")
-/// a=<attribute-name>
-/// a=<attribute-name>:<attribute-value>
-#[derive(Debug)]
-pub struct SDPAttribute {
-    pub name: String,
-    pub value: Option<String>,
-}
-
-impl fmt::Display for SDPAttribute {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "a={}", self.name)?;
-        if let Some(value) = &self.value {
-            write!(f, ":{}{}", value, CRLF)?;
-        } else {
-            write!(f, "{}", CRLF)?;
-        }
-        Ok(())
-    }
-}
-
 /// 5.14. Media Descriptions ("m=")
 /// m=<media> <port> <proto> <fmt> ...
 #[derive(Debug, Default)]
@@ -347,7 +326,9 @@ impl TryFrom<&str> for SDPRangedPort {
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         if !value.contains('/') {
             return Ok(Self {
-                port: value.parse()?,
+                port: value.parse().map_err(|err| {
+                    SDPError::SyntaxError(format!("parse port failed: {}, {}", value, err))
+                })?,
                 range: None,
             });
         }
@@ -358,8 +339,12 @@ impl TryFrom<&str> for SDPRangedPort {
         }
 
         Ok(Self {
-            port: fields[0].parse()?,
-            range: Some(fields[1].parse()?),
+            port: fields[0].parse().map_err(|err| {
+                SDPError::SyntaxError(format!("parse port failed: {}, {}", fields[0], err))
+            })?,
+            range: Some(fields[1].parse().map_err(|err| {
+                SDPError::SyntaxError(format!("parse port range failed: {}, {}", fields[1], err))
+            })?),
         })
     }
 }
@@ -443,7 +428,7 @@ impl fmt::Display for SDPMediaDescription {
         }
         self.attributes
             .iter()
-            .try_for_each(|item| write!(f, "{}", item))?;
+            .try_for_each(|item| write!(f, "a={}{}", item, CRLF))?;
         Ok(())
     }
 }
@@ -499,7 +484,7 @@ impl fmt::Display for SessionDescription {
 
         self.attributes
             .iter()
-            .try_for_each(|item| write!(f, "{}", item))?;
+            .try_for_each(|item| write!(f, "a={}{}", item, CRLF))?;
         self.media_description
             .iter()
             .try_for_each(|item| write!(f, "{}", item))?;
