@@ -6,6 +6,8 @@ use tokio_util::bytes::{Buf, Bytes};
 use utils::traits::reader::ReadRemainingFrom;
 use utils::traits::{dynamic_sized_packet::DynamicSizedPacket, writer::WriteTo};
 
+use crate::codec::h264::errors::{RtpH264Error, RtpH264Result};
+use crate::codec::h264::paramters::packetization_mode::PacketizationMode;
 use crate::{
     codec::h264::{
         PayloadStructureType, RtpH264NalUnit,
@@ -13,7 +15,6 @@ use crate::{
         fragmented::{FUAPacket, FUHeader, FragmentationUnitPacketType, FragmentedUnit},
         single_nalu::SingleNalUnit,
     },
-    errors::{RtpError, RtpResult},
     header::RtpHeader,
 };
 
@@ -23,6 +24,7 @@ const DEFAULT_MTU: usize = 1455;
 
 #[derive(Debug)]
 pub struct RtpH264PacketBuilder {
+    packetization_mode: PacketizationMode,
     header: RtpHeader,
     mtu: usize,
     nal_units: Vec<Bytes>,
@@ -33,6 +35,7 @@ pub struct RtpH264PacketBuilder {
 impl Default for RtpH264PacketBuilder {
     fn default() -> Self {
         Self {
+            packetization_mode: PacketizationMode::SingleNalu,
             header: Default::default(),
             mtu: DEFAULT_MTU,
             nal_units: Default::default(),
@@ -43,6 +46,15 @@ impl Default for RtpH264PacketBuilder {
 }
 
 impl RtpH264PacketBuilder {
+    pub fn packetization_mode(mut self, mode: PacketizationMode) -> Self {
+        if mode == PacketizationMode::Interleaved {
+            tracing::error!("Interleaved packetization mode is not supported");
+            return self;
+        }
+        self.packetization_mode = mode;
+        self
+    }
+
     pub fn header(mut self, header: RtpHeader) -> Self {
         self.header = header;
         self
@@ -58,7 +70,7 @@ impl RtpH264PacketBuilder {
         self
     }
 
-    pub fn build(mut self) -> RtpResult<Vec<RtpH264Packet>> {
+    pub fn build(mut self) -> RtpH264Result<Vec<RtpH264Packet>> {
         let mut result = Vec::with_capacity(self.nal_units.len());
 
         self.nal_units
@@ -72,13 +84,34 @@ impl RtpH264PacketBuilder {
                         payload: v,
                     }));
                 }
-                Ok::<(), RtpError>(())
+                Ok::<(), RtpH264Error>(())
             })?;
 
         Ok(result)
     }
 
-    fn packetize_nal_unit(&mut self, nalu: Bytes) -> RtpResult<Option<Vec<RtpH264NalUnit>>> {
+    fn packetize_single_nalu(&mut self, nalu: Bytes) -> RtpH264Result<Option<Vec<RtpH264NalUnit>>> {
+        if nalu.is_empty() {
+            return Ok(None);
+        }
+
+        let nalu_bytes_length = nalu.len();
+        let mut cursor = Cursor::new(nalu);
+        let nalu_header: NaluHeader = cursor.read_u8()?.try_into()?;
+
+        if nalu_bytes_length <= self.mtu {
+            return Ok(Some(vec![RtpH264NalUnit::SingleNalu(SingleNalUnit(
+                NalUnit::read_remaining_from(nalu_header, cursor.by_ref())?,
+            ))]));
+        }
+
+        Err(RtpH264Error::InvalidMTU(self.mtu))
+    }
+
+    fn packetize_non_interleaved(
+        &mut self,
+        nalu: Bytes,
+    ) -> RtpH264Result<Option<Vec<RtpH264NalUnit>>> {
         if nalu.is_empty() {
             return Ok(None);
         }
@@ -181,7 +214,7 @@ impl RtpH264PacketBuilder {
         let max_fragment_size = self.mtu as isize - 2; // indicator + fu_header
 
         if max_fragment_size <= 0 {
-            return Err(RtpError::MTUTooSmall(self.mtu));
+            return Err(RtpH264Error::InvalidMTU(self.mtu));
         }
 
         let mut start_fragment = true;
@@ -208,5 +241,16 @@ impl RtpH264PacketBuilder {
             start_fragment = false;
         }
         Ok(Some(result))
+    }
+
+    fn packetize_nal_unit(&mut self, nalu: Bytes) -> RtpH264Result<Option<Vec<RtpH264NalUnit>>> {
+        match self.packetization_mode {
+            PacketizationMode::SingleNalu => self.packetize_single_nalu(nalu),
+            PacketizationMode::NonInterleaved => self.packetize_non_interleaved(nalu),
+            // it is not reasonable to support interleaved packetization mode for a media server
+            PacketizationMode::Interleaved => Err(RtpH264Error::UnsupportedPacketizationMode(
+                self.packetization_mode,
+            )),
+        }
     }
 }

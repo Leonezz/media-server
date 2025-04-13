@@ -6,7 +6,7 @@ use utils::traits::{
     writer::WriteTo,
 };
 
-use crate::errors::RtpError;
+use super::errors::RtpH264Error;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy)]
@@ -22,12 +22,12 @@ impl From<FragmentationUnitPacketType> for u8 {
 }
 
 impl TryFrom<u8> for FragmentationUnitPacketType {
-    type Error = RtpError;
+    type Error = RtpH264Error;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             28 => Ok(Self::FUA),
             29 => Ok(Self::FUB),
-            v => Err(RtpError::InvalidH264PacketType(v)),
+            v => Err(RtpH264Error::InvalidH264PacketType(v)),
         }
     }
 }
@@ -92,7 +92,7 @@ pub struct FUAPacket {
 }
 
 impl<R: io::Read> ReadRemainingFrom<u8, R> for FUAPacket {
-    type Error = RtpError;
+    type Error = RtpH264Error;
     fn read_remaining_from(indicator: u8, mut reader: R) -> Result<Self, Self::Error> {
         let fu_header: FUHeader = reader.read_u8()?.into();
         let mut bytes = Vec::new();
@@ -106,7 +106,7 @@ impl<R: io::Read> ReadRemainingFrom<u8, R> for FUAPacket {
 }
 
 impl<W: io::Write> WriteTo<W> for FUAPacket {
-    type Error = RtpError;
+    type Error = RtpH264Error;
     fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
         writer.write_u8(self.indicator)?;
         writer.write_u8(self.fu_header.into())?;
@@ -144,7 +144,7 @@ pub struct FUBPacket {
 }
 
 impl<R: io::Read> ReadRemainingFrom<u8, R> for FUBPacket {
-    type Error = RtpError;
+    type Error = RtpH264Error;
     fn read_remaining_from(indicator: u8, mut reader: R) -> Result<Self, Self::Error> {
         let fu_header: FUHeader = reader.read_u8()?.into();
         let decode_order_number = reader.read_u16::<BigEndian>()?;
@@ -160,7 +160,7 @@ impl<R: io::Read> ReadRemainingFrom<u8, R> for FUBPacket {
 }
 
 impl<W: io::Write> WriteTo<W> for FUBPacket {
-    type Error = RtpError;
+    type Error = RtpH264Error;
     fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
         writer.write_u8(self.indicator)?;
         writer.write_u8(self.fu_header.into())?;
@@ -186,7 +186,7 @@ pub enum FragmentedUnit {
 }
 
 impl<R: io::Read> ReadRemainingFrom<FragmentationUnitPacketType, R> for FragmentedUnit {
-    type Error = RtpError;
+    type Error = RtpH264Error;
     fn read_remaining_from(
         header: FragmentationUnitPacketType,
         reader: R,
@@ -205,7 +205,7 @@ impl<R: io::Read> ReadRemainingFrom<FragmentationUnitPacketType, R> for Fragment
 }
 
 impl<W: io::Write> WriteTo<W> for FragmentedUnit {
-    type Error = RtpError;
+    type Error = RtpH264Error;
     fn write_to(&self, writer: W) -> Result<(), Self::Error> {
         match self {
             Self::FuA(packet) => packet.write_to(writer),

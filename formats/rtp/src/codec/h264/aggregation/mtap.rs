@@ -6,7 +6,7 @@ use utils::traits::{
     dynamic_sized_packet::DynamicSizedPacket, reader::ReadRemainingFrom, writer::WriteTo,
 };
 
-use crate::{codec::h264::util, errors::RtpError};
+use crate::codec::h264::{errors::RtpH264Error, util};
 
 #[derive(Debug)]
 pub struct MtapNalUnit<T: Into<u32>> {
@@ -55,7 +55,7 @@ pub struct Mtap16Format {
 }
 
 impl<R: io::Read> ReadRemainingFrom<u8, R> for Mtap16Format {
-    type Error = RtpError;
+    type Error = RtpH264Error;
     fn read_remaining_from(header: u8, mut reader: R) -> Result<Self, Self::Error> {
         let decode_order_number_base = reader.read_u16::<BigEndian>()?;
         let nal_units = util::read_aggregated_mtap16_nal_units(reader)?
@@ -78,7 +78,7 @@ impl<R: io::Read> ReadRemainingFrom<u8, R> for Mtap16Format {
 }
 
 impl<W: io::Write> WriteTo<W> for Mtap16Format {
-    type Error = RtpError;
+    type Error = RtpH264Error;
     fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
         writer.write_u8(self.header)?;
         writer.write_u16::<BigEndian>(self.decode_order_number_base)?;
@@ -139,7 +139,7 @@ pub struct Mtap24Format {
 }
 
 impl<R: io::Read> ReadRemainingFrom<u8, R> for Mtap24Format {
-    type Error = RtpError;
+    type Error = RtpH264Error;
     fn read_remaining_from(header: u8, mut reader: R) -> Result<Self, Self::Error> {
         let decode_order_number_base = reader.read_u16::<BigEndian>()?;
         let nal_units = util::read_aggregated_mtap24_nal_units(reader)?
@@ -161,7 +161,7 @@ impl<R: io::Read> ReadRemainingFrom<u8, R> for Mtap24Format {
 }
 
 impl<W: io::Write> WriteTo<W> for Mtap24Format {
-    type Error = RtpError;
+    type Error = RtpH264Error;
     fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
         writer.write_u8(self.header)?;
         writer.write_u16::<BigEndian>(self.decode_order_number_base)?;

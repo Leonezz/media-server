@@ -6,7 +6,7 @@ use utils::traits::{
     dynamic_sized_packet::DynamicSizedPacket, reader::ReadRemainingFrom, writer::WriteTo,
 };
 
-use crate::{codec::h264::util, errors::RtpError};
+use crate::codec::h264::{errors::RtpH264Error, util};
 
 // @see: RFC 6184 5.7.1. Single-Time Aggregation Packet (STAP) Figure 7
 ///  0                   1                   2                   3
@@ -34,7 +34,7 @@ pub struct StapAFormat {
 }
 
 impl<R: io::Read> ReadRemainingFrom<u8, R> for StapAFormat {
-    type Error = RtpError;
+    type Error = RtpH264Error;
     fn read_remaining_from(header: u8, reader: R) -> Result<Self, Self::Error> {
         let nal_units = util::read_aggregated_trivial_nal_units(reader)?;
 
@@ -43,7 +43,7 @@ impl<R: io::Read> ReadRemainingFrom<u8, R> for StapAFormat {
 }
 
 impl<W: io::Write> WriteTo<W> for StapAFormat {
-    type Error = RtpError;
+    type Error = RtpH264Error;
     fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
         writer.write_u8(self.header)?;
 
@@ -95,7 +95,7 @@ pub struct StapBFormat {
 }
 
 impl<R: io::Read> ReadRemainingFrom<u8, R> for StapBFormat {
-    type Error = RtpError;
+    type Error = RtpH264Error;
     fn read_remaining_from(header: u8, mut reader: R) -> Result<Self, Self::Error> {
         let decode_order_number = reader.read_u16::<BigEndian>()?;
         let nal_units = util::read_aggregated_trivial_nal_units(reader)?;
@@ -108,7 +108,7 @@ impl<R: io::Read> ReadRemainingFrom<u8, R> for StapBFormat {
 }
 
 impl<W: io::Write> WriteTo<W> for StapBFormat {
-    type Error = RtpError;
+    type Error = RtpH264Error;
     fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
         writer.write_u8(self.header)?;
         writer.write_u16::<BigEndian>(self.decode_order_number)?;
