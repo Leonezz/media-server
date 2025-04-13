@@ -5,7 +5,7 @@ use utils::traits::{
     dynamic_sized_packet::DynamicSizedPacket, reader::ReadRemainingFrom, writer::WriteTo,
 };
 
-use crate::errors::RtpError;
+use super::errors::RtpH264Error;
 
 // @see: RFC 6184 5.6. Single NAL Unit Packet
 ///  0                    1                  2                   3
@@ -24,7 +24,7 @@ use crate::errors::RtpError;
 pub struct SingleNalUnit(pub NalUnit);
 
 impl<R: io::Read> ReadRemainingFrom<u8, R> for SingleNalUnit {
-    type Error = RtpError;
+    type Error = RtpH264Error;
     fn read_remaining_from(header: u8, reader: R) -> Result<Self, Self::Error> {
         let nal_header: NaluHeader = header.try_into()?;
         Ok(Self(NalUnit::read_remaining_from(nal_header, reader)?))
@@ -32,7 +32,7 @@ impl<R: io::Read> ReadRemainingFrom<u8, R> for SingleNalUnit {
 }
 
 impl<W: io::Write> WriteTo<W> for SingleNalUnit {
-    type Error = RtpError;
+    type Error = RtpH264Error;
     fn write_to(&self, writer: W) -> Result<(), Self::Error> {
         self.0.write_to(writer)?;
         Ok(())

@@ -6,7 +6,7 @@ use utils::traits::{
     dynamic_sized_packet::DynamicSizedPacket, reader::ReadRemainingFrom, writer::WriteTo,
 };
 
-use crate::errors::RtpError;
+use super::errors::RtpH264Error;
 
 pub mod mtap;
 pub mod stap;
@@ -28,14 +28,14 @@ impl From<AggregationPacketType> for u8 {
 }
 
 impl TryFrom<u8> for AggregationPacketType {
-    type Error = RtpError;
+    type Error = RtpH264Error;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             24 => Ok(Self::STAPA),
             25 => Ok(Self::STAPB),
             26 => Ok(Self::MTAP16),
             27 => Ok(Self::MTAP24),
-            v => Err(RtpError::InvalidH264PacketType(v)),
+            v => Err(RtpH264Error::InvalidH264PacketType(v)),
         }
     }
 }
@@ -49,7 +49,7 @@ pub enum AggregationNalUnits {
 }
 
 impl<R: io::Read> ReadRemainingFrom<AggregationPacketType, R> for AggregationNalUnits {
-    type Error = RtpError;
+    type Error = RtpH264Error;
     fn read_remaining_from(header: AggregationPacketType, reader: R) -> Result<Self, Self::Error> {
         match header {
             AggregationPacketType::STAPA => Ok(Self::StapA(StapAFormat::read_remaining_from(
@@ -73,7 +73,7 @@ impl<R: io::Read> ReadRemainingFrom<AggregationPacketType, R> for AggregationNal
 }
 
 impl<W: io::Write> WriteTo<W> for AggregationNalUnits {
-    type Error = RtpError;
+    type Error = RtpH264Error;
     fn write_to(&self, writer: W) -> Result<(), Self::Error> {
         match self {
             Self::StapA(packet) => packet.write_to(writer),

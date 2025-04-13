@@ -1,6 +1,5 @@
 use std::{io, string};
 
-use h264_codec::errors::H264CodecError;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -37,12 +36,7 @@ pub enum RtpError {
     TooManyCSRC,
     #[error("too many report blocks in a report packet, exceeds 31")]
     TooManyReportBlocks,
-    #[error("invalid packet type for h264: {0}")]
-    InvalidH264PacketType(u8),
-    #[error("h264 codec error: {0:?}")]
-    CodecErrorH264(#[from] H264CodecError),
-    #[error("rtp sequencing h264 nal from fu packets failed: {0}")]
-    SequenceFUPacketsFailed(String),
+
     #[error("MTU is too small: {0}")]
     MTUTooSmall(usize),
     #[error("payload too large, exceeds u16 length: {0}")]

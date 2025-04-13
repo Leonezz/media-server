@@ -12,3 +12,4 @@ tracing = "0.1.41"
 num = "0.4.3"
 utils = { path = "../../utils" }
 h264_codec = { path = "../../codec/h264" }
+itertools = "0.14.0"

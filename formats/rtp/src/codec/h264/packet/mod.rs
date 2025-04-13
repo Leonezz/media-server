@@ -7,12 +7,11 @@ use builder::RtpH264PacketBuilder;
 use utils::traits::{dynamic_sized_packet::DynamicSizedPacket, reader::ReadFrom, writer::WriteTo};
 
 use crate::{
-    errors::RtpError,
     header::RtpHeader,
     util::{RtpPacketTrait, RtpPaddedPacketTrait, padding::rtp_need_padding},
 };
 
-use super::RtpH264NalUnit;
+use super::{RtpH264NalUnit, errors::RtpH264Error};
 
 #[derive(Debug)]
 pub struct RtpH264Packet {
@@ -50,7 +49,7 @@ impl RtpPacketTrait for RtpH264Packet {
 }
 
 impl<R: io::Read> ReadFrom<R> for RtpH264Packet {
-    type Error = RtpError;
+    type Error = RtpH264Error;
     fn read_from(mut reader: R) -> Result<Self, Self::Error> {
         let header = RtpHeader::read_from(reader.by_ref())?;
         let payload = RtpH264NalUnit::read_from(reader.by_ref())?;
@@ -59,7 +58,7 @@ impl<R: io::Read> ReadFrom<R> for RtpH264Packet {
 }
 
 impl<W: io::Write> WriteTo<W> for RtpH264Packet {
-    type Error = RtpError;
+    type Error = RtpH264Error;
     fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
         self.header.write_to(writer.by_ref())?;
         self.payload.write_to(writer.by_ref())?;

@@ -1,12 +1,15 @@
 pub mod aggregation;
+pub mod errors;
 pub mod fragmented;
 pub mod packet;
+pub mod paramters;
 pub mod single_nalu;
 pub(crate) mod util;
 use std::io;
 
 use aggregation::{AggregationNalUnits, AggregationPacketType};
 use byteorder::ReadBytesExt;
+use errors::RtpH264Error;
 use fragmented::{FragmentationUnitPacketType, FragmentedUnit};
 use single_nalu::SingleNalUnit;
 use utils::traits::{
@@ -14,8 +17,6 @@ use utils::traits::{
     reader::{ReadFrom, ReadRemainingFrom},
     writer::WriteTo,
 };
-
-use crate::errors::RtpError;
 
 #[derive(Debug, Clone, Copy)]
 pub enum PayloadStructureType {
@@ -35,7 +36,7 @@ impl From<PayloadStructureType> for u8 {
 }
 
 impl TryFrom<u8> for PayloadStructureType {
-    type Error = RtpError;
+    type Error = RtpH264Error;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             v if (1..=23).contains(&v) => Ok(Self::SingleNALUPacket(v)),
@@ -45,7 +46,7 @@ impl TryFrom<u8> for PayloadStructureType {
             v if v == 28 || v == 29 => Ok(Self::FragmentationUnit(
                 FragmentationUnitPacketType::try_from(v).unwrap(),
             )),
-            v => Err(RtpError::InvalidH264PacketType(v)),
+            v => Err(RtpH264Error::InvalidH264PacketType(v)),
         }
     }
 }
@@ -76,7 +77,7 @@ impl RtpH264NalUnit {
 }
 
 impl<R: io::Read> ReadFrom<R> for RtpH264NalUnit {
-    type Error = RtpError;
+    type Error = RtpH264Error;
     fn read_from(mut reader: R) -> Result<Self, Self::Error> {
         let first_byte = reader.read_u8()?;
         let payload_structure: PayloadStructureType = first_byte.try_into()?;
@@ -97,7 +98,7 @@ impl<R: io::Read> ReadFrom<R> for RtpH264NalUnit {
 }
 
 impl<W: io::Write> WriteTo<W> for RtpH264NalUnit {
-    type Error = RtpError;
+    type Error = RtpH264Error;
     fn write_to(&self, writer: W) -> Result<(), Self::Error> {
         match &self {
             RtpH264NalUnit::SingleNalu(packet) => packet.write_to(writer),

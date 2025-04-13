@@ -6,6 +6,7 @@ use tokio_util::bytes::{Buf, Bytes};
 use utils::traits::reader::ReadRemainingFrom;
 use utils::traits::{dynamic_sized_packet::DynamicSizedPacket, writer::WriteTo};
 
+use crate::codec::h264::errors::{RtpH264Error, RtpH264Result};
 use crate::{
     codec::h264::{
         PayloadStructureType, RtpH264NalUnit,
@@ -13,7 +14,6 @@ use crate::{
         fragmented::{FUAPacket, FUHeader, FragmentationUnitPacketType, FragmentedUnit},
         single_nalu::SingleNalUnit,
     },
-    errors::{RtpError, RtpResult},
     header::RtpHeader,
 };
 
@@ -58,7 +58,7 @@ impl RtpH264PacketBuilder {
         self
     }
 
-    pub fn build(mut self) -> RtpResult<Vec<RtpH264Packet>> {
+    pub fn build(mut self) -> RtpH264Result<Vec<RtpH264Packet>> {
         let mut result = Vec::with_capacity(self.nal_units.len());
 
         self.nal_units
@@ -72,13 +72,13 @@ impl RtpH264PacketBuilder {
                         payload: v,
                     }));
                 }
-                Ok::<(), RtpError>(())
+                Ok::<(), RtpH264Error>(())
             })?;
 
         Ok(result)
     }
 
-    fn packetize_nal_unit(&mut self, nalu: Bytes) -> RtpResult<Option<Vec<RtpH264NalUnit>>> {
+    fn packetize_nal_unit(&mut self, nalu: Bytes) -> RtpH264Result<Option<Vec<RtpH264NalUnit>>> {
         if nalu.is_empty() {
             return Ok(None);
         }
@@ -181,7 +181,7 @@ impl RtpH264PacketBuilder {
         let max_fragment_size = self.mtu as isize - 2; // indicator + fu_header
 
         if max_fragment_size <= 0 {
-            return Err(RtpError::MTUTooSmall(self.mtu));
+            return Err(RtpH264Error::InvalidMTU(self.mtu));
         }
 
         let mut start_fragment = true;
