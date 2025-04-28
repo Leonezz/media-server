@@ -12,6 +12,8 @@ pub enum RtmpServerError {
     HandshakeFailed(#[from] HandshakeError),
     #[error("chunk message read failed: {0:?}")]
     ChunkMessageReadFailed(#[from] ChunkMessageError),
+    #[error("flv tag demux error: {0}")]
+    FlvDemuxError(#[from] flv::errors::FLVError),
     #[error("stream center operation error")]
     StreamCenterError(#[from] StreamCenterError),
     #[error("channel send data failed, {backtrace}")]

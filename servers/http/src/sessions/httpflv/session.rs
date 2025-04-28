@@ -9,7 +9,7 @@ use flv::{
 };
 use stream_center::{
     events::{StreamCenterEvent, SubscribeResponse},
-    gop::FLVMediaFrame,
+    gop::MediaFrame,
     stream_source::{StreamIdentifier, StreamType},
 };
 use tokio::sync::{mpsc, oneshot};
@@ -117,7 +117,7 @@ impl HttpFlvSession {
                 None => {}
                 Some(frame) => {
                     match &frame {
-                        FLVMediaFrame::Video {
+                        MediaFrame::Video {
                             runtime_stat: _,
                             pts: _,
                             header,
@@ -128,7 +128,7 @@ impl HttpFlvSession {
                                 self.runtime_stat.video_sequence_header_sent = true;
                             }
                         }
-                        FLVMediaFrame::Audio {
+                        MediaFrame::Audio {
                             runtime_stat: _,
                             pts: _,
                             header,
@@ -169,7 +169,7 @@ impl HttpFlvSession {
 
     pub fn write_flv_tag(
         &mut self,
-        mut frame: FLVMediaFrame,
+        mut frame: MediaFrame,
         bytes_buffer: &mut Vec<u8>,
     ) -> HttpFlvSessionResult<()> {
         fn write_tag(
@@ -200,7 +200,7 @@ impl HttpFlvSession {
             Ok(())
         }
         match &mut frame {
-            FLVMediaFrame::Video {
+            MediaFrame::Video {
                 runtime_stat,
                 pts,
                 header,
@@ -222,7 +222,7 @@ impl HttpFlvSession {
 
                 write_tag(FLVTagType::Video, timestamp as u32, payload, bytes_buffer)?;
             }
-            FLVMediaFrame::Audio {
+            MediaFrame::Audio {
                 runtime_stat,
                 pts,
                 header: _,
@@ -233,7 +233,7 @@ impl HttpFlvSession {
 
                 write_tag(FLVTagType::Audio, *pts as u32, payload, bytes_buffer)?;
             }
-            FLVMediaFrame::Script {
+            MediaFrame::Script {
                 runtime_stat,
                 pts,
                 payload,

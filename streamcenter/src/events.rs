@@ -5,8 +5,7 @@ use uuid::Uuid;
 
 use crate::{
     errors::StreamCenterResult,
-    frame_info::ChunkFrameData,
-    gop::FLVMediaFrame,
+    gop::MediaFrame,
     stream_source::{StreamIdentifier, StreamType},
 };
 
@@ -16,7 +15,7 @@ pub enum StreamCenterEvent {
         stream_type: StreamType,
         stream_id: StreamIdentifier,
         context: HashMap<String, String>,
-        result_sender: oneshot::Sender<StreamCenterResult<mpsc::Sender<ChunkFrameData>>>, // success or not
+        result_sender: oneshot::Sender<StreamCenterResult<mpsc::Sender<MediaFrame>>>, // success or not
     },
     Unpublish {
         stream_id: StreamIdentifier,
@@ -40,5 +39,5 @@ pub struct SubscribeResponse {
     pub stream_type: StreamType,
     pub has_video: bool,
     pub has_audio: bool,
-    pub media_receiver: mpsc::Receiver<FLVMediaFrame>,
+    pub media_receiver: mpsc::Receiver<MediaFrame>,
 }

@@ -9,7 +9,7 @@ use tokio_util::bytes::BytesMut;
 use crate::{errors::StreamCenterResult, frame_info::MediaMessageRuntimeStat};
 
 #[derive(Debug, Clone)]
-pub enum FLVMediaFrame {
+pub enum MediaFrame {
     Video {
         runtime_stat: MediaMessageRuntimeStat,
         pts: u64,
@@ -34,10 +34,10 @@ pub enum FLVMediaFrame {
     },
 }
 
-impl FLVMediaFrame {
+impl MediaFrame {
     #[inline]
     pub fn is_video(&self) -> bool {
-        matches!(self, FLVMediaFrame::Video {
+        matches!(self, MediaFrame::Video {
             runtime_stat: _,
             pts: _,
             header: _,
@@ -47,7 +47,7 @@ impl FLVMediaFrame {
 
     #[inline]
     pub fn is_audio(&self) -> bool {
-        matches!(self, FLVMediaFrame::Audio {
+        matches!(self, MediaFrame::Audio {
             runtime_stat: _,
             pts: _,
             header: _,
@@ -57,7 +57,7 @@ impl FLVMediaFrame {
 
     #[inline]
     pub fn is_script(&self) -> bool {
-        matches!(self, FLVMediaFrame::Script {
+        matches!(self, MediaFrame::Script {
             runtime_stat: _,
             pts: _,
             payload: _,
@@ -68,13 +68,13 @@ impl FLVMediaFrame {
     #[inline]
     pub fn is_sequence_header(&self) -> bool {
         match self {
-            FLVMediaFrame::Audio {
+            MediaFrame::Audio {
                 runtime_stat: _,
                 pts: _,
                 header,
                 payload: _,
             } => header.is_sequence_header(),
-            FLVMediaFrame::Video {
+            MediaFrame::Video {
                 runtime_stat: _,
                 pts: _,
                 header,
@@ -87,7 +87,7 @@ impl FLVMediaFrame {
     #[inline]
     pub fn is_video_key_frame(&self) -> bool {
         match self {
-            FLVMediaFrame::Video {
+            MediaFrame::Video {
                 runtime_stat: _,
                 pts: _,
                 header,
@@ -100,19 +100,19 @@ impl FLVMediaFrame {
     #[inline]
     pub fn get_frame_pts(&self) -> u64 {
         match self {
-            FLVMediaFrame::Audio {
+            MediaFrame::Audio {
                 runtime_stat: _,
                 pts,
                 header: _,
                 payload: _,
             }
-            | FLVMediaFrame::Video {
+            | MediaFrame::Video {
                 runtime_stat: _,
                 pts,
                 header: _,
                 payload: _,
             }
-            | FLVMediaFrame::Script {
+            | MediaFrame::Script {
                 runtime_stat: _,
                 pts,
                 on_meta_data: _,
@@ -124,7 +124,7 @@ impl FLVMediaFrame {
 
 #[derive(Debug)]
 pub struct Gop {
-    pub flv_frames: Vec<FLVMediaFrame>,
+    pub flv_frames: Vec<MediaFrame>,
     video_tag_cnt: usize,
     audio_tag_cnt: usize,
     meta_tag_cnt: usize,
@@ -169,9 +169,9 @@ impl Gop {
         self.last_video_pts
     }
 
-    pub fn append_flv_tag(&mut self, frame: FLVMediaFrame) {
+    pub fn append_flv_tag(&mut self, frame: MediaFrame) {
         match frame {
-            FLVMediaFrame::Video {
+            MediaFrame::Video {
                 pts,
                 header: _,
                 payload: _,
@@ -183,13 +183,13 @@ impl Gop {
                 }
                 self.last_video_pts = pts;
             }
-            FLVMediaFrame::Audio {
+            MediaFrame::Audio {
                 pts: _,
                 header: _,
                 payload: _,
                 runtime_stat: _,
             } => self.audio_tag_cnt += 1,
-            FLVMediaFrame::Script {
+            MediaFrame::Script {
                 pts: _,
                 payload: _,
                 runtime_stat: _,
@@ -209,9 +209,9 @@ impl Default for Gop {
 
 #[derive(Debug)]
 pub struct GopQueue {
-    pub video_sequence_header: Option<FLVMediaFrame>,
-    pub audio_sequence_header: Option<FLVMediaFrame>,
-    pub script_frame: Option<FLVMediaFrame>,
+    pub video_sequence_header: Option<MediaFrame>,
+    pub audio_sequence_header: Option<MediaFrame>,
+    pub script_frame: Option<MediaFrame>,
     pub gops: VecDeque<Gop>,
     total_frame_cnt: u64,
     max_duration_ms: u64,
@@ -284,11 +284,11 @@ impl GopQueue {
         self.accumulate_gops(|gop| gop.get_meta_frame_cnt())
     }
 
-    pub fn append_frame(&mut self, frame: FLVMediaFrame) -> StreamCenterResult<()> {
+    pub fn append_frame(&mut self, frame: MediaFrame) -> StreamCenterResult<()> {
         let mut is_sequence_header = false;
         let mut is_video = false;
         match frame {
-            FLVMediaFrame::Audio {
+            MediaFrame::Audio {
                 pts: _,
                 header,
                 payload: _,
@@ -300,7 +300,7 @@ impl GopQueue {
                     is_sequence_header = true
                 }
             }
-            FLVMediaFrame::Video {
+            MediaFrame::Video {
                 pts: _,
                 header,
                 payload: _,
@@ -315,7 +315,7 @@ impl GopQueue {
                     self.gops.push_back(Gop::new());
                 }
             }
-            FLVMediaFrame::Script {
+            MediaFrame::Script {
                 runtime_stat: _,
                 pts,
                 ref on_meta_data,
