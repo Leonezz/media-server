@@ -2,22 +2,15 @@ use std::{
     cmp::{max, min},
     collections::HashMap,
     fmt::Display,
-    io::{Cursor, Read},
     sync::Arc,
 };
 
-use flv::tag::{FLVTag, FLVTagType, on_meta_data::OnMetaData};
 use tokio::sync::{RwLock, mpsc};
-use tokio_util::bytes::{Buf, BytesMut};
-use utils::system::time::get_timestamp_ns;
 use uuid::Uuid;
 
 use crate::{
     errors::{StreamCenterError, StreamCenterResult},
-    frame_info::{
-        AggregateMeta, AudioMeta, ChunkFrameData, MediaMessageRuntimeStat, ScriptMeta, VideoMeta,
-    },
-    gop::{FLVMediaFrame, GopQueue},
+    gop::{GopQueue, MediaFrame},
     signal::StreamSignal,
     stream_center::StreamSourceDynamicInfo,
 };
@@ -100,7 +93,7 @@ pub struct PlayStat {
 pub struct SubscribeHandler {
     pub context: HashMap<String, String>,
     pub parsed_context: ParsedContext,
-    pub data_sender: mpsc::Sender<FLVMediaFrame>,
+    pub data_sender: mpsc::Sender<MediaFrame>,
     pub stat: PlayStat,
 }
 
@@ -132,7 +125,7 @@ pub struct StreamSource {
     pub identifier: StreamIdentifier,
     pub stream_type: StreamType,
 
-    data_receiver: mpsc::Receiver<ChunkFrameData>,
+    data_receiver: mpsc::Receiver<MediaFrame>,
     data_distributer: Arc<RwLock<HashMap<Uuid, SubscribeHandler>>>,
     stream_dynamic_info: Arc<RwLock<StreamSourceDynamicInfo>>,
     // data_consumer: broadcast::Receiver<FrameData>,
@@ -146,7 +139,7 @@ impl StreamSource {
         stream_name: &str,
         app: &str,
         stream_type: StreamType,
-        data_receiver: mpsc::Receiver<ChunkFrameData>,
+        data_receiver: mpsc::Receiver<MediaFrame>,
         signal_receiver: mpsc::Receiver<StreamSignal>,
         data_distributer: Arc<RwLock<HashMap<Uuid, SubscribeHandler>>>,
         stream_dynamic_info: Arc<RwLock<StreamSourceDynamicInfo>>,
@@ -178,10 +171,7 @@ impl StreamSource {
             match self.data_receiver.recv().await {
                 None => {}
                 Some(data) => {
-                    let flv_frames = self.chunked_frame_to_flv_frame(data)?;
-                    for flv_frame in flv_frames {
-                        self.on_flv_frame(flv_frame).await?;
-                    }
+                    self.on_media_frame(data).await?;
                 }
             }
             match self.signal_receiver.try_recv() {
@@ -195,155 +185,8 @@ impl StreamSource {
             }
         }
     }
-    fn parse_aggregate_frame(
-        &mut self,
-        aggregate_meta: &AggregateMeta,
-        payload: &BytesMut,
-    ) -> StreamCenterResult<Vec<ChunkFrameData>> {
-        let mut cursor = Cursor::new(payload);
-        let mut timestamp_delta = None;
-        let mut result = vec![];
-        while cursor.has_remaining() {
-            let flv_tag_header = FLVTag::read_tag_header_from(&mut cursor)?;
-            let mut body_bytes = BytesMut::with_capacity(flv_tag_header.data_size as usize);
 
-            body_bytes.resize(flv_tag_header.data_size as usize, 0);
-            cursor.read_exact(&mut body_bytes)?;
-
-            // skip prev tag size
-            cursor.advance(4);
-
-            if timestamp_delta.is_none() {
-                timestamp_delta = Some(aggregate_meta.pts - (flv_tag_header.timestamp as u64));
-            }
-
-            match flv_tag_header.tag_type {
-                FLVTagType::Audio => {
-                    result.push(ChunkFrameData::Audio {
-                        meta: AudioMeta {
-                            pts: aggregate_meta.pts + timestamp_delta.expect("this cannot be none"),
-                            runtime_stat: MediaMessageRuntimeStat {
-                                read_time_ns: aggregate_meta.read_time_ns,
-                                session_process_time_ns: aggregate_meta.session_process_time_ns,
-                                publish_stream_source_time_ns: aggregate_meta
-                                    .publish_stream_source_time_ns,
-                                ..Default::default()
-                            },
-                        },
-                        payload: body_bytes,
-                    });
-                }
-                FLVTagType::Video => {
-                    result.push(ChunkFrameData::Video {
-                        meta: VideoMeta {
-                            pts: aggregate_meta.pts + timestamp_delta.expect("this cannot be none"),
-                            runtime_stat: MediaMessageRuntimeStat {
-                                read_time_ns: aggregate_meta.read_time_ns,
-                                session_process_time_ns: aggregate_meta.session_process_time_ns,
-                                publish_stream_source_time_ns: aggregate_meta
-                                    .publish_stream_source_time_ns,
-                                stream_source_received_time_ns: get_timestamp_ns().unwrap_or(0),
-                                ..Default::default()
-                            },
-                        },
-                        payload: body_bytes,
-                    });
-                }
-                FLVTagType::Script => {
-                    result.push(ChunkFrameData::Script {
-                        meta: ScriptMeta {
-                            pts: aggregate_meta.pts + timestamp_delta.expect("this cannot be none"),
-                            runtime_stat: MediaMessageRuntimeStat {
-                                read_time_ns: aggregate_meta.read_time_ns,
-                                session_process_time_ns: aggregate_meta.session_process_time_ns,
-                                publish_stream_source_time_ns: aggregate_meta
-                                    .publish_stream_source_time_ns,
-                                stream_source_received_time_ns: get_timestamp_ns().unwrap_or(0),
-                                ..Default::default()
-                            },
-                        },
-                        payload: body_bytes,
-                    });
-                }
-            }
-        }
-        Ok(result)
-    }
-
-    fn chunked_frame_to_flv_frame(
-        &mut self,
-        frame: ChunkFrameData,
-    ) -> StreamCenterResult<Vec<FLVMediaFrame>> {
-        match frame {
-            ChunkFrameData::Audio {
-                mut meta,
-                mut payload,
-            } => {
-                meta.runtime_stat.stream_source_received_time_ns = get_timestamp_ns().unwrap_or(0);
-
-                let mut cursor = Cursor::new(&mut payload);
-                let tag_header =
-                    flv::tag::audio_tag_header::AudioTagHeader::read_from(&mut cursor)?;
-
-                meta.runtime_stat.stream_source_parse_time_ns = get_timestamp_ns().unwrap_or(0);
-
-                Ok(vec![FLVMediaFrame::Audio {
-                    runtime_stat: meta.runtime_stat,
-                    pts: meta.pts,
-                    header: tag_header.try_into()?,
-                    payload,
-                }])
-            }
-            ChunkFrameData::Video {
-                mut meta,
-                mut payload,
-            } => {
-                meta.runtime_stat.stream_source_received_time_ns = get_timestamp_ns().unwrap_or(0);
-
-                let mut cursor = Cursor::new(&mut payload);
-                let tag_header =
-                    flv::tag::video_tag_header::VideoTagHeader::read_from(&mut cursor)?;
-
-                meta.runtime_stat.stream_source_parse_time_ns = get_timestamp_ns().unwrap_or(0);
-
-                Ok(vec![FLVMediaFrame::Video {
-                    runtime_stat: meta.runtime_stat,
-                    pts: meta.pts,
-                    header: tag_header.try_into()?,
-                    payload,
-                }])
-            }
-            ChunkFrameData::Script {
-                mut meta,
-                ref payload,
-            } => {
-                meta.runtime_stat.stream_source_received_time_ns = get_timestamp_ns().unwrap_or(0);
-                meta.runtime_stat.stream_source_parse_time_ns = get_timestamp_ns().unwrap_or(0);
-                let mut cursor = Cursor::new(payload);
-                let on_meta_data: Option<OnMetaData> =
-                    OnMetaData::read_from(&mut cursor, amf::Version::Amf0);
-
-                tracing::trace!("got script tag, onMetaData: {:?}", on_meta_data);
-
-                Ok(vec![FLVMediaFrame::Script {
-                    runtime_stat: meta.runtime_stat,
-                    pts: meta.pts,
-                    payload: payload.clone(),
-                    on_meta_data: Box::new(on_meta_data),
-                }])
-            }
-            ChunkFrameData::Aggregate { meta, data } => {
-                let aggregate_chunks = self.parse_aggregate_frame(&meta, &data)?;
-                let mut result = vec![];
-                for chunk in aggregate_chunks {
-                    result.extend(self.chunked_frame_to_flv_frame(chunk)?);
-                }
-                Ok(result)
-            }
-        }
-    }
-
-    async fn on_flv_frame(&mut self, frame: FLVMediaFrame) -> StreamCenterResult<()> {
+    async fn on_media_frame(&mut self, frame: MediaFrame) -> StreamCenterResult<()> {
         if let Err(err) = self.gop_cache.append_frame(frame.clone()) {
             tracing::error!("append frame to gop cache failed: {:?}", err);
         }
@@ -352,7 +195,7 @@ impl StreamSource {
             return Ok(());
         }
 
-        let update_stat = |stat: &mut PlayStat, frame: &FLVMediaFrame, fail: bool| {
+        let update_stat = |stat: &mut PlayStat, frame: &MediaFrame, fail: bool| {
             if frame.is_video() {
                 stat.video_frame_send_fail_cnt += <bool as Into<u64>>::into(fail);
                 stat.video_frames_sent += <bool as Into<u64>>::into(!fail);
@@ -397,7 +240,7 @@ impl StreamSource {
         update_stat: F,
     ) -> StreamCenterResult<()>
     where
-        F: Fn(&mut PlayStat, &FLVMediaFrame, bool),
+        F: Fn(&mut PlayStat, &MediaFrame, bool),
     {
         // we trust the gop stats after 3 gops (but why?)
         if self.gop_cache.gops.len() > 2 {

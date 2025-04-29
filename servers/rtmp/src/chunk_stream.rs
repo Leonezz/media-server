@@ -1,14 +1,18 @@
 use std::{
+    cmp::min,
     io::{self, Cursor},
     time::Duration,
 };
 
 use rtmp_formats::{
-    chunk::{self, ChunkMessage, errors::ChunkMessageError},
+    chunk::{self, ChunkMessage, RtmpChunkMessageBody, errors::ChunkMessageError},
     handshake,
-    protocol_control::SetPeerBandwidth,
+    protocol_control::{
+        AbortMessage, Acknowledgement, ProtocolControlMessage, SetChunkSize,
+        SetPeerBandWidthLimitType, SetPeerBandwidth, WindowAckSize,
+    },
 };
-use stream_center::gop::FLVMediaFrame;
+use stream_center::gop::MediaFrame;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, BufWriter},
     net::TcpStream,
@@ -37,7 +41,6 @@ pub struct RtmpChunkStream {
 impl RtmpChunkStream {
     pub fn new(
         read_buffer_capacity: u64,
-        write_buffer_capacity: u64,
         io: TcpStream,
         chunk_size: u32,
         read_timeout_ms: u64,
@@ -69,6 +72,15 @@ impl RtmpChunkStream {
             match self.chunk_reader.read(&mut buf, true) {
                 Ok(Some(chunk_message)) => {
                     self.read_buffer.advance(buf.position() as usize);
+
+                    if let RtmpChunkMessageBody::ProtocolControl(protocol_control) =
+                        chunk_message.chunk_message_body
+                    {
+                        self.process_protocol_control_message(protocol_control)
+                            .await?;
+                        return Ok(None);
+                    }
+
                     return Ok(Some(chunk_message));
                 }
                 Ok(None) => {}
@@ -117,7 +129,7 @@ impl RtmpChunkStream {
         }
     }
 
-    async fn flush_chunk(&mut self) -> RtmpServerResult<()> {
+    pub async fn flush_chunk(&mut self) -> RtmpServerResult<()> {
         let flushable = match &self.ack_window_size_write {
             None => true,
             Some(limit) => {
@@ -127,14 +139,13 @@ impl RtmpChunkStream {
             }
         };
         if !flushable {
-            log::error!("not flushable");
             return Ok(());
         }
 
         tokio::time::timeout(Duration::from_millis(self.write_timeout_ms), async move {
             self.chunk_writer.write_to(&mut self.stream).await?;
             self.stream.flush().await?;
-            self.total_wrote_bytes = self.chunk_writer.get_bytes_written();
+            self.total_wrote_bytes = self.chunk_writer.get_bytes_written() as u64;
             Ok::<(), RtmpServerError>(())
         })
         .await
@@ -148,8 +159,13 @@ impl RtmpChunkStream {
     }
 
     async fn ack_window_size(&mut self, size: u32) -> RtmpServerResult<()> {
-        log::info!("do ack: {}", size);
         self.chunk_writer.write_acknowledgement_message(size)?;
+        self.flush_chunk().await?;
+        Ok(())
+    }
+
+    pub async fn write_chunk_size(&mut self, size: u32) -> RtmpServerResult<()> {
+        self.chunk_writer.write_set_chunk_size(size)?;
         self.flush_chunk().await?;
         Ok(())
     }
@@ -162,9 +178,9 @@ impl RtmpChunkStream {
         Ok(())
     }
 
-    pub async fn write_tag(&mut self, tag: &FLVMediaFrame) -> RtmpServerResult<()> {
+    pub async fn write_tag(&mut self, tag: &MediaFrame) -> RtmpServerResult<()> {
         match tag {
-            FLVMediaFrame::Audio {
+            MediaFrame::Audio {
                 runtime_stat: _,
                 pts,
                 header: _,
@@ -173,24 +189,122 @@ impl RtmpChunkStream {
                 self.chunk_writer
                     .write_audio(payload.clone(), *pts as u32)?;
             }
-            FLVMediaFrame::Video {
+            MediaFrame::Video {
                 runtime_stat: _,
                 pts,
                 header: _,
                 payload,
             } => {
-                self.chunk_writer.write_video(payload.clone(), *pts as u32);
+                self.chunk_writer
+                    .write_video(payload.clone(), *pts as u32)?;
             }
-            FLVMediaFrame::Script {
+            MediaFrame::Script {
                 runtime_stat: _,
                 pts,
                 on_meta_data: _,
                 payload,
             } => {
-                self.chunk_writer.write_meta(payload.clone(), *pts as u32);
+                self.chunk_writer.write_meta(payload.clone(), *pts as u32)?;
             }
         }
         self.flush_chunk().await?;
         Ok(())
+    }
+
+    async fn process_protocol_control_message(
+        &mut self,
+        request: ProtocolControlMessage,
+    ) -> RtmpServerResult<()> {
+        match request {
+            ProtocolControlMessage::SetChunkSize(request) => {
+                self.process_set_chunk_size_request(request);
+            }
+            ProtocolControlMessage::Abort(request) => self.process_abort_chunk_request(request),
+            ProtocolControlMessage::Ack(request) => {
+                self.process_acknowledge_request(request);
+            }
+            ProtocolControlMessage::SetPeerBandwidth(request) => {
+                self.process_set_peer_bandwidth_request(request).await?;
+            }
+            ProtocolControlMessage::WindowAckSize(request) => {
+                self.process_window_ack_size_request(request);
+            }
+        }
+        Ok(())
+    }
+
+    fn process_set_chunk_size_request(&mut self, request: SetChunkSize) {
+        let chunk_size = request.chunk_size;
+        let old_size = self.chunk_reader.set_chunk_size(chunk_size as usize);
+        tracing::trace!(
+            "update read chunk size, from {} to {}",
+            old_size,
+            chunk_size
+        );
+    }
+
+    async fn process_set_peer_bandwidth_request(
+        &mut self,
+        request: SetPeerBandwidth,
+    ) -> RtmpServerResult<()> {
+        tracing::info!("got set_peer_bandwidth request: {:?}", request);
+        let mut window_ack_size = None;
+        match &mut self.ack_window_size_write {
+            None => self.ack_window_size_write = Some(request),
+            Some(limit) => match request.limit_type {
+                SetPeerBandWidthLimitType::Hard => {
+                    if limit.size != request.size {
+                        window_ack_size = Some(request.size);
+                    }
+                    *limit = request
+                }
+                SetPeerBandWidthLimitType::Soft => {
+                    if request.size != limit.size {
+                        window_ack_size = Some(request.size);
+                    }
+                    limit.size = min(limit.size, request.size)
+                }
+                SetPeerBandWidthLimitType::Dynamic => {
+                    if limit.limit_type == SetPeerBandWidthLimitType::Hard {
+                        if limit.size != request.size {
+                            window_ack_size = Some(request.size);
+                        }
+                        limit.size = request.size;
+                    } else {
+                        tracing::trace!(
+                            "ignore set_peer_bandwidth command as documented by the spec, req: {:?}",
+                            request
+                        );
+                    }
+                }
+            },
+        }
+
+        if window_ack_size.is_some() {
+            self.chunk_writer
+                .write_window_ack_size_message(window_ack_size.expect("this cannot be none"))?;
+            self.flush_chunk().await?;
+        }
+        Ok(())
+    }
+
+    fn process_acknowledge_request(&mut self, request: Acknowledgement) {
+        tracing::info!("got acknowledge request: {:?}", request);
+        self.acknowledged_sequence_number = Some(request.sequence_number);
+    }
+
+    fn process_abort_chunk_request(&mut self, request: AbortMessage) {
+        tracing::info!("got abort request: {:?}", request);
+        self.chunk_reader
+            .abort_chunk_message(request.chunk_stream_id);
+    }
+
+    fn process_window_ack_size_request(&mut self, request: WindowAckSize) {
+        tracing::info!("got window_ack_size request: {:?}", request);
+        self.ack_window_size_read = Some(request.size);
+    }
+
+    pub fn chunk_writer(&mut self) -> &mut rtmp_formats::chunk::writer::Writer {
+        &mut self.chunk_writer
     }
 }
