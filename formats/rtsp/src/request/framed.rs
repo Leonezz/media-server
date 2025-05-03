@@ -42,7 +42,7 @@ impl Decoder for RtspRequestFramed {
             let res = RtspRequest::try_read_from(cursor.by_ref());
             (res, cursor.position())
         };
-        if res.is_ok() {
+        if let Ok(Some(_)) = res {
             src.advance(position as usize);
         }
         res

@@ -1,17 +1,16 @@
 use std::{collections::HashMap, iter::zip};
 
 use amf_formats::AmfComplexObject;
+use codec_common::{audio::AudioCodecCommon, video::VideoCodecCommon};
 
 use super::{
     audio_tag_header::SoundFormat,
-    audio_tag_header_info::AudioCodecCommon,
     enhanced::{ex_audio::ex_audio_header::AudioFourCC, ex_video::ex_video_header::VideoFourCC},
     video_tag_header::CodecID,
-    video_tag_header_info::VideoCodecCommon,
 };
+
 pub mod reader;
 pub mod writer;
-
 #[derive(Debug, Clone)]
 pub struct ScriptKeyframeInfo {
     _file_position: f64,

@@ -1,5 +1,5 @@
 [package]
-name = "h264_codec"
+name = "codec-h264"
 version = "0.1.0"
 edition = "2024"
 
@@ -9,3 +9,6 @@ byteorder = "1.5.0"
 tokio-util = { version = "0.7.13", features = ["full"] }
 tracing = "0.1.41"
 utils = { path = "../../utils" }
+
+[lints.clippy]
+uninlined_format_args = "allow"

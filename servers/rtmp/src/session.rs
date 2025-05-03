@@ -8,10 +8,19 @@ use std::{
 
 use ::stream_center::{
     events::StreamCenterEvent,
-    frame_info::{AggregateMeta, AudioMeta, VideoMeta},
     stream_source::{StreamIdentifier, StreamType},
 };
-use flv_formats::tag::{FLVTagType, on_meta_data::OnMetaData};
+use codec_common::{FrameType, audio::AudioFrameInfo, video::VideoFrameInfo};
+use flv_formats::tag::{
+    audio_tag_header::AudioTagHeader,
+    audio_tag_header_info::AudioTagHeaderWithoutMultiTrack,
+    enhanced::ex_video::ex_video_header::VideoPacketType,
+    flv_tag_header::{FLVTagHeader, FLVTagType},
+    on_meta_data::OnMetaData,
+    video_tag_header::{FrameTypeFLV, VideoTagHeader},
+    video_tag_header_info::VideoTagHeaderWithoutMultiTrack,
+};
+use num::ToPrimitive;
 use rtmp_formats::{
     chunk::{
         ChunkMessage, ChunkMessageCommonHeader, RtmpChunkMessageBody, errors::ChunkMessageError,
@@ -27,9 +36,7 @@ use rtmp_formats::{
     user_control::UserControlEvent,
 };
 use stream_center::{
-    events::SubscribeResponse,
-    frame_info::{MediaMessageRuntimeStat, ScriptMeta},
-    gop::MediaFrame,
+    events::SubscribeResponse, frame_info::MediaMessageRuntimeStat, gop::MediaFrame,
 };
 use tokio::{
     net::TcpStream,
@@ -40,11 +47,14 @@ use tokio::{
     },
 };
 use tokio_util::{
-    bytes::{Buf, BytesMut},
+    bytes::{Buf, Bytes},
     either::Either,
 };
 use url::Url;
-use utils::system::time::get_timestamp_ns;
+use utils::{
+    system::time::get_timestamp_ns,
+    traits::reader::{ReadFrom, ReadRemainingFrom},
+};
 use uuid::Uuid;
 
 use crate::{chunk_stream::RtmpChunkStream, errors::RtmpServerError};
@@ -278,21 +288,10 @@ impl RtmpSession {
                         match message {
                             MediaFrame::Video {
                                 runtime_stat,
-                                pts,
-                                header,
-                                payload,
+                                frame_info: _,
+                                payload: _,
                             } => {
                                 runtime_stat.play_time_ns = get_timestamp_ns().unwrap_or(0);
-                                let timestamp =
-                                    *pts + if let Some(cts) = header.composition_time {
-                                        cts as u64
-                                    } else {
-                                        0
-                                    } + if let Some(cts_nano) = header.timestamp_nano {
-                                        cts_nano as u64
-                                    } else {
-                                        0
-                                    };
 
                                 let res = self.chunk_stream.write_tag(message).await;
                                 if res.is_err() {
@@ -308,9 +307,8 @@ impl RtmpSession {
                             }
                             MediaFrame::Audio {
                                 runtime_stat,
-                                pts,
-                                header: _,
-                                payload,
+                                frame_info: _,
+                                payload: _,
                             } => {
                                 runtime_stat.play_time_ns = get_timestamp_ns().unwrap_or(0);
 
@@ -328,8 +326,8 @@ impl RtmpSession {
                             }
                             MediaFrame::Script {
                                 runtime_stat,
-                                pts,
-                                payload,
+                                timestamp_nano: _,
+                                payload: _,
                                 on_meta_data: _,
                             } => {
                                 runtime_stat.play_time_ns = get_timestamp_ns().unwrap_or(0);
@@ -394,7 +392,7 @@ impl RtmpSession {
     async fn process_audio(
         &mut self,
         header: ChunkMessageCommonHeader,
-        audio: BytesMut,
+        audio: Bytes,
     ) -> RtmpServerResult<()> {
         match &mut self.runtime_handle {
             SessionRuntime::Publish(handle) => {
@@ -402,6 +400,7 @@ impl RtmpSession {
                 let media_frames = Self::chunked_rtmp_frame_to_media_frame(
                     &header,
                     RtmpUserMessageBody::Audio { payload: audio },
+                    None,
                 )?;
                 for media_frame in media_frames {
                     let res = handle
@@ -435,7 +434,7 @@ impl RtmpSession {
     async fn process_video(
         &mut self,
         header: ChunkMessageCommonHeader,
-        video: BytesMut,
+        video: Bytes,
     ) -> RtmpServerResult<()> {
         match &mut self.runtime_handle {
             SessionRuntime::Publish(handle) => {
@@ -443,6 +442,7 @@ impl RtmpSession {
                 let media_frames = Self::chunked_rtmp_frame_to_media_frame(
                     &header,
                     RtmpUserMessageBody::Video { payload: video },
+                    None,
                 )?;
                 for media_frame in media_frames {
                     let res = handle
@@ -476,7 +476,7 @@ impl RtmpSession {
     async fn process_meta(
         &mut self,
         header: ChunkMessageCommonHeader,
-        payload: BytesMut,
+        payload: Bytes,
     ) -> RtmpServerResult<()> {
         match &mut self.runtime_handle {
             SessionRuntime::Publish(handle) => {
@@ -484,6 +484,7 @@ impl RtmpSession {
                 let media_frames = Self::chunked_rtmp_frame_to_media_frame(
                     &header,
                     RtmpUserMessageBody::MetaData { payload },
+                    None,
                 )?;
 
                 for media_frame in media_frames {
@@ -518,7 +519,7 @@ impl RtmpSession {
     async fn process_aggregate(
         &mut self,
         header: ChunkMessageCommonHeader,
-        aggregate: BytesMut,
+        aggregate: Bytes,
     ) -> RtmpServerResult<()> {
         match &mut self.runtime_handle {
             SessionRuntime::Publish(handle) => {
@@ -526,6 +527,7 @@ impl RtmpSession {
                 let media_frames = Self::chunked_rtmp_frame_to_media_frame(
                     &header,
                     RtmpUserMessageBody::Aggregate { payload: aggregate },
+                    None,
                 )?;
                 for media_frame in media_frames {
                     let res = handle
@@ -557,6 +559,7 @@ impl RtmpSession {
     fn chunked_rtmp_frame_to_media_frame(
         header: &ChunkMessageCommonHeader,
         frame: RtmpUserMessageBody,
+        timestamp_delta_nano: Option<u64>,
     ) -> RtmpServerResult<Vec<MediaFrame>> {
         let mut runtime_stat = MediaMessageRuntimeStat {
             read_time_ns: header.runtime_stat.read_time_ns,
@@ -566,61 +569,131 @@ impl RtmpSession {
         };
 
         match frame {
-            RtmpUserMessageBody::Audio { mut payload } => {
+            RtmpUserMessageBody::Audio { payload } => {
                 runtime_stat.stream_source_received_time_ns = get_timestamp_ns().unwrap_or(0);
 
-                let mut cursor = Cursor::new(&mut payload);
-                let tag_header =
-                    flv_formats::tag::audio_tag_header::AudioTagHeader::read_from(&mut cursor)?;
-
+                let mut cursor = Cursor::new(&payload);
+                let tag_header_info: AudioTagHeaderWithoutMultiTrack =
+                    (&AudioTagHeader::read_from(&mut cursor)?).try_into()?;
+                let mut remaining_payload = vec![0; cursor.remaining()];
+                cursor.read_exact(&mut remaining_payload)?;
                 runtime_stat.stream_source_parse_time_ns = get_timestamp_ns().unwrap_or(0);
 
-                Ok(vec![MediaFrame::Audio {
+                let frame = MediaFrame::Audio {
                     runtime_stat,
-                    pts: header.timestamp as u64,
-                    header: tag_header.try_into()?,
-                    payload,
-                }])
+                    frame_info: AudioFrameInfo::new(
+                        tag_header_info.codec_id,
+                        tag_header_info.packet_type.try_into()?,
+                        tag_header_info
+                            .legacy_info
+                            .unwrap_or_default()
+                            .sound_rate
+                            .into(),
+                        tag_header_info
+                            .legacy_info
+                            .unwrap_or_default()
+                            .sound_size
+                            .into(),
+                        tag_header_info
+                            .legacy_info
+                            .unwrap_or_default()
+                            .sound_type
+                            .into(),
+                        header
+                            .timestamp
+                            .to_u64()
+                            .unwrap()
+                            .checked_mul(1_000_000)
+                            .unwrap()
+                            .checked_add(
+                                tag_header_info
+                                    .timestamp_nano
+                                    .unwrap_or(0)
+                                    .to_u64()
+                                    .unwrap(),
+                            )
+                            .unwrap()
+                            .checked_add(timestamp_delta_nano.unwrap_or(0))
+                            .unwrap(),
+                    ),
+                    payload: remaining_payload.into(),
+                };
+                Ok(vec![frame])
             }
-            RtmpUserMessageBody::Video { mut payload } => {
+            RtmpUserMessageBody::Video { payload } => {
                 runtime_stat.stream_source_received_time_ns = get_timestamp_ns().unwrap_or(0);
 
-                let mut cursor = Cursor::new(&mut payload);
-                let tag_header =
-                    flv_formats::tag::video_tag_header::VideoTagHeader::read_from(&mut cursor)?;
-
+                let mut cursor = Cursor::new(&payload);
+                let tag_header_info: VideoTagHeaderWithoutMultiTrack =
+                    (&VideoTagHeader::read_from(&mut cursor)?).try_into()?;
+                let mut remaining_payload = vec![0; cursor.remaining()];
+                cursor.read_exact(&mut remaining_payload)?;
                 runtime_stat.stream_source_parse_time_ns = get_timestamp_ns().unwrap_or(0);
 
-                Ok(vec![MediaFrame::Video {
+                let frame = MediaFrame::Video {
                     runtime_stat,
-                    pts: header.timestamp as u64,
-                    header: tag_header.try_into()?,
-                    payload,
-                }])
+                    frame_info: VideoFrameInfo::new(
+                        tag_header_info.codec_id,
+                        if tag_header_info.packet_type == VideoPacketType::MPEG2TSSequenceStart
+                            || tag_header_info.packet_type == VideoPacketType::SequenceStart
+                        {
+                            FrameType::SequenceStart
+                        } else if tag_header_info.packet_type == VideoPacketType::SequenceEnd {
+                            FrameType::SequenceEnd
+                        } else if tag_header_info.frame_type == FrameTypeFLV::KeyFrame {
+                            FrameType::KeyFrame
+                        } else {
+                            FrameType::CodedFrames
+                        },
+                        header
+                            .timestamp
+                            .to_u64()
+                            .unwrap()
+                            .checked_mul(1_000_000)
+                            .unwrap()
+                            .checked_add(
+                                tag_header_info
+                                    .composition_time
+                                    .unwrap_or(0)
+                                    .to_u64()
+                                    .unwrap()
+                                    .checked_mul(1_000_000)
+                                    .unwrap(),
+                            )
+                            .unwrap()
+                            .checked_add(
+                                tag_header_info
+                                    .timestamp_nano
+                                    .unwrap_or(0)
+                                    .to_u64()
+                                    .unwrap(),
+                            )
+                            .unwrap()
+                            .checked_add(timestamp_delta_nano.unwrap_or(0))
+                            .unwrap(),
+                    ),
+                    payload: remaining_payload.into(),
+                };
+                Ok(vec![frame])
             }
             RtmpUserMessageBody::MetaData { ref payload } => {
                 runtime_stat.stream_source_received_time_ns = get_timestamp_ns().unwrap_or(0);
                 runtime_stat.stream_source_parse_time_ns = get_timestamp_ns().unwrap_or(0);
                 let mut cursor = Cursor::new(payload);
                 let on_meta_data: Option<OnMetaData> =
-                    OnMetaData::read_from(&mut cursor, amf_formats::Version::Amf0);
+                    OnMetaData::read_remaining_from(amf_formats::Version::Amf0, &mut cursor).ok();
 
                 tracing::trace!("got script tag, onMetaData: {:?}", on_meta_data);
 
                 Ok(vec![MediaFrame::Script {
                     runtime_stat,
-                    pts: header.timestamp as u64,
+                    timestamp_nano: header.timestamp as u64,
                     payload: payload.clone(),
                     on_meta_data: Box::new(on_meta_data),
                 }])
             }
             RtmpUserMessageBody::Aggregate { ref payload } => {
-                let aggregate_chunks = Self::parse_aggregate_frame(&header, &payload)?;
-                let mut res = vec![];
-                for chunk in aggregate_chunks {
-                    res.extend(Self::chunked_rtmp_frame_to_media_frame(header, chunk)?);
-                }
-                Ok(res)
+                Ok(Self::parse_aggregate_frame(header, payload)?)
             }
             _ => {
                 todo!()
@@ -630,42 +703,56 @@ impl RtmpSession {
 
     pub fn parse_aggregate_frame(
         header: &ChunkMessageCommonHeader,
-        payload: &BytesMut,
-    ) -> RtmpServerResult<Vec<RtmpUserMessageBody>> {
+        payload: &Bytes,
+    ) -> RtmpServerResult<Vec<MediaFrame>> {
         let mut cursor = Cursor::new(payload);
-        let mut timestamp_delta = None;
+        let mut timestamp_delta_nano = None;
         let mut result = vec![];
         while cursor.has_remaining() {
-            let flv_tag_header = flv_formats::tag::FLVTag::read_tag_header_from(&mut cursor)?;
-            let mut body_bytes = BytesMut::with_capacity(flv_tag_header.data_size as usize);
-
-            body_bytes.resize(flv_tag_header.data_size as usize, 0);
+            let flv_tag_header = FLVTagHeader::read_from(cursor.by_ref())?;
+            let mut body_bytes = vec![0; flv_tag_header.data_size.to_usize().unwrap()];
             cursor.read_exact(&mut body_bytes)?;
-
             // skip prev tag size
             cursor.advance(4);
-
-            if timestamp_delta.is_none() {
-                timestamp_delta = Some(header.timestamp as u64 - (flv_tag_header.timestamp as u64));
+            if timestamp_delta_nano.is_none() {
+                timestamp_delta_nano = Some(
+                    header
+                        .timestamp
+                        .checked_mul(1_000_000)
+                        .unwrap()
+                        .to_u64()
+                        .unwrap()
+                        .checked_sub(
+                            flv_tag_header
+                                .timestamp
+                                .checked_mul(1_000_000)
+                                .unwrap()
+                                .to_u64()
+                                .unwrap(),
+                        )
+                        .unwrap(),
+                );
             }
 
-            match flv_tag_header.tag_type {
-                FLVTagType::Audio => {
-                    result.push(RtmpUserMessageBody::Audio {
-                        payload: body_bytes,
-                    });
-                }
-                FLVTagType::Video => {
-                    result.push(RtmpUserMessageBody::Video {
-                        payload: body_bytes,
-                    });
-                }
-                FLVTagType::Script => {
-                    result.push(RtmpUserMessageBody::MetaData {
-                        payload: body_bytes,
-                    });
-                }
-            }
+            let rtmp_message = match flv_tag_header.tag_type {
+                FLVTagType::Audio => RtmpUserMessageBody::Audio {
+                    payload: body_bytes.into(),
+                },
+                FLVTagType::Video => RtmpUserMessageBody::Video {
+                    payload: body_bytes.into(),
+                },
+                FLVTagType::Script => RtmpUserMessageBody::MetaData {
+                    payload: body_bytes.into(),
+                },
+            };
+
+            let frames = Self::chunked_rtmp_frame_to_media_frame(
+                header,
+                rtmp_message,
+                timestamp_delta_nano,
+            )?;
+            assert!(frames.len() == 1);
+            result.extend(frames);
         }
         Ok(result)
     }

@@ -1,4 +1,6 @@
-use rtp_formats::codec::h264::paramters::errors::H264SDPError;
+use rtp_formats::codec::{
+    h264::paramters::errors::H264SDPError, mpeg4_generic::errors::RtpMpeg4Error,
+};
 use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum RtspServerError {
@@ -18,6 +20,8 @@ pub enum RtspServerError {
     InvalidEncodingName(String),
     #[error("invalid H264 SDP Parameters: {0}")]
     InvalidH264SDPParameters(#[from] H264SDPError),
+    #[error("invalid mpeg4-generic SDP Parameters: {0}")]
+    InvalidMpeg4GenericSDPParameters(#[from] RtpMpeg4Error),
     #[error("invalid param for rtp unpacker: {0}")]
     InvalidParamForRtpUnpacker(String),
     #[error("Gracefully exit")]

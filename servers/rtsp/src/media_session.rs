@@ -2,12 +2,14 @@ use std::{
     io,
     net::{IpAddr, SocketAddr},
     pin::Pin,
-    time::Duration,
 };
 
+use futures::SinkExt;
 use rtp_formats::{
-    codec::h264::{packet::sequencer::RtpH264Sequencer, paramters::H264SDPFormatParameters},
-    packet::{RtpTrivialPacket, sequencer::RtpBufferedSequencer},
+    codec::{h264::{packet::sequencer::RtpH264Sequencer, paramters::H264SDPFormatParameters}, mpeg4_generic::{packet::sequencer::RtpMpeg4GenericSequencer, parameters::RtpMpeg4OutOfBandParams}},
+    packet::{
+        sequencer::{GenericSequencer, RtpBufferedSequencer, RtpTrivialSequencer}, RtpTrivialPacket
+    },
     rtcp::RtcpPacket,
 };
 use rtp_session::{
@@ -22,11 +24,11 @@ use sdp_formats::{
     attributes::{SDPAttribute, fmtp::FormatParameters, rtpmap::RtpMap},
     session::{SDPBandwidthType, SDPMediaDescription, SDPMediaType},
 };
-use tokio::{io::AsyncWriteExt, select, sync::mpsc::error::TryRecvError};
+use tokio::sync::mpsc::error::TryRecvError;
 use tracing::{Instrument, Span};
 use unified_io::{UnifiedIO, channel::ChannelIo, udp::UdpIO};
 use url::Url;
-use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
+use utils::{random, traits::dynamic_sized_packet::DynamicSizedPacket};
 use uuid::Uuid;
 
 use crate::{
@@ -74,6 +76,7 @@ pub struct RtspMediaSession {
     rtsp_session_command_rx: tokio::sync::mpsc::UnboundedReceiver<RtspSessionCommand>,
 
     rtp_unpacker: Option<Box<dyn RtpBufferedSequencer + Send>>, // use Option only for debug and dev
+    rtp_trivial_sequencer: Option<RtpTrivialSequencer>,
 }
 
 impl RtspMediaSession {
@@ -121,7 +124,7 @@ impl RtspMediaSession {
         );
         let rtp_handle =
             Self::start_rtp_session(rtp_session, rtp_io, rtcp_io, rtp_session_span).await?;
-        let unpacker = Self::create_rtp_unpacker(&rtpmap, &fmtp).ok();
+        let unpacker = Self::create_rtp_unpacker(media_description.media_line.media_type.clone(), &rtpmap, &fmtp).ok();
 
         Ok(Self {
             peer_addr,
@@ -150,6 +153,7 @@ impl RtspMediaSession {
             rtsp_session_command_rx: rtsp_command_rx,
 
             rtp_unpacker: unpacker,
+            rtp_trivial_sequencer: Some(RtpTrivialSequencer::new(200, 10)),
         })
     }
 
@@ -184,11 +188,12 @@ impl RtspMediaSession {
     }
 
     fn create_rtp_unpacker(
+        media_type: SDPMediaType,
         rtpmap: &RtpMap,
         fmtp: &Option<FormatParameters>,
     ) -> RtspServerResult<Box<dyn RtpBufferedSequencer + Send>> {
-        match rtpmap.encoding_name.as_str() {
-            "H264" => {
+        match rtpmap.encoding_name.to_lowercase().as_str() {
+            "h264" => {
                 tracing::info!(
                     "got H264 encoding, creating h264 sequencer, rtpmap: {}, fmtp: {:?}",
                     rtpmap,
@@ -209,6 +214,23 @@ impl RtspMediaSession {
                 let unpacker =
                     RtpH264Sequencer::new(h264_fmtp.packetization_mode.unwrap(), h264_fmtp.into());
                 Ok(Box::new(unpacker))
+            }
+            "mpeg4-generic" => {
+                if matches!(media_type, SDPMediaType::Audio) {
+                  tracing::info!("got mpeg4-generic format with {} encoding, create mpeg4-generic sequencer, rtpmap: {}, fmtp: {:?}", media_type, rtpmap, fmtp);
+                  let params = if let Some(fmtp) = fmtp {
+                    fmtp.params.parse()?
+                  } else {
+                    let mut params = RtpMpeg4OutOfBandParams::default();
+                    params.set_mode(rtp_formats::codec::mpeg4_generic::parameters::Mode::AAChbr);
+                    params.reset_default();
+                    params 
+                  };
+                  let unpacker = RtpMpeg4GenericSequencer::new(params, 10000, 10);
+                  Ok(Box::new(unpacker))
+                } else {
+                    Err(RtspServerError::InvalidParamForRtpUnpacker(format!("get mpeg4-generic format but not for audio: {}", media_type)))
+                }
             }
             _ => {
                 tracing::warn!("unknown encoding_name: {}", rtpmap.encoding_name);
@@ -327,23 +349,34 @@ impl RtspMediaSession {
                         data.get_packet_bytes_count()
                     );
 
-                    if let Some(unpacker) = &mut self.rtp_unpacker {
-                        match unpacker.enqueue(data) {
-                            Err(err) => {
-                                tracing::error!(
-                                    "push new rtp packet to rtp sequencer failed with error: {}",
-                                    err
-                                );
-                            }
-                            Ok(()) => {
-                                tracing::trace!("push new rtp packet to rtp sequencer succeed");
-                            }
-                        }
+                    let packets = if let Some(trivial_sequencer) = &mut self.rtp_trivial_sequencer {
+                        trivial_sequencer.enqueue(data).unwrap();
+                        trivial_sequencer.try_dump()
+                    } else {
+                        vec![data]
+                    };
 
-                        let ready_packets = unpacker.try_dump();
-                        tracing::info!("dump {} packets from rtp sequencer", ready_packets.len());
-                        if !ready_packets.is_empty() {
-                            tracing::info!("dump first packet: {:?}", ready_packets[0]);
+                    if let Some(unpacker) = &mut self.rtp_unpacker {
+                        for packet in packets {
+                            match unpacker.enqueue(packet) {
+                                Err(err) => {
+                                        tracing::error!(
+                                        "push new rtp packet to rtp sequencer failed with error: {}",
+                                        err
+                                    );
+                                }
+                                Ok(()) => {
+                                    tracing::trace!("push new rtp packet to rtp sequencer succeed");
+                                }
+                            }
+    
+                            let ready_packets = unpacker.try_dump();
+                            if random::random_u64() % 10 == 0 {
+                                tracing::info!("dump {} packets from rtp sequencer", ready_packets.len());
+                                if !ready_packets.is_empty() {
+                                    tracing::info!("dump first packet: {:?}", ready_packets[0]);
+                                }
+                            }
                         }
                     }
                 });
@@ -495,13 +528,13 @@ impl RtspMediaSession {
         if let Some((id, io)) = &mut self.interleaved_rtp_io
             && packet.channel_id == *id
         {
-            if let Err(err) = io.write_all(&packet.payload).await {
+            if let Err(err) = io.send(packet.payload).await {
                 tracing::error!("failed to write interleaved packet: {}", err);
             }
         } else if let Some((id, io)) = &mut self.interleaved_rtcp_io
             && packet.channel_id == *id
         {
-            if let Err(err) = io.write_all(&packet.payload).await {
+            if let Err(err) = io.send(packet.payload).await {
                 tracing::error!("failed to write interleaved packet: {}", err);
             }
         } else {

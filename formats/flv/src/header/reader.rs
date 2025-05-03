@@ -1,35 +1,21 @@
-use crate::errors::{FLVError, FLVResult};
+use crate::errors::FLVError;
 use byteorder::{BigEndian, ReadBytesExt};
 use std::io;
+use utils::traits::reader::ReadFrom;
 
 use super::FLVHeader;
 
-#[derive(Debug)]
-pub struct Reader<R> {
-    inner: R,
-}
-
-impl<R> Reader<R>
-where
-    R: io::Read,
-{
-    pub fn new(inner: R) -> Self {
-        Self { inner }
-    }
-
-    pub fn read(&mut self) -> FLVResult<FLVHeader> {
+impl<R: io::Read> ReadFrom<R> for FLVHeader {
+    type Error = FLVError;
+    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
         let mut signature = [0; 3];
-        self.inner.read_exact(&mut signature)?;
+        reader.read_exact(&mut signature)?;
         if signature != [b'F', b'L', b'V'] {
             return Err(FLVError::UnknownSignature(signature));
         }
-
-        let version = self.inner.read_u8()?;
-
-        let byte = self.inner.read_u8()?;
-
-        let data_offset = self.inner.read_u32::<BigEndian>()?;
-
+        let version = reader.read_u8()?;
+        let byte = reader.read_u8()?;
+        let data_offset = reader.read_u32::<BigEndian>()?;
         Ok(FLVHeader {
             flv_marker: signature,
             flv_version: version,

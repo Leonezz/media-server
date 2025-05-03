@@ -1,6 +1,6 @@
 use std::io;
 
-use h264_codec::errors::H264CodecError;
+use codec_h264::errors::H264CodecError;
 use thiserror::Error;
 
 use crate::errors::RtpError;

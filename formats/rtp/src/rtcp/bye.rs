@@ -103,8 +103,8 @@ impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpByePacket {
 
 impl<W: io::Write> WriteTo<W> for RtcpByePacket {
     type Error = RtpError;
-    fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
-        self.get_header().write_to(writer.by_ref())?;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        self.get_header().write_to(writer)?;
         self.ssrc_list
             .iter()
             .try_for_each(|ssrc| writer.write_u32::<BigEndian>(*ssrc))?;
@@ -151,10 +151,10 @@ impl RtcpByePacketBuilder {
             return Err(RtpError::TooManyCSRC);
         }
 
-        if let Some(reason) = &self.0.leave_reason {
-            if reason.len() > 255 {
-                return Err(RtpError::ByeReasonTooLarge(reason.clone()));
-            }
+        if let Some(reason) = &self.0.leave_reason
+            && reason.len() > 255
+        {
+            return Err(RtpError::ByeReasonTooLarge(reason.clone()));
         }
 
         Ok(self.0)

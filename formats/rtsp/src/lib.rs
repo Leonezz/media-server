@@ -15,7 +15,7 @@ use interleaved::{DOLLAR_SIGN, RtspInterleavedPacket};
 use request::RtspRequest;
 use response::RtspResponse;
 use tokio_util::{
-    bytes::{Buf, BufMut, BytesMut},
+    bytes::Buf,
     codec::{Decoder, Encoder},
 };
 use utils::traits::{
@@ -96,7 +96,7 @@ impl<R: AsRef<[u8]>> TryReadFrom<R> for RtspMessage {
 
 impl<W: io::Write> WriteTo<W> for RtspMessage {
     type Error = RtspMessageError;
-    fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         match self {
             Self::Request(req) => write!(writer, "{}", req)?,
             Self::Response(res) => write!(writer, "{}", res)?,
@@ -112,10 +112,8 @@ impl fmt::Display for RtspMessage {
             Self::Request(req) => write!(f, "{}", req),
             Self::Response(res) => write!(f, "{}", res),
             Self::Interleaved(interleaved) => {
-                let mut bytes = BytesMut::with_capacity(interleaved.get_packet_bytes_count());
-                let mut writer = bytes.writer();
-                interleaved.write_to(&mut writer).unwrap();
-                bytes = writer.into_inner();
+                let mut bytes = Vec::with_capacity(interleaved.get_packet_bytes_count());
+                interleaved.write_to(&mut bytes).unwrap();
                 write!(f, "{}", String::from_utf8_lossy(bytes.as_ref()))
             }
         }

@@ -103,7 +103,7 @@ impl<R: AsRef<[u8]>> TryReadFrom<R> for RtpTrivialPacket {
 
 impl<W: io::Write> WriteTo<W> for RtpTrivialPacket {
     type Error = RtpError;
-    fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         let raw_size = self.get_packet_bytes_count_without_padding();
         self.get_header().write_to(writer.by_ref())?;
         writer.write_all(&self.payload)?;

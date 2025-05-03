@@ -1,12 +1,13 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::{
-    rtcp_observer::RtcpObserver, rtp_observer::RtpObserver, sequence_number::SequenceNumber,
-};
+use crate::{rtcp_observer::RtcpObserver, rtp_observer::RtpObserver};
 use num::ToPrimitive;
-use rtp_formats::rtcp::{
-    RtcpPacket, compound_packet::RtcpCompoundPacket, report_block::ReportBlock,
-    simple_ntp::SimpleNtp,
+use rtp_formats::{
+    rtcp::{
+        RtcpPacket, compound_packet::RtcpCompoundPacket, report_block::ReportBlock,
+        simple_ntp::SimpleNtp,
+    },
+    sequence_number::SequenceNumber,
 };
 
 use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
@@ -228,15 +229,15 @@ impl RtpParticipant {
     }
 
     fn update_sequence_number(&mut self, sequence_number: u16) -> bool {
-        let delta = sequence_number - self.max_rtp_sequence_number.number();
+        let delta = sequence_number.saturating_sub(self.max_rtp_sequence_number.number());
         // probation provides a small gap between the first packet arrive and this participant got statisticed
         if self.rtp_packets_probation > 0 {
-            if sequence_number == self.max_rtp_sequence_number.number() + 1_u16 {
+            if sequence_number == self.max_rtp_sequence_number.next() {
                 self.rtp_packets_probation -= 1;
-                self.max_rtp_sequence_number.set_number(sequence_number);
+                self.max_rtp_sequence_number.add_number(1);
                 if self.rtp_packets_probation == 0 {
                     self.reset_sequence_number(sequence_number);
-                    self.rtp_packets_sent += 1;
+                    self.rtp_packets_sent.checked_add(1).unwrap();
                     return true;
                 }
             } else {
@@ -256,13 +257,14 @@ impl RtpParticipant {
                 // maybe the peer reset the sequence number without telling everyone
                 self.reset_sequence_number(sequence_number);
             } else {
-                self.rtp_bad_sequence_number = (sequence_number as u64 + 1) & (u16::MAX as u64);
+                self.rtp_bad_sequence_number =
+                    (sequence_number.to_u64().unwrap().checked_add(1).unwrap()) & (u16::MAX as u64);
                 return false;
             }
         } else {
             // duplicate or reordered packet
         }
-        self.rtp_packets_sent += 1;
+        self.rtp_packets_sent.checked_add(1).unwrap();
         true
     }
 

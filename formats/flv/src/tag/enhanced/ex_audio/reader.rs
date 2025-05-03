@@ -1,5 +1,5 @@
 use crate::{
-    errors::{FLVError, FLVResult},
+    errors::FLVError,
     tag::enhanced::{
         AvMultiTrackType,
         ex_audio::ex_audio_header::{
@@ -8,20 +8,24 @@ use crate::{
     },
 };
 use byteorder::{BigEndian, ReadBytesExt};
+use num::ToPrimitive;
 use std::{
     collections::HashMap,
-    io::{Cursor, Read, Seek, SeekFrom},
+    io::{self, Cursor},
 };
-use tokio_util::bytes::{Buf, BytesMut};
+use utils::traits::reader::{ReadFrom, ReadRemainingFrom};
 
-use super::ex_audio_header::{AudioModEx, ExAudioTagHeader};
+use super::{
+    ex_audio_body::{
+        AudioChannel, AudioChannelOrder, AudioMultichannelConfig, read_channels_from_mask,
+    },
+    ex_audio_header::{AudioModEx, ExAudioTagHeader},
+};
 
-impl ExAudioTagHeader {
-    pub fn read_from(
-        reader: &mut Cursor<&mut BytesMut>,
-        first_byte: u8,
-    ) -> FLVResult<ExAudioTagHeader> {
-        let mut audio_packet_type: AudioPacketType = (first_byte & 0b1111).try_into()?;
+impl<R: io::Read> ReadRemainingFrom<u8, R> for ExAudioTagHeader {
+    type Error = FLVError;
+    fn read_remaining_from(header: u8, mut reader: R) -> Result<Self, Self::Error> {
+        let mut audio_packet_type: AudioPacketType = (header & 0b1111).try_into()?;
         let mut timestamp_nano: Option<u32> = None;
         let mut audio_four_cc: AudioFourCC = AudioFourCC::AAC; // this default value would never be used
         let mut audio_multi_track_type: Option<AvMultiTrackType> = None;
@@ -70,9 +74,12 @@ impl ExAudioTagHeader {
         loop {
             match audio_multi_track_type {
                 None => {
-                    tracks.insert(0, AudioTrackInfo {
-                        codec: audio_four_cc,
-                    });
+                    tracks.insert(
+                        0,
+                        AudioTrackInfo {
+                            codec: audio_four_cc,
+                        },
+                    );
                     break;
                 }
                 Some(multi_track_type) => {
@@ -81,17 +88,16 @@ impl ExAudioTagHeader {
                     }
 
                     let track_id = reader.read_u8()?;
-                    tracks.insert(track_id, AudioTrackInfo {
-                        codec: audio_four_cc,
-                    });
+                    tracks.insert(
+                        track_id,
+                        AudioTrackInfo {
+                            codec: audio_four_cc,
+                        },
+                    );
                     if multi_track_type != AvMultiTrackType::OneTrack {
                         let track_data_size = reader.read_u24::<BigEndian>()?;
-
-                        if reader.remaining() < track_data_size as usize {
-                            break;
-                        }
-
-                        reader.seek(SeekFrom::Current(track_data_size as i64))?;
+                        let mut buf = vec![0; track_data_size.to_usize().unwrap()];
+                        reader.read_exact(&mut buf)?;
                     } else {
                         break;
                     }
@@ -103,6 +109,34 @@ impl ExAudioTagHeader {
             packet_mod_ex: AudioModEx { timestamp_nano },
             track_type: audio_multi_track_type,
             tracks,
+        })
+    }
+}
+
+impl<R: io::Read> ReadFrom<R> for AudioMultichannelConfig {
+    type Error = FLVError;
+    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+        let audio_channel_order: AudioChannelOrder = reader.read_u8()?.try_into()?;
+        let channel_cnt = reader.read_u8()? as usize;
+        let mapping = match audio_channel_order {
+            AudioChannelOrder::Unspecified => vec![AudioChannel::Unknown; channel_cnt],
+            AudioChannelOrder::Native => {
+                let channel_mask = reader.read_u32::<BigEndian>()?;
+                read_channels_from_mask(channel_mask)
+            }
+            AudioChannelOrder::Custom => {
+                let mut channels = vec![0_u8; channel_cnt];
+                reader.read_exact(&mut channels)?;
+                let mut channel_mapping = Vec::new();
+                for v in channels {
+                    channel_mapping.push(v.try_into()?);
+                }
+                channel_mapping
+            }
+        };
+        Ok(Self {
+            channel_order: audio_channel_order,
+            channel_mapping: mapping,
         })
     }
 }

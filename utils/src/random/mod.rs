@@ -23,7 +23,7 @@ pub fn random_f64() -> f64 {
 }
 
 pub fn uniform_random_f64(min: f64, max: f64) -> f64 {
-    let mut rng = rand::thread_rng();
-    let uniform = rand::distributions::Uniform::new(min, max);
+    let mut rng = rand::rng();
+    let uniform = rand::distr::Uniform::new(min, max).unwrap();
     uniform.sample(&mut rng)
 }

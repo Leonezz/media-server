@@ -1,35 +1,24 @@
 use std::io;
 
 use byteorder::{BigEndian, WriteBytesExt};
+use utils::traits::writer::WriteTo;
 
-use crate::errors::FLVResult;
+use crate::errors::FLVError;
 
 use super::FLVHeader;
 
-#[derive(Debug)]
-pub struct Writer<W> {
-    inner: W,
-}
-
-impl<W> Writer<W>
-where
-    W: io::Write,
-{
-    pub fn new(inner: W) -> Self {
-        Self { inner }
-    }
-
-    pub fn write(&mut self, header: &FLVHeader) -> FLVResult<()> {
-        self.inner.write_all(&header.flv_marker)?;
-        self.inner.write_u8(header.flv_version)?;
+impl<W: io::Write> WriteTo<W> for FLVHeader {
+    type Error = FLVError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        writer.write_all(&self.flv_marker)?;
+        writer.write_u8(self.flv_version)?;
 
         let mut byte: u8 = 0;
+        byte |= (self.has_audio as u8) << 2;
+        byte |= self.has_video as u8;
 
-        byte |= (header.has_audio as u8) << 2;
-        byte |= header.has_video as u8;
-
-        self.inner.write_u8(byte)?;
-        self.inner.write_u32::<BigEndian>(header.data_offset)?;
+        writer.write_u8(byte)?;
+        writer.write_u32::<BigEndian>(self.data_offset)?;
         Ok(())
     }
 }

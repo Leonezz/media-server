@@ -55,7 +55,7 @@ impl<R: io::Read> ReadFrom<R> for ReportBlock {
 
 impl<W: io::Write> WriteTo<W> for ReportBlock {
     type Error = RtpError;
-    fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         writer.write_u32::<BigEndian>(self.ssrc)?;
         writer.write_u8((self.fraction_lost * 256.0) as u8)?;
         writer.write_i24::<BigEndian>(self.cumulative_packet_lost)?;

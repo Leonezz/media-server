@@ -46,7 +46,7 @@ impl<R: AsRef<[u8]>> TryReadFrom<R> for RtcpCommonHeader {
 
 impl<W: io::Write> WriteTo<W> for RtcpCommonHeader {
     type Error = RtpError;
-    fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         let word = ((self.version as u32) << 30)
             | ((self.padding as u32) << 29)
             | ((self.count as u32) << 24)

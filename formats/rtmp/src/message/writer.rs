@@ -1,48 +1,28 @@
 use std::io;
 
+use utils::traits::writer::WriteTo;
+
 use super::RtmpUserMessageBody;
-use crate::chunk::errors::{ChunkMessageError, ChunkMessageResult};
+use crate::{chunk::errors::ChunkMessageError, commands::writer::RtmpCommandWriteWrapper};
 
-#[derive(Debug)]
-pub struct Writer<W> {
-    inner: W,
-}
-
-impl<W> Writer<W>
-where
-    W: io::Write,
-{
-    pub fn new(inner: W) -> Self {
-        Self { inner }
-    }
-
-    pub fn write(
-        &mut self,
-        message: &RtmpUserMessageBody,
-        version: amf_formats::Version,
-    ) -> ChunkMessageResult<()> {
+impl<'a, W: io::Write> WriteTo<W> for RtmpCommandWriteWrapper<'a, RtmpUserMessageBody> {
+    type Error = ChunkMessageError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        let (message, version) = (self.0, self.1);
         match message {
             RtmpUserMessageBody::C2SCommand(command) => {
-                command.write_to(self.inner.by_ref(), version)
+                RtmpCommandWriteWrapper::new(command, version).write_to(writer)
             }
             RtmpUserMessageBody::S2Command(command) => {
-                command.write_to(self.inner.by_ref(), version)
+                RtmpCommandWriteWrapper::new(command, version).write_to(writer)
             }
             RtmpUserMessageBody::MetaData { payload }
             | RtmpUserMessageBody::Audio { payload }
             | RtmpUserMessageBody::Video { payload }
             | RtmpUserMessageBody::Aggregate { payload } => {
-                self.inner.write_all(payload).map_err(ChunkMessageError::Io)
+                writer.write_all(payload).map_err(ChunkMessageError::Io)
             }
             RtmpUserMessageBody::SharedObject() => todo!(),
         }
     }
-
-    // fn write_header(&mut self, header: &RtmpMessageHeader) -> ChunkMessageResult<()> {
-    //     self.inner.write_u8(header.message_type.into())?;
-    //     self.inner.write_u24::<BigEndian>(header.payload_length)?;
-    //     self.inner.write_u32::<BigEndian>(header.timestamp)?;
-    //     self.inner.write_u24::<BigEndian>(header.stream_id)?;
-    //     Ok(())
-    // }
 }

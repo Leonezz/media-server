@@ -4,7 +4,7 @@ use crate::{
     errors::FLVError,
     tag::{
         enhanced::AvMultiTrackType,
-        video_tag_header::{AVCPacketType, FrameType, VideoCommand},
+        video_tag_header::{AVCPacketType, FrameTypeFLV, VideoCommand},
     },
 };
 
@@ -186,7 +186,7 @@ pub struct VideoTrackInfo {
 #[derive(Debug, Clone)]
 pub struct ExVideoTagHeader {
     pub packet_type: VideoPacketType,
-    pub frame_type: FrameType,
+    pub frame_type: FrameTypeFLV,
     pub packet_mod_ex: VideoModEx,
     pub track_type: Option<AvMultiTrackType>,
     pub video_command: Option<VideoCommand>,

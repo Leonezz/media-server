@@ -1,7 +1,7 @@
 use std::io::{Cursor, Read};
 
 use byteorder::ReadBytesExt;
-use h264_codec::nalu::{NALUType, NalUnit, NaluHeader};
+use codec_h264::nalu::{NALUType, NalUnit, NaluHeader};
 use tokio_util::bytes::{Buf, Bytes};
 use utils::traits::reader::ReadRemainingFrom;
 use utils::traits::{dynamic_sized_packet::DynamicSizedPacket, writer::WriteTo};
@@ -77,43 +77,40 @@ impl RtpH264PacketBuilder {
             .clone()
             .into_iter()
             .try_for_each(|nalu_bytes| {
-                let nalu = self.packetize_nal_unit(nalu_bytes)?;
-                if let Some(valid_nalu) = nalu {
-                    result.extend(valid_nalu.into_iter().map(|v| RtpH264Packet {
+                result.extend(self.packetize_nal_unit(nalu_bytes)?.into_iter().map(|v| {
+                    RtpH264Packet {
                         header: self.header.clone(),
                         payload: v,
-                    }));
-                }
+                    }
+                }));
+
                 Ok::<(), RtpH264Error>(())
             })?;
 
         Ok(result)
     }
 
-    fn packetize_single_nalu(&mut self, nalu: Bytes) -> RtpH264Result<Option<Vec<RtpH264NalUnit>>> {
+    fn packetize_single_nalu(&mut self, nalu: Bytes) -> RtpH264Result<Vec<RtpH264NalUnit>> {
         if nalu.is_empty() {
-            return Ok(None);
+            return Ok(vec![]);
         }
 
         let nalu_bytes_length = nalu.len();
         let mut cursor = Cursor::new(nalu);
         let nalu_header: NaluHeader = cursor.read_u8()?.try_into()?;
 
-        if nalu_bytes_length <= self.mtu {
-            return Ok(Some(vec![RtpH264NalUnit::SingleNalu(SingleNalUnit(
+        if nalu_bytes_length + self.header.get_packet_bytes_count() <= self.mtu {
+            return Ok(vec![RtpH264NalUnit::SingleNalu(SingleNalUnit(
                 NalUnit::read_remaining_from(nalu_header, cursor.by_ref())?,
-            ))]));
+            ))]);
         }
 
         Err(RtpH264Error::InvalidMTU(self.mtu))
     }
 
-    fn packetize_non_interleaved(
-        &mut self,
-        nalu: Bytes,
-    ) -> RtpH264Result<Option<Vec<RtpH264NalUnit>>> {
+    fn packetize_non_interleaved(&mut self, nalu: Bytes) -> RtpH264Result<Vec<RtpH264NalUnit>> {
         if nalu.is_empty() {
-            return Ok(None);
+            return Ok(vec![]);
         }
 
         let nalu_bytes_length = nalu.len();
@@ -129,12 +126,12 @@ impl RtpH264PacketBuilder {
 
         if nalu_header.nal_unit_type == NALUType::SPS {
             self.sps_nalu = Some(NalUnit::read_remaining_from(nalu_header, cursor.by_ref())?);
-            return Ok(None);
+            return Ok(vec![]);
         }
 
         if nalu_header.nal_unit_type == NALUType::PPS {
             self.pps_nalu = Some(NalUnit::read_remaining_from(nalu_header, cursor.by_ref())?);
-            return Ok(None);
+            return Ok(vec![]);
         }
 
         let mut result = Vec::new();
@@ -142,6 +139,7 @@ impl RtpH264PacketBuilder {
             if sps.get_packet_bytes_count()
                 + pps.get_packet_bytes_count()
                 + nalu_bytes_length
+                + self.header.get_packet_bytes_count()
                 + 1 // stap-a nal hdr
                 + 2 // sps nalu size
                 + 2 // pps nalu size
@@ -158,12 +156,19 @@ impl RtpH264PacketBuilder {
                     ],
                 };
 
-                return Ok(Some(vec![RtpH264NalUnit::Aggregated(
+                return Ok(vec![RtpH264NalUnit::Aggregated(
                     AggregationNalUnits::StapA(stap_a_unit),
-                )]));
+                )]);
             }
 
-            if sps.get_packet_bytes_count() + pps.get_packet_bytes_count() + 1 + 2 + 2 <= self.mtu {
+            if sps.get_packet_bytes_count()
+                + pps.get_packet_bytes_count()
+                + self.header.get_packet_bytes_count()
+                + 1 // stap-a nal hdr
+                + 2 // sps nalu size
+                + 2 // pps nalu
+                <= self.mtu
+            {
                 let stap_a_unit = StapAFormat {
                     header: PayloadStructureType::AggregationPacket(AggregationPacketType::STAPA)
                         .into(),
@@ -174,26 +179,20 @@ impl RtpH264PacketBuilder {
                     stap_a_unit,
                 )));
             } else {
-                if sps.get_packet_bytes_count() <= self.mtu {
+                if sps.get_packet_bytes_count() + self.header.get_packet_bytes_count() <= self.mtu {
                     result.push(RtpH264NalUnit::SingleNalu(SingleNalUnit(sps)));
                 } else {
                     let mut sps_bytes = Vec::with_capacity(sps.get_packet_bytes_count());
                     sps.write_to(&mut sps_bytes)?;
-                    let fragmented_sps = self.packetize_nal_unit(Bytes::from(sps_bytes))?;
-                    if let Some(sps_fragments) = fragmented_sps {
-                        result.extend(sps_fragments);
-                    }
+                    result.extend(self.packetize_nal_unit(Bytes::from(sps_bytes))?);
                 }
 
-                if pps.get_packet_bytes_count() <= self.mtu {
+                if pps.get_packet_bytes_count() + self.header.get_packet_bytes_count() <= self.mtu {
                     result.push(RtpH264NalUnit::SingleNalu(SingleNalUnit(pps)));
                 } else {
                     let mut pps_bytes = Vec::with_capacity(pps.get_packet_bytes_count());
                     pps.write_to(&mut pps_bytes)?;
-                    let fragmented_pps = self.packetize_nal_unit(Bytes::from(pps_bytes))?;
-                    if let Some(pps_fragments) = fragmented_pps {
-                        result.extend(pps_fragments);
-                    }
+                    result.extend(self.packetize_nal_unit(Bytes::from(pps_bytes))?);
                 }
             }
         }
@@ -204,14 +203,15 @@ impl RtpH264PacketBuilder {
             self.pps_nalu = None;
         }
 
-        if nalu_bytes_length <= self.mtu {
+        if nalu_bytes_length + self.header.get_packet_bytes_count() <= self.mtu {
             result.push(RtpH264NalUnit::SingleNalu(SingleNalUnit(
                 NalUnit::read_remaining_from(nalu_header, cursor.by_ref())?,
             )));
-            return Ok(Some(result));
+            return Ok(result);
         }
 
-        let max_fragment_size = self.mtu as isize - 2; // indicator + fu_header
+        let max_fragment_size =
+            self.mtu as isize - 2 - self.header.get_packet_bytes_count() as isize; // indicator + fu_header
 
         if max_fragment_size <= 0 {
             return Err(RtpH264Error::InvalidMTU(self.mtu));
@@ -240,10 +240,10 @@ impl RtpH264PacketBuilder {
 
             start_fragment = false;
         }
-        Ok(Some(result))
+        Ok(result)
     }
 
-    fn packetize_nal_unit(&mut self, nalu: Bytes) -> RtpH264Result<Option<Vec<RtpH264NalUnit>>> {
+    fn packetize_nal_unit(&mut self, nalu: Bytes) -> RtpH264Result<Vec<RtpH264NalUnit>> {
         match self.packetization_mode {
             PacketizationMode::SingleNalu => self.packetize_single_nalu(nalu),
             PacketizationMode::NonInterleaved => self.packetize_non_interleaved(nalu),

@@ -1,3 +1,1 @@
-pub trait RtpPacketizer {
-    
-}
+pub trait RtpPacketizer {}

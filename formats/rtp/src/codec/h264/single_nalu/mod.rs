@@ -1,6 +1,6 @@
 use std::io::{self};
 
-use h264_codec::nalu::{NalUnit, NaluHeader};
+use codec_h264::nalu::{NalUnit, NaluHeader};
 use utils::traits::{
     dynamic_sized_packet::DynamicSizedPacket, reader::ReadRemainingFrom, writer::WriteTo,
 };
@@ -33,7 +33,7 @@ impl<R: io::Read> ReadRemainingFrom<u8, R> for SingleNalUnit {
 
 impl<W: io::Write> WriteTo<W> for SingleNalUnit {
     type Error = RtpH264Error;
-    fn write_to(&self, writer: W) -> Result<(), Self::Error> {
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         self.0.write_to(writer)?;
         Ok(())
     }

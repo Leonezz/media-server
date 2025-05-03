@@ -1,6 +1,5 @@
 use core::time;
 
-pub mod codec;
 pub mod consts;
 pub mod digest;
 pub mod errors;
@@ -25,7 +24,7 @@ pub struct C2S2Packet {
     random_echo: [u8; 1528],
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum Version {
     V0 = 0,
     V1 = 1,

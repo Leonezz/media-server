@@ -89,7 +89,7 @@ impl<R: io::Read> ReadFrom<R> for SenderInfo {
 
 impl<W: io::Write> WriteTo<W> for SenderInfo {
     type Error = RtpError;
-    fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         writer.write_u64::<BigEndian>(self.ntp_timestamp.into())?;
         writer.write_u32::<BigEndian>(self.rtp_timestamp)?;
         writer.write_u32::<BigEndian>(self.sender_packet_count)?;
@@ -179,13 +179,13 @@ impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpSenderReport {
 
 impl<W: io::Write> WriteTo<W> for RtcpSenderReport {
     type Error = RtpError;
-    fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
-        self.get_header().write_to(writer.by_ref())?;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        self.get_header().write_to(writer)?;
         writer.write_u32::<BigEndian>(self.sender_ssrc)?;
-        self.sender_info.write_to(writer.by_ref())?;
+        self.sender_info.write_to(writer)?;
         self.report_blocks
             .iter()
-            .try_for_each(|block| block.write_to(writer.by_ref()))?;
+            .try_for_each(|block| block.write_to(writer))?;
 
         if let Some(buffer) = &self.profile_specific_extension {
             writer.write_all(buffer)?;

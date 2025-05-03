@@ -65,7 +65,14 @@ impl<R: io::Read> ReadFrom<R> for RtpH264Packet {
 impl<R: io::Read> ReadRemainingFrom<RtpHeader, R> for RtpH264Packet {
     type Error = RtpH264Error;
     fn read_remaining_from(header: RtpHeader, mut reader: R) -> Result<Self, Self::Error> {
-        let payload = RtpH264NalUnit::read_from(reader.by_ref())?;
+        let payload = RtpH264NalUnit::read_from(reader.by_ref()).inspect_err(|err| {
+            tracing::error!(
+                "read rtp h264 failed, rtp_header: {:?}, err: {}",
+                header,
+                err
+            );
+            panic!()
+        })?;
         Ok(Self { header, payload })
     }
 }
@@ -79,7 +86,7 @@ impl TryFrom<RtpTrivialPacket> for RtpH264Packet {
 
 impl<W: io::Write> WriteTo<W> for RtpH264Packet {
     type Error = RtpH264Error;
-    fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         self.header.write_to(writer.by_ref())?;
         self.payload.write_to(writer.by_ref())?;
         Ok(())

@@ -74,6 +74,12 @@ impl SequenceNumber {
         self.0
     }
 
+    pub fn next(&self) -> u16 {
+        let mut new = SequenceNumber::new(self.round(), self.number());
+        new.add_number(1);
+        new.number()
+    }
+
     pub fn round(&self) -> u16 {
         (self.0 / (u16::MAX as u64 + 1)) as u16
     }

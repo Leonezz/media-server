@@ -199,7 +199,7 @@ impl<R: io::Read> ReadFrom<R> for RtpHeaderExtension {
 
 impl<W: io::Write> WriteTo<W> for RtpHeader {
     type Error = RtpError;
-    fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         let first_byte = ((self.version & 0b11) << 6)
             | ((self.padding as u8) << 5)
             | ((self.extension as u8) << 4)
@@ -214,7 +214,7 @@ impl<W: io::Write> WriteTo<W> for RtpHeader {
         }
 
         if let Some(header_extension) = &self.header_extension {
-            header_extension.write_to(writer.by_ref())?;
+            header_extension.write_to(writer)?;
         }
 
         Ok(())
@@ -223,7 +223,7 @@ impl<W: io::Write> WriteTo<W> for RtpHeader {
 
 impl<W: io::Write> WriteTo<W> for RtpHeaderExtension {
     type Error = RtpError;
-    fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         writer.write_u16::<BigEndian>(self.profile_defined)?;
         writer.write_u16::<BigEndian>(self.length)?;
         writer.write_all(&self.bytes)?;

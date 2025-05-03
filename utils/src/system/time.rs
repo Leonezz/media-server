@@ -1,6 +1,5 @@
 use std::time::{self, SystemTimeError, UNIX_EPOCH};
 
-
 pub fn get_timestamp_ms() -> Result<u64, SystemTimeError> {
     Ok(time::SystemTime::now()
         .duration_since(UNIX_EPOCH)?

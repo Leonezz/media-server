@@ -74,7 +74,7 @@ impl<R: io::Read> ReadRemainingFrom<AggregationPacketType, R> for AggregationNal
 
 impl<W: io::Write> WriteTo<W> for AggregationNalUnits {
     type Error = RtpH264Error;
-    fn write_to(&self, writer: W) -> Result<(), Self::Error> {
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         match self {
             Self::StapA(packet) => packet.write_to(writer),
             Self::StapB(packet) => packet.write_to(writer),

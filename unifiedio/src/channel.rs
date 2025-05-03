@@ -1,4 +1,9 @@
-use tokio::io::{AsyncRead, AsyncWrite};
+use std::{
+    pin::Pin,
+    task::{Context, Poll},
+};
+
+use futures::{Sink, SinkExt, Stream, ready};
 use tokio_util::{bytes::Bytes, sync::PollSender};
 
 use crate::UnifiedIO;
@@ -22,30 +27,34 @@ impl ChannelIo {
 }
 
 impl UnifiedIO for ChannelIo {
-    fn get_underlying_io(&self) -> crate::UnderlyingIO {
+    fn get_underlying_io_type(&self) -> crate::UnderlyingIO {
         crate::UnderlyingIO::Channel
     }
 }
 
-impl AsyncWrite for ChannelIo {
-    fn poll_write(
+impl Sink<Bytes> for ChannelIo {
+    type Error = std::io::Error;
+    fn start_send(mut self: std::pin::Pin<&mut Self>, item: Bytes) -> Result<(), Self::Error> {
+        self.sink
+            .start_send_unpin(item)
+            .map_err(|err| std::io::Error::other(err.to_string()))
+    }
+    fn poll_ready(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
-        buf: &[u8],
-    ) -> std::task::Poll<Result<usize, std::io::Error>> {
-        match self.sink.poll_reserve(cx) {
-            std::task::Poll::Pending => return std::task::Poll::Pending,
-            std::task::Poll::Ready(Ok(_)) => {
-                self.sink
-                    .send_item(Bytes::copy_from_slice(buf))
-                    .map_err(|_| std::io::Error::other("Failed to send data to the sink"))?;
-            }
-            std::task::Poll::Ready(Err(_)) => {
-                return std::task::Poll::Ready(Err(std::io::ErrorKind::Other.into()));
-            }
-        }
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        self.sink
+            .poll_ready_unpin(cx)
+            .map_err(|err| std::io::Error::other(err.to_string()))
+    }
 
-        std::task::Poll::Ready(Ok(buf.len()))
+    fn poll_close(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        self.sink
+            .poll_close_unpin(cx)
+            .map_err(|err| std::io::Error::other(err.to_string()))
     }
 
     fn poll_flush(
@@ -54,28 +63,14 @@ impl AsyncWrite for ChannelIo {
     ) -> std::task::Poll<Result<(), std::io::Error>> {
         std::task::Poll::Ready(Ok(()))
     }
-
-    fn poll_shutdown(
-        mut self: std::pin::Pin<&mut Self>,
-        _cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), std::io::Error>> {
-        self.sink.close();
-        std::task::Poll::Ready(Ok(()))
-    }
 }
 
-impl AsyncRead for ChannelIo {
-    fn poll_read(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        if let Ok(data) = self.source.try_recv() {
-            buf.put_slice(&data);
-            std::task::Poll::Ready(Ok(()))
-        } else {
-            cx.waker().wake_by_ref();
-            std::task::Poll::Pending
+impl Stream for ChannelIo {
+    type Item = Result<Bytes, std::io::Error>;
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match ready!(self.source.poll_recv(cx)) {
+            Some(bytes) => Poll::Ready(Some(Ok(bytes))),
+            None => Poll::Ready(None),
         }
     }
 }

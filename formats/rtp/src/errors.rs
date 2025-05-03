@@ -6,8 +6,10 @@ use thiserror::Error;
 pub enum RtpError {
     #[error("io error: {0}")]
     Io(#[from] io::Error),
-    #[error("invalid h264 codec: {0}")]
-    InvalidH264Codec(String),
+    #[error("h264 sequence failed: {0}")]
+    H264SequenceFailed(String),
+    #[error("mpeg4 sequence failed: {0}")]
+    Mpeg4SequenceFailed(String),
     #[error("unknown rtcp payload type: {0}")]
     UnknownRtcpPayloadType(u8),
     #[error("wrong payload type: {0}")]

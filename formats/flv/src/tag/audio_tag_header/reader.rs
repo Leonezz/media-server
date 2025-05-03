@@ -1,20 +1,22 @@
 use byteorder::ReadBytesExt;
-use std::io::Cursor;
-use tokio_util::{bytes::BytesMut, either::Either};
+use std::io::{self};
+use utils::traits::reader::{ReadFrom, ReadRemainingFrom};
 
-use crate::{errors::FLVResult, tag::enhanced::ex_audio::ex_audio_header::ExAudioTagHeader};
+use crate::{errors::FLVError, tag::enhanced::ex_audio::ex_audio_header::ExAudioTagHeader};
 
-use super::{AACPacketType, AudioTagHeader, SoundFormat, SoundRate, SoundSize, SoundType};
+use super::{
+    AACPacketType, AudioTagHeader, LegacyAudioTagHeader, SoundFormat, SoundRate, SoundSize,
+    SoundType,
+};
 
-impl AudioTagHeader {
-    pub fn read_from(
-        reader: &mut Cursor<&mut BytesMut>,
-    ) -> FLVResult<Either<AudioTagHeader, ExAudioTagHeader>> {
+impl<R: io::Read> ReadFrom<R> for AudioTagHeader {
+    type Error = FLVError;
+    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
         let first_byte = reader.read_u8()?;
 
         if ((first_byte >> 4) & 0b1111) == 9 {
-            let ex_header = ExAudioTagHeader::read_from(reader, first_byte)?;
-            return Ok(Either::Right(ex_header));
+            let ex_header = ExAudioTagHeader::read_remaining_from(first_byte, reader)?;
+            return Ok(AudioTagHeader::Enhanced(ex_header));
         }
 
         let sound_format: SoundFormat = ((first_byte >> 4) & 0b1111).try_into()?;
@@ -27,7 +29,7 @@ impl AudioTagHeader {
             let aac_type_byte = reader.read_u8()?;
             aac_packet_type = Some(aac_type_byte.into());
         }
-        Ok(Either::Left(AudioTagHeader {
+        Ok(AudioTagHeader::Legacy(LegacyAudioTagHeader {
             sound_format,
             sound_rate,
             sound_size,

@@ -7,10 +7,13 @@ use std::{
 };
 use tokio::io::AsyncWrite;
 use tokio_util::{
-    bytes::{Buf, BytesMut},
+    bytes::{Buf, Bytes},
     either::Either,
 };
-use utils::system::time::get_timestamp_ms;
+use utils::{
+    system::time::get_timestamp_ms,
+    traits::{dynamic_sized_packet::DynamicSizedPacket, writer::WriteTo},
+};
 
 use crate::{
     commands::{
@@ -19,6 +22,7 @@ use crate::{
         OnStatusCommand, PauseCommand, Play2Command, PlayCommand, PublishCommand,
         ReceiveAudioCommand, ReceiveVideoCommand, RtmpC2SCommands, RtmpS2CCommands, SeekCommand,
         consts::s2c_command_names::{self, ON_STATUS},
+        writer::RtmpCommandWriteWrapper,
     },
     message::{RtmpMessageType, RtmpUserMessageBody},
     protocol_control::{
@@ -96,7 +100,7 @@ impl Writer {
             RtmpChunkMessageBody::ProtocolControl(message) => message.write_to(&mut bytes),
             RtmpChunkMessageBody::UserControl(message) => message.write_to(&mut bytes),
             RtmpChunkMessageBody::RtmpUserMessage(message) => {
-                message.write_c2s_to(&mut bytes, version)
+                RtmpCommandWriteWrapper::new(message.as_ref(), version).write_to(&mut bytes)
             }
         }?;
 
@@ -112,8 +116,8 @@ impl Writer {
                 self.inner.write_all(&bytes)?;
 
                 self.bytes_written += bytes.len()
-                    + basic_header.get_header_length()
-                    + message_header.get_header_length();
+                    + basic_header.get_packet_bytes_count()
+                    + message_header.get_packet_bytes_count();
             }
             Some(len) => {
                 self.write_basic_header(&basic_header)?;
@@ -130,8 +134,8 @@ impl Writer {
                 self.inner.write_all(&tmp_buf)?;
 
                 self.bytes_written += bytes_to_write
-                    + basic_header.get_header_length()
-                    + message_header.get_header_length();
+                    + basic_header.get_packet_bytes_count()
+                    + message_header.get_packet_bytes_count();
 
                 while cursor_buf.has_remaining() {
                     let bytes_to_write = min(cursor_buf.remaining(), len as usize);
@@ -152,7 +156,7 @@ impl Writer {
                     }
                     self.inner.reserve(bytes_to_write);
                     self.inner.write_all(&tmp_buf)?;
-                    self.bytes_written += bytes_to_write + basic_header.get_header_length();
+                    self.bytes_written += bytes_to_write + basic_header.get_packet_bytes_count();
                 }
             }
         }
@@ -672,7 +676,7 @@ impl Writer {
         })
     }
 
-    pub fn write_meta(&mut self, meta: BytesMut, timestamp: u32) -> ChunkMessageResult<()> {
+    pub fn write_meta(&mut self, meta: Bytes, timestamp: u32) -> ChunkMessageResult<()> {
         self.write(
             ChunkMessage {
                 header: ChunkMessageCommonHeader {
@@ -693,7 +697,7 @@ impl Writer {
         )
     }
 
-    pub fn write_audio(&mut self, message: BytesMut, timestamp: u32) -> ChunkMessageResult<()> {
+    pub fn write_audio(&mut self, message: Bytes, timestamp: u32) -> ChunkMessageResult<()> {
         self.write(
             ChunkMessage {
                 header: ChunkMessageCommonHeader {
@@ -714,7 +718,7 @@ impl Writer {
         )
     }
 
-    pub fn write_video(&mut self, message: BytesMut, timestamp: u32) -> ChunkMessageResult<()> {
+    pub fn write_video(&mut self, message: Bytes, timestamp: u32) -> ChunkMessageResult<()> {
         self.write(
             ChunkMessage {
                 header: ChunkMessageCommonHeader {

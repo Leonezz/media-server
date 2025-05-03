@@ -1,25 +1,17 @@
 use byteorder::{BigEndian, ReadBytesExt};
+use utils::traits::reader::ReadFrom;
 
 use std::io;
 
-use crate::errors::{FLVError, FLVResult};
+use crate::errors::FLVError;
 
 use super::{EncryptionFilterParams, EncryptionTagHeader, SelectiveEncryptionFilterParams};
 
-impl EncryptionTagHeader {
-    pub fn read_from<R>(mut reader: R) -> FLVResult<EncryptionTagHeader>
-    where
-        R: io::Read,
-    {
+impl<R: io::Read> ReadFrom<R> for EncryptionTagHeader {
+    type Error = FLVError;
+    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
         let num_filters = reader.read_u8()?;
         let name = amf_formats::amf0::Value::read_from(reader.by_ref())?;
-        if name.is_none() {
-            return Err(FLVError::UnexpectedValue(
-                "expect string for encryption tag header filter name but got none".to_string(),
-            ));
-        }
-
-        let name = name.expect("this cannot be none");
         let filter_name = match name {
             amf_formats::amf0::Value::String(str) => str,
             _ => {
@@ -39,22 +31,18 @@ impl EncryptionTagHeader {
     }
 }
 
-impl EncryptionFilterParams {
-    pub fn read_from<R>(mut reader: R) -> FLVResult<Self>
-    where
-        R: io::Read,
-    {
+impl<R: io::Read> ReadFrom<R> for EncryptionFilterParams {
+    type Error = FLVError;
+    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
         let mut iv = [0; 16];
         reader.read_exact(&mut iv)?;
         Ok(Self { iv })
     }
 }
 
-impl SelectiveEncryptionFilterParams {
-    pub fn read_from<R>(mut reader: R) -> FLVResult<Self>
-    where
-        R: io::Read,
-    {
+impl<R: io::Read> ReadFrom<R> for SelectiveEncryptionFilterParams {
+    type Error = FLVError;
+    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
         let byte = reader.read_u8()?;
         let au = ((byte >> 7) & 0b1) != 0;
         if au {

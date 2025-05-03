@@ -12,3 +12,6 @@ num = "0.4.3"
 url = "2.5.4"
 utils = { path = "../../utils" }
 sdp-formats = { path = "../sdp" }
+
+[lints.clippy]
+uninlined_format_args = "allow"

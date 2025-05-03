@@ -18,9 +18,8 @@ use sdp_formats::{
 };
 use std::{collections::HashMap, net::SocketAddr, pin::Pin, str::FromStr};
 use tokio::sync::mpsc::UnboundedSender;
-use tokio_util::codec::Framed;
 use tracing::Instrument;
-use unified_io::UnifiedIO;
+use unified_io::{UnifiedIO, UnifiyStreamed};
 use url::Url;
 use uuid::Uuid;
 
@@ -43,7 +42,7 @@ pub struct RtspMediaSessionHandler {
 }
 
 pub struct RtspSession {
-    io: Framed<Pin<Box<dyn UnifiedIO + Send>>, RtspMessageFramed>,
+    io: UnifiyStreamed<RtspMessageFramed>,
     peer_addr: SocketAddr,
     sdp: Option<SessionDescription>,
     range: Option<String>,
@@ -73,7 +72,7 @@ impl RtspMiddleware for RtspSession {
 impl RtspSession {
     pub fn new(io: Pin<Box<dyn UnifiedIO + Send>>, peer_addr: SocketAddr) -> Self {
         Self {
-            io: Framed::new(io, RtspMessageFramed),
+            io: UnifiyStreamed::new(io, RtspMessageFramed),
             peer_addr,
             sdp: None,
             range: None,

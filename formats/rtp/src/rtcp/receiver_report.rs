@@ -88,14 +88,14 @@ impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpReceiverReport 
 
 impl<W: io::Write> WriteTo<W> for RtcpReceiverReport {
     type Error = RtpError;
-    fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         let raw_size = self.get_packet_bytes_count_without_padding();
-        self.get_header().write_to(writer.by_ref())?;
+        self.get_header().write_to(writer)?;
         writer.write_u32::<BigEndian>(self.sender_ssrc)?;
 
         self.report_blocks
             .iter()
-            .try_for_each(|block| block.write_to(writer.by_ref()))?;
+            .try_for_each(|block| block.write_to(writer))?;
 
         if let Some(buffer) = &self.profile_specific_extension {
             writer.write_all(buffer)?;

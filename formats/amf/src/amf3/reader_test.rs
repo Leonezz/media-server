@@ -28,9 +28,7 @@ mod tests {
     #[test]
     fn undefined() {
         assert_eq!(
-            decode!("../../test_data/amf3-undefined.bin")
-                .unwrap()
-                .unwrap(),
+            decode!("../../test_data/amf3-undefined.bin").unwrap(),
             Value::Undefined
         );
     }
@@ -38,7 +36,7 @@ mod tests {
     #[test]
     fn null() {
         assert_eq!(
-            decode!("../../test_data/amf3-null.bin").unwrap().unwrap(),
+            decode!("../../test_data/amf3-null.bin").unwrap(),
             Value::Null
         );
     }
@@ -46,11 +44,11 @@ mod tests {
     #[test]
     fn boolean() {
         assert_eq!(
-            decode!("../../test_data/amf3-false.bin").unwrap().unwrap(),
+            decode!("../../test_data/amf3-false.bin").unwrap(),
             Value::Boolean(false)
         );
         assert_eq!(
-            decode!("../../test_data/amf3-true.bin").unwrap().unwrap(),
+            decode!("../../test_data/amf3-true.bin").unwrap(),
             Value::Boolean(true)
         );
     }
@@ -58,27 +56,23 @@ mod tests {
     #[test]
     fn integer() {
         assert_eq!(
-            decode!("../../test_data/amf3-0.bin").unwrap().unwrap(),
+            decode!("../../test_data/amf3-0.bin").unwrap(),
             Value::Integer(0)
         );
         assert_eq!(
-            decode!("../../test_data/amf3-min.bin").unwrap().unwrap(),
+            decode!("../../test_data/amf3-min.bin").unwrap(),
             Value::Integer(-0x1000_0000)
         );
         assert_eq!(
-            decode!("../../test_data/amf3-max.bin").unwrap().unwrap(),
+            decode!("../../test_data/amf3-max.bin").unwrap(),
             Value::Integer(0x0FFF_FFFF)
         );
         assert_eq!(
-            decode!("../../test_data/amf3-integer-2byte.bin")
-                .unwrap()
-                .unwrap(),
+            decode!("../../test_data/amf3-integer-2byte.bin").unwrap(),
             Value::Integer(0b1000_0000)
         );
         assert_eq!(
-            decode!("../../test_data/amf3-integer-3byte.bin")
-                .unwrap()
-                .unwrap(),
+            decode!("../../test_data/amf3-integer-3byte.bin").unwrap(),
             Value::Integer(0b100_0000_0000_0000)
         );
     }
@@ -86,29 +80,23 @@ mod tests {
     #[test]
     fn double() {
         assert_eq!(
-            decode!("../../test_data/amf3-float.bin").unwrap().unwrap(),
+            decode!("../../test_data/amf3-float.bin").unwrap(),
             Value::Double(3.5)
         );
         assert_eq!(
-            decode!("../../test_data/amf3-bignum.bin").unwrap().unwrap(),
+            decode!("../../test_data/amf3-bignum.bin").unwrap(),
             Value::Double(2f64.powf(1000f64))
         );
         assert_eq!(
-            decode!("../../test_data/amf3-large-min.bin")
-                .unwrap()
-                .unwrap(),
+            decode!("../../test_data/amf3-large-min.bin").unwrap(),
             Value::Double(-0x1000_0001 as f64)
         );
         assert_eq!(
-            decode!("../../test_data/amf3-large-max.bin")
-                .unwrap()
-                .unwrap(),
+            decode!("../../test_data/amf3-large-max.bin").unwrap(),
             Value::Double(268_435_456_f64)
         );
         assert_eq!(
-            decode!("../../test_data/amf3-double-positive-infinity.bin")
-                .unwrap()
-                .unwrap(),
+            decode!("../../test_data/amf3-double-positive-infinity.bin").unwrap(),
             Value::Double(f64::INFINITY)
         );
 
@@ -118,18 +106,16 @@ mod tests {
     #[test]
     fn string() {
         assert_eq!(
-            decode!("../../test_data/amf3-string.bin").unwrap().unwrap(),
+            decode!("../../test_data/amf3-string.bin").unwrap(),
             Value::String("String . String".to_string())
         );
         assert_eq!(
-            decode!("../../test_data/amf3-symbol.bin").unwrap().unwrap(),
+            decode!("../../test_data/amf3-symbol.bin").unwrap(),
             Value::String("foo".to_string())
         );
 
         assert_eq!(
-            decode!("../../test_data/amf3-string-ref.bin")
-                .unwrap()
-                .unwrap(),
+            decode!("../../test_data/amf3-string-ref.bin").unwrap(),
             Value::Array {
                 assoc_entries: Vec::new(),
                 dense_entries: vec![
@@ -147,9 +133,7 @@ mod tests {
             }
         );
         assert_eq!(
-            decode!("../../test_data/amf3-encoded-string-ref.bin")
-                .unwrap()
-                .unwrap(),
+            decode!("../../test_data/amf3-encoded-string-ref.bin").unwrap(),
             Value::Array {
                 assoc_entries: Vec::new(),
                 dense_entries: vec![
@@ -160,9 +144,7 @@ mod tests {
         );
 
         assert_eq!(
-            decode!("../../test_data/amf3-complex-encoded-string-array.bin")
-                .unwrap()
-                .unwrap(),
+            decode!("../../test_data/amf3-complex-encoded-string-array.bin").unwrap(),
             Value::Array {
                 assoc_entries: Vec::new(),
                 dense_entries: vec![
@@ -175,9 +157,7 @@ mod tests {
         );
 
         assert_eq!(
-            decode!("../../test_data/amf3-empty-string-ref.bin")
-                .unwrap()
-                .unwrap(),
+            decode!("../../test_data/amf3-empty-string-ref.bin").unwrap(),
             Value::Array {
                 assoc_entries: Vec::new(),
                 dense_entries: vec![Value::String("".to_string()), Value::String("".to_string())]
@@ -190,9 +170,7 @@ mod tests {
     #[test]
     fn xml_document() {
         assert_eq!(
-            decode!("../../test_data/amf3-xml-doc.bin")
-                .unwrap()
-                .unwrap(),
+            decode!("../../test_data/amf3-xml-doc.bin").unwrap(),
             Value::XMLDocument("<parent><child prop=\"test\" /></parent>".to_string())
         )
     }
@@ -202,14 +180,9 @@ mod tests {
         let date = Value::Date {
             millis_timestamp: time::Duration::from_secs(0),
         };
+        assert_eq!(decode!("../../test_data/amf3-date.bin").unwrap(), date);
         assert_eq!(
-            decode!("../../test_data/amf3-date.bin").unwrap().unwrap(),
-            date
-        );
-        assert_eq!(
-            decode!("../../test_data/amf3-date-ref.bin")
-                .unwrap()
-                .unwrap(),
+            decode!("../../test_data/amf3-date-ref.bin").unwrap(),
             Value::Array {
                 assoc_entries: Vec::new(),
                 dense_entries: vec![date.clone(), date]
@@ -232,9 +205,7 @@ mod tests {
     #[test]
     fn array() {
         assert_eq!(
-            decode!("../../test_data/amf3-primitive-array.bin")
-                .unwrap()
-                .unwrap(),
+            decode!("../../test_data/amf3-primitive-array.bin").unwrap(),
             Value::Array {
                 assoc_entries: Vec::new(),
                 dense_entries: vec![
@@ -247,9 +218,7 @@ mod tests {
             }
         );
         assert_eq!(
-            decode!("../../test_data/amf3-array-ref.bin")
-                .unwrap()
-                .unwrap(),
+            decode!("../../test_data/amf3-array-ref.bin").unwrap(),
             Value::Array {
                 assoc_entries: Vec::new(),
                 dense_entries: vec![
@@ -290,9 +259,7 @@ mod tests {
         );
 
         assert_eq!(
-            decode!("../../test_data/amf3-associative-array.bin")
-                .unwrap()
-                .unwrap(),
+            decode!("../../test_data/amf3-associative-array.bin").unwrap(),
             Value::Array {
                 assoc_entries: vec![
                     ("2".to_string(), Value::String("bar3".to_string())),
@@ -329,9 +296,7 @@ mod tests {
                 entries: vec![],
             };
             assert_eq!(
-                decode!("../../test_data/amf3-mixed-array.bin")
-                    .unwrap()
-                    .unwrap(),
+                decode!("../../test_data/amf3-mixed-array.bin").unwrap(),
                 Value::Array {
                     assoc_entries: Vec::new(),
                     dense_entries: vec![
@@ -372,9 +337,7 @@ mod tests {
         };
 
         assert_eq!(
-            decode!("../../test_data/amf3-object-ref.bin")
-                .unwrap()
-                .unwrap(),
+            decode!("../../test_data/amf3-object-ref.bin").unwrap(),
             Value::Array {
                 assoc_entries: Vec::new(),
                 dense_entries: vec![
@@ -392,9 +355,7 @@ mod tests {
         );
 
         assert_eq!(
-            decode!("../../test_data/amf3-dynamic-object.bin")
-                .unwrap()
-                .unwrap(),
+            decode!("../../test_data/amf3-dynamic-object.bin").unwrap(),
             Value::Object {
                 name: None,
                 sealed_fields_count: 0,
@@ -410,9 +371,7 @@ mod tests {
         );
 
         assert_eq!(
-            decode!("../../test_data/amf3-typed-object.bin")
-                .unwrap()
-                .unwrap(),
+            decode!("../../test_data/amf3-typed-object.bin").unwrap(),
             Value::Object {
                 name: Some("org.amf.ASClass".to_string()),
                 sealed_fields_count: 2,
@@ -442,9 +401,7 @@ mod tests {
             },
         ];
         assert_eq!(
-            decode!("../../test_data/amf3-trait-ref.bin")
-                .unwrap()
-                .unwrap(),
+            decode!("../../test_data/amf3-trait-ref.bin").unwrap(),
             Value::Array {
                 assoc_entries: Vec::new(),
                 dense_entries: Vec::from(o)
@@ -452,7 +409,7 @@ mod tests {
         );
 
         assert_eq!(
-            decode!("../../test_data/amf3-hash.bin").unwrap().unwrap(),
+            decode!("../../test_data/amf3-hash.bin").unwrap(),
             Value::Object {
                 name: None,
                 sealed_fields_count: 0,
@@ -479,13 +436,11 @@ mod tests {
     #[test]
     fn xml() {
         assert_eq!(
-            decode!("../../test_data/amf3-xml.bin").unwrap().unwrap(),
+            decode!("../../test_data/amf3-xml.bin").unwrap(),
             Value::XML("<parent><child prop=\"test\"/></parent>".to_string())
         );
         assert_eq!(
-            decode!("../../test_data/amf3-xml-ref.bin")
-                .unwrap()
-                .unwrap(),
+            decode!("../../test_data/amf3-xml-ref.bin").unwrap(),
             Value::Array {
                 assoc_entries: Vec::new(),
                 dense_entries: vec![
@@ -501,18 +456,14 @@ mod tests {
     #[test]
     fn byte_array() {
         assert_eq!(
-            decode!("../../test_data/amf3-byte-array.bin")
-                .unwrap()
-                .unwrap(),
+            decode!("../../test_data/amf3-byte-array.bin").unwrap(),
             Value::ByteArray(vec![
                 0, 3, 227, 129, 147, 227, 130, 140, 116, 101, 115, 116, 64
             ])
         );
 
         assert_eq!(
-            decode!("../../test_data/amf3-byte-array-ref.bin")
-                .unwrap()
-                .unwrap(),
+            decode!("../../test_data/amf3-byte-array-ref.bin").unwrap(),
             Value::Array {
                 assoc_entries: Vec::new(),
                 dense_entries: vec![
@@ -526,9 +477,7 @@ mod tests {
     #[test]
     fn i32_vector() {
         assert_eq!(
-            decode!("../../test_data/amf3-vector-int.bin")
-                .unwrap()
-                .unwrap(),
+            decode!("../../test_data/amf3-vector-int.bin").unwrap(),
             Value::I32Vector {
                 is_fixed: false,
                 entries: vec![4, -20, 12]
@@ -541,9 +490,7 @@ mod tests {
     #[test]
     fn u32_vector() {
         assert_eq!(
-            decode!("../../test_data/amf3-vector-uint.bin")
-                .unwrap()
-                .unwrap(),
+            decode!("../../test_data/amf3-vector-uint.bin").unwrap(),
             Value::U32Vector {
                 is_fixed: false,
                 entries: vec![4, 20, 12]
@@ -556,9 +503,7 @@ mod tests {
     #[test]
     fn double_vector() {
         assert_eq!(
-            decode!("../../test_data/amf3-vector-double.bin")
-                .unwrap()
-                .unwrap(),
+            decode!("../../test_data/amf3-vector-double.bin").unwrap(),
             Value::DoubleVector {
                 is_fixed: false,
                 entries: vec![4.3, -20.6]
@@ -597,9 +542,7 @@ mod tests {
             },
         ];
         assert_eq!(
-            decode!("../../test_data/amf3-vector-object.bin")
-                .unwrap()
-                .unwrap(),
+            decode!("../../test_data/amf3-vector-object.bin").unwrap(),
             Value::ObjectVector {
                 is_fixed: false,
                 class_name: Some("org.amf.ASClass".to_string()),
@@ -629,18 +572,14 @@ mod tests {
         ];
 
         assert_eq!(
-            decode!("../../test_data/amf3-dictionary.bin")
-                .unwrap()
-                .unwrap(),
+            decode!("../../test_data/amf3-dictionary.bin").unwrap(),
             Value::Dictionary {
                 is_weak: false,
                 entries
             }
         );
         assert_eq!(
-            decode!("../../test_data/amf3-empty-dictionary.bin")
-                .unwrap()
-                .unwrap(),
+            decode!("../../test_data/amf3-empty-dictionary.bin").unwrap(),
             Value::Dictionary {
                 is_weak: false,
                 entries: vec![]

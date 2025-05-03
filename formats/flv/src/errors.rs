@@ -44,6 +44,8 @@ pub enum FLVError {
     UnknownVideoCommandType(u8),
     #[error("unknown video packet type: {0}")]
     UnknownVideoPacketType(u8),
+    #[error("invalid onMetaData: {0}")]
+    InvalidOnMetaData(String),
 }
 
 pub type FLVResult<T> = Result<T, FLVError>;

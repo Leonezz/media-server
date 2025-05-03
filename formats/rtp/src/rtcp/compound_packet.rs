@@ -6,7 +6,6 @@ use std::{
 use tokio_util::bytes::Buf;
 use utils::traits::{
     dynamic_sized_packet::DynamicSizedPacket,
-    fixed_packet::FixedPacket,
     reader::{TryReadFrom, TryReadRemainingFrom},
     writer::WriteTo,
 };
@@ -46,19 +45,21 @@ impl<R: AsRef<[u8]>> TryReadFrom<R> for RtcpCompoundPacket {
     fn try_read_from(reader: &mut std::io::Cursor<R>) -> Result<Option<Self>, Self::Error> {
         let mut packets = vec![];
         loop {
-            if reader.remaining() < RtcpCommonHeader::bytes_count() {
-                return Ok(None);
+            if !reader.has_remaining() {
+                break;
             }
             let header = RtcpCommonHeader::try_read_from(reader.by_ref())?;
             if header.is_none() {
-                break;
+                return Ok(None);
             }
-
             let packet = RtcpPacket::try_read_remaining_from(header.unwrap(), reader.by_ref())?;
             if packet.is_none() {
                 return Ok(None);
             }
             packets.push(packet.unwrap());
+        }
+        if packets.is_empty() {
+            return Ok(None);
         }
         let result = Self { packets };
         result.validate()?;
@@ -68,11 +69,11 @@ impl<R: AsRef<[u8]>> TryReadFrom<R> for RtcpCompoundPacket {
 
 impl<W: io::Write> WriteTo<W> for RtcpCompoundPacket {
     type Error = RtpError;
-    fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         self.validate()?;
         self.packets()
             .iter()
-            .try_for_each(|packet| packet.write_to(writer.by_ref()))?;
+            .try_for_each(|packet| packet.write_to(writer))?;
         Ok(())
     }
 }
@@ -126,15 +127,15 @@ impl RtcpCompoundPacket {
             {
                 return Ordering::Greater;
             }
-            if let RtcpPacket::SourceDescription(packet) = l {
-                if packet.get_cname().is_some() {
-                    return Ordering::Less;
-                }
+            if let RtcpPacket::SourceDescription(packet) = l
+                && packet.get_cname().is_some()
+            {
+                return Ordering::Less;
             }
-            if let RtcpPacket::SourceDescription(packet) = r {
-                if packet.get_cname().is_some() {
-                    return Ordering::Greater;
-                }
+            if let RtcpPacket::SourceDescription(packet) = r
+                && packet.get_cname().is_some()
+            {
+                return Ordering::Greater;
             }
             Ordering::Equal
         });

@@ -4,6 +4,10 @@ use std::{
     time::Duration,
 };
 
+use flv_formats::tag::{
+    audio_tag_header::LegacyAudioTagHeader, video_tag_header::LegacyVideoTagHeader,
+};
+use num::ToPrimitive;
 use rtmp_formats::{
     chunk::{self, ChunkMessage, RtmpChunkMessageBody, errors::ChunkMessageError},
     handshake,
@@ -18,7 +22,8 @@ use tokio::{
     net::TcpStream,
     time,
 };
-use tokio_util::bytes::{Buf, BytesMut};
+use tokio_util::bytes::{Buf, BufMut, BytesMut};
+use utils::traits::{dynamic_sized_packet::DynamicSizedPacket, writer::WriteTo};
 
 use crate::errors::{RtmpServerError, RtmpServerResult};
 
@@ -36,6 +41,7 @@ pub struct RtmpChunkStream {
     ack_window_size_write: Option<SetPeerBandwidth>,
     acknowledged_sequence_number: Option<u32>,
     total_wrote_bytes: u64,
+    read_buffer_capacity: usize,
 }
 
 impl RtmpChunkStream {
@@ -50,6 +56,7 @@ impl RtmpChunkStream {
             chunk_reader: chunk::reader::Reader::new(),
             chunk_writer: chunk::writer::Writer::new(),
             read_buffer: BytesMut::with_capacity(read_buffer_capacity as usize),
+            read_buffer_capacity: read_buffer_capacity as usize,
             // write_buffer: BytesMut::with_capacity(write_buffer_capacity as usize),
             stream: BufWriter::new(io),
             read_timeout_ms,
@@ -100,6 +107,7 @@ impl RtmpChunkStream {
                 }
             }
 
+            self.read_buffer.reserve(self.read_buffer_capacity);
             match tokio::time::timeout(
                 time::Duration::from_millis(self.read_timeout_ms),
                 self.stream.read_buf(&mut self.read_buffer),
@@ -118,7 +126,12 @@ impl RtmpChunkStream {
                         }
                     }
                 }
-                Ok(Err(err)) => return Err(err.into()),
+                Ok(Err(err)) => {
+                    return {
+                        tracing::error!("io error: {}", err);
+                        Err(err.into())
+                    };
+                }
                 Err(err) => {
                     return Err(RtmpServerError::Io(io::Error::new(
                         io::ErrorKind::TimedOut,
@@ -182,25 +195,47 @@ impl RtmpChunkStream {
         match tag {
             MediaFrame::Audio {
                 runtime_stat: _,
-                pts,
-                header: _,
+                frame_info,
                 payload,
             } => {
-                self.chunk_writer
-                    .write_audio(payload.clone(), *pts as u32)?;
+                let tag_header: LegacyAudioTagHeader = frame_info.try_into()?;
+                let mut payload_bytes =
+                    Vec::with_capacity(payload.len() + tag_header.get_packet_bytes_count());
+                tag_header.write_to(&mut payload_bytes)?;
+                payload_bytes.put_slice(payload);
+                self.chunk_writer.write_audio(
+                    payload_bytes.into(),
+                    frame_info
+                        .timestamp_nano
+                        .checked_div(1_000_000)
+                        .unwrap()
+                        .to_u32()
+                        .unwrap(),
+                )?;
             }
             MediaFrame::Video {
                 runtime_stat: _,
-                pts,
-                header: _,
+                frame_info,
                 payload,
             } => {
-                self.chunk_writer
-                    .write_video(payload.clone(), *pts as u32)?;
+                let tag_header: LegacyVideoTagHeader = frame_info.try_into()?;
+                let mut payload_bytes =
+                    Vec::with_capacity(payload.len() + tag_header.get_packet_bytes_count());
+                tag_header.write_to(&mut payload_bytes)?;
+                payload_bytes.put_slice(payload);
+                self.chunk_writer.write_video(
+                    payload_bytes.into(),
+                    frame_info
+                        .timestamp_nano
+                        .checked_div(1_000_000)
+                        .unwrap()
+                        .to_u32()
+                        .unwrap(),
+                )?;
             }
             MediaFrame::Script {
                 runtime_stat: _,
-                pts,
+                timestamp_nano: pts,
                 on_meta_data: _,
                 payload,
             } => {

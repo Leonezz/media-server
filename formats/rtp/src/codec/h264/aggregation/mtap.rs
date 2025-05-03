@@ -1,6 +1,6 @@
 //! @see: RFC 6184 5.7.2. Multi-Time Aggregation Packets (MTAPs)
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use h264_codec::nalu::NalUnit;
+use codec_h264::nalu::NalUnit;
 use std::io;
 use utils::traits::{
     dynamic_sized_packet::DynamicSizedPacket, reader::ReadRemainingFrom, writer::WriteTo,
@@ -79,7 +79,7 @@ impl<R: io::Read> ReadRemainingFrom<u8, R> for Mtap16Format {
 
 impl<W: io::Write> WriteTo<W> for Mtap16Format {
     type Error = RtpH264Error;
-    fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         writer.write_u8(self.header)?;
         writer.write_u16::<BigEndian>(self.decode_order_number_base)?;
         self.nal_units.iter().try_for_each(|nalu| {
@@ -162,7 +162,7 @@ impl<R: io::Read> ReadRemainingFrom<u8, R> for Mtap24Format {
 
 impl<W: io::Write> WriteTo<W> for Mtap24Format {
     type Error = RtpH264Error;
-    fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         writer.write_u8(self.header)?;
         writer.write_u16::<BigEndian>(self.decode_order_number_base)?;
 

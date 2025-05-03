@@ -1,7 +1,3 @@
-use std::io;
-
-use crate::errors::FLVResult;
-
 pub mod reader;
 pub mod writer;
 
@@ -35,18 +31,5 @@ impl FLVHeader {
             has_video,
             data_offset: 9,
         }
-    }
-    pub fn read_from<R>(reader: R) -> FLVResult<FLVHeader>
-    where
-        R: io::Read,
-    {
-        reader::Reader::new(reader).read()
-    }
-
-    pub fn write_to<W>(&self, writer: W) -> FLVResult<()>
-    where
-        W: io::Write,
-    {
-        writer::Writer::new(writer).write(self)
     }
 }

@@ -20,7 +20,7 @@ impl Encoder<RtspInterleavedPacket> for RtspInterleavedPacketFramed {
         item: RtspInterleavedPacket,
         dst: &mut tokio_util::bytes::BytesMut,
     ) -> Result<(), Self::Error> {
-        item.write_to(dst.writer())
+        item.write_to(&mut dst.writer())
     }
 }
 
@@ -37,7 +37,7 @@ impl Decoder for RtspInterleavedPacketFramed {
             let res = RtspInterleavedPacket::try_read_from(cursor.by_ref());
             (res, cursor.position())
         };
-        if res.is_ok() {
+        if let Ok(Some(_)) = res {
             src.advance(position as usize);
         }
         res

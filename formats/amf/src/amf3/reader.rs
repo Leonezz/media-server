@@ -3,6 +3,7 @@ use std::io;
 
 use crate::errors::{AmfError, AmfResult};
 use byteorder::{BigEndian, ReadBytesExt};
+use utils::traits::reader::ReadFrom;
 
 use super::{Amf3Trait, Value, amf3_marker};
 
@@ -50,13 +51,10 @@ where
             },
         }
     }
-    pub fn read(&mut self) -> AmfResult<Option<Value>> {
-        let marker = self.inner.read_u8();
-        if marker.is_err() {
-            return Ok(None);
-        }
-        let marker = marker.expect("this cannot be err");
-        let value = match marker {
+    pub fn read(&mut self) -> AmfResult<Value> {
+        let marker = self.inner.read_u8()?;
+
+        match marker {
             amf3_marker::UNDEFINED => Ok(Value::Undefined),
             amf3_marker::NULL => Ok(Value::Null),
             amf3_marker::FALSE => Ok(Value::Boolean(false)),
@@ -76,16 +74,12 @@ where
             amf3_marker::VECTOR_OBJECT => self.read_object_vector(),
             amf3_marker::DICTIONARY => self.read_dictionary(),
             _ => Err(AmfError::Unknown { marker }),
-        };
-        match value {
-            Ok(v) => Ok(Some(v)),
-            Err(err) => Err(err),
         }
     }
 
     pub fn read_all(&mut self) -> AmfResult<Vec<Value>> {
         let mut result = Vec::new();
-        while let Ok(Some(value)) = self.read() {
+        while let Ok(value) = self.read() {
             result.push(value);
         }
         Ok(result)
@@ -252,31 +246,13 @@ where
                 return Ok(result);
             }
             let value = self.read()?;
-
-            match value {
-                Some(value) => result.push((key, value)),
-                None => {
-                    return Err(AmfError::Io(io::Error::new(
-                        io::ErrorKind::UnexpectedEof,
-                        "unexpected eof",
-                    )));
-                }
-            }
+            result.push((key, value));
         }
     }
     pub fn read_array(&mut self) -> AmfResult<Value> {
         self.read_and_record_object(|this, size| {
             let assoc_entries = this.read_pairs()?;
-            let dense_entries = (0..size)
-                .map(|_| match this.read() {
-                    Ok(None) => Err(AmfError::Io(io::Error::new(
-                        io::ErrorKind::UnexpectedEof,
-                        "unexpected eof",
-                    ))),
-                    Ok(Some(value)) => Ok(value),
-                    Err(err) => Err(err),
-                })
-                .collect::<AmfResult<_>>()?;
+            let dense_entries = (0..size).map(|_| this.read()).collect::<AmfResult<_>>()?;
             Ok(Value::Array {
                 assoc_entries,
                 dense_entries,
@@ -291,13 +267,7 @@ where
                 .iter()
                 .map(|key| {
                     let value = this.read()?;
-                    match value {
-                        Some(v) => Ok((key.clone(), v)),
-                        None => Err(AmfError::Io(io::Error::new(
-                            io::ErrorKind::UnexpectedEof,
-                            "unexpected eof",
-                        ))),
-                    }
+                    Ok((key.clone(), value))
                 })
                 .collect::<AmfResult<Vec<_>>>()?;
             if amf3_trait.is_dynamic {
@@ -347,16 +317,7 @@ where
         self.read_and_record_object(|this, count| {
             let is_fixed = this.inner.read_u8()? != 0;
             let class_name = this.read_and_record_utf8()?;
-            let entries = (0..count)
-                .map(|_| match this.read() {
-                    Ok(None) => Err(AmfError::Io(io::Error::new(
-                        io::ErrorKind::UnexpectedEof,
-                        "unexpected eof",
-                    ))),
-                    Ok(Some(v)) => Ok(v),
-                    Err(err) => Err(err),
-                })
-                .collect::<AmfResult<_>>()?;
+            let entries = (0..count).map(|_| this.read()).collect::<AmfResult<_>>()?;
             Ok(Value::ObjectVector {
                 is_fixed,
                 entries,
@@ -374,24 +335,18 @@ where
             let entries = (0..count)
                 .map(|_| {
                     let key = this.read()?;
-                    if key.is_none() {
-                        return Err(AmfError::Io(io::Error::new(
-                            io::ErrorKind::UnexpectedEof,
-                            "unexpected eof",
-                        )));
-                    }
-                    let key = key.expect("this cannot be none");
                     let value = this.read()?;
-                    if value.is_none() {
-                        return Err(AmfError::Io(io::Error::new(
-                            io::ErrorKind::UnexpectedEof,
-                            "unexpected eof",
-                        )));
-                    }
-                    Ok((key, value.expect("this cannot be none")))
+                    Ok((key, value))
                 })
                 .collect::<AmfResult<_>>()?;
             Ok(Value::Dictionary { is_weak, entries })
         })
+    }
+}
+
+impl<R: io::Read> ReadFrom<R> for Value {
+    type Error = AmfError;
+    fn read_from(reader: R) -> Result<Self, Self::Error> {
+        Reader::new(reader).read()
     }
 }

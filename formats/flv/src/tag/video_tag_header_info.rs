@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use tokio_util::either::Either;
+use codec_common::video::VideoCodecCommon;
 
 use crate::errors::FLVError;
 
@@ -11,22 +11,8 @@ use super::{
             ExVideoTagHeader, VideoFourCC, VideoModEx, VideoPacketType, VideoTrackInfo,
         },
     },
-    video_tag_header::{self, FrameType, VideoCommand},
+    video_tag_header::{self, FrameTypeFLV, VideoCommand, VideoTagHeader},
 };
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VideoCodecCommon {
-    SorensonH263,
-    ScreenVideo,
-    On2VP6,
-    On2VP6WithAlpha,
-    ScreenVideoV2,
-    AVC,
-    HEVC,
-    VP8,
-    VP9,
-    AV1,
-}
 
 impl TryInto<video_tag_header::CodecID> for VideoCodecCommon {
     type Error = FLVError;
@@ -92,7 +78,7 @@ impl From<VideoFourCC> for VideoCodecCommon {
 pub struct VideoTagHeaderWithoutMultiTrack {
     pub packet_type: VideoPacketType,
     pub codec_id: VideoCodecCommon,
-    pub frame_type: FrameType,
+    pub frame_type: FrameTypeFLV,
     pub video_command: Option<VideoCommand>,
     pub composition_time: Option<u32>,
     pub timestamp_nano: Option<u32>,
@@ -101,9 +87,9 @@ pub struct VideoTagHeaderWithoutMultiTrack {
     pub is_enhanced_rtmp: bool,
 }
 
-impl TryInto<video_tag_header::VideoTagHeader> for VideoTagHeaderWithoutMultiTrack {
+impl TryInto<video_tag_header::LegacyVideoTagHeader> for &VideoTagHeaderWithoutMultiTrack {
     type Error = FLVError;
-    fn try_into(self) -> Result<video_tag_header::VideoTagHeader, Self::Error> {
+    fn try_into(self) -> Result<video_tag_header::LegacyVideoTagHeader, Self::Error> {
         let codec_id: video_tag_header::CodecID = self.codec_id.try_into()?;
         let mut avc_packet_type = None;
         if self.codec_id == VideoCodecCommon::AVC
@@ -123,7 +109,7 @@ impl TryInto<video_tag_header::VideoTagHeader> for VideoTagHeaderWithoutMultiTra
                 _ => {}
             }
         };
-        Ok(video_tag_header::VideoTagHeader {
+        Ok(video_tag_header::LegacyVideoTagHeader {
             frame_type: self.frame_type,
             codec_id,
             avc_packet_type,
@@ -133,14 +119,17 @@ impl TryInto<video_tag_header::VideoTagHeader> for VideoTagHeaderWithoutMultiTra
     }
 }
 
-impl TryInto<ExVideoTagHeader> for VideoTagHeaderWithoutMultiTrack {
+impl TryInto<ExVideoTagHeader> for &VideoTagHeaderWithoutMultiTrack {
     type Error = FLVError;
     fn try_into(self) -> Result<ExVideoTagHeader, Self::Error> {
         let mut tracks: HashMap<u8, VideoTrackInfo> = HashMap::new();
-        tracks.insert(0, VideoTrackInfo {
-            codec: self.codec_id.try_into()?,
-            composition_time: self.composition_time,
-        });
+        tracks.insert(
+            0,
+            VideoTrackInfo {
+                codec: self.codec_id.try_into()?,
+                composition_time: self.composition_time,
+            },
+        );
 
         Ok(ExVideoTagHeader {
             packet_type: self.packet_type,
@@ -155,8 +144,8 @@ impl TryInto<ExVideoTagHeader> for VideoTagHeaderWithoutMultiTrack {
     }
 }
 
-impl From<video_tag_header::VideoTagHeader> for VideoTagHeaderWithoutMultiTrack {
-    fn from(value: video_tag_header::VideoTagHeader) -> Self {
+impl From<&video_tag_header::LegacyVideoTagHeader> for VideoTagHeaderWithoutMultiTrack {
+    fn from(value: &video_tag_header::LegacyVideoTagHeader) -> Self {
         let packet_type = if let Some(packet_type) = value.avc_packet_type {
             packet_type.into()
         } else {
@@ -176,9 +165,9 @@ impl From<video_tag_header::VideoTagHeader> for VideoTagHeaderWithoutMultiTrack 
     }
 }
 
-impl TryFrom<ExVideoTagHeader> for VideoTagHeaderWithoutMultiTrack {
+impl TryFrom<&ExVideoTagHeader> for VideoTagHeaderWithoutMultiTrack {
     type Error = FLVError;
-    fn try_from(value: ExVideoTagHeader) -> Result<Self, Self::Error> {
+    fn try_from(value: &ExVideoTagHeader) -> Result<Self, Self::Error> {
         let track_info = value.tracks.get(&0);
         if track_info.is_none() {
             return Err(FLVError::InconsistentHeader(format!(
@@ -206,7 +195,7 @@ impl VideoTagHeaderWithoutMultiTrack {
     }
 
     pub fn is_key_frame(&self) -> bool {
-        matches!(self.frame_type, FrameType::KeyFrame)
+        matches!(self.frame_type, FrameTypeFLV::KeyFrame)
     }
 
     pub fn get_codec_id(&self) -> VideoCodecCommon {
@@ -214,16 +203,12 @@ impl VideoTagHeaderWithoutMultiTrack {
     }
 }
 
-impl TryFrom<Either<video_tag_header::VideoTagHeader, ExVideoTagHeader>>
-    for VideoTagHeaderWithoutMultiTrack
-{
+impl TryFrom<&VideoTagHeader> for VideoTagHeaderWithoutMultiTrack {
     type Error = FLVError;
-    fn try_from(
-        value: Either<video_tag_header::VideoTagHeader, ExVideoTagHeader>,
-    ) -> Result<Self, Self::Error> {
+    fn try_from(value: &VideoTagHeader) -> Result<Self, Self::Error> {
         match value {
-            Either::Left(header) => Ok(header.into()),
-            Either::Right(header) => Ok(header.try_into()?),
+            VideoTagHeader::Legacy(header) => Ok(header.into()),
+            VideoTagHeader::Enhanced(header) => Ok(header.try_into()?),
         }
     }
 }

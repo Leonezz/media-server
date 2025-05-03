@@ -6,15 +6,11 @@ use std::{
 };
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio_util::{
-    bytes::{Buf, BytesMut},
-    codec::Encoder,
-    either::Either,
-};
+use tokio_util::{bytes::Buf, either::Either};
+use utils::traits::writer::WriteTo;
 
 use super::{
     C0S0Packet, C1S1Packet, C2S2Packet, HandshakeServerState, RTMP_VERSION,
-    codec::{C0S0PacketCodec, C1S1PacketCodec, C2S2PacketCodec},
     consts::{RTMP_HANDSHAKE_SIZE, RTMP_SERVER_KEY, RTMP_SERVER_VERSION, SHA256_DIGEST_SIZE},
     digest::{make_digest, make_message, validate_c1_digest},
     errors::{DigestError, HandshakeError, HandshakeResult},
@@ -122,30 +118,28 @@ where
         Ok(())
     }
     async fn write_s0(&mut self) -> HandshakeResult<()> {
-        let mut bytes = BytesMut::with_capacity(1);
-        C0S0PacketCodec.encode(
-            C0S0Packet {
-                version: RTMP_VERSION,
-            },
-            &mut bytes,
-        )?;
+        let mut bytes = Vec::with_capacity(1);
+        C0S0Packet {
+            version: RTMP_VERSION,
+        }
+        .write_to(&mut bytes)?;
+
         self.io.write_all(&bytes).await?;
         self.io.flush().await?;
         tracing::debug!("s0 bytes sent");
         Ok(())
     }
     async fn write_s1(&mut self) -> HandshakeResult<()> {
-        let mut bytes = BytesMut::with_capacity(RTMP_HANDSHAKE_SIZE);
+        let mut bytes = Vec::with_capacity(RTMP_HANDSHAKE_SIZE);
         let mut random_bytes: [u8; 1528] = [0; 1528];
         utils::random::random_fill(&mut random_bytes);
-        C1S1PacketCodec.encode(
-            C1S1Packet {
-                timestamp: SystemTime::now().duration_since(UNIX_EPOCH)?,
-                _zeros: self.c1_timestamp,
-                random_bytes,
-            },
-            &mut bytes,
-        )?;
+        C1S1Packet {
+            timestamp: SystemTime::now().duration_since(UNIX_EPOCH)?,
+            _zeros: self.c1_timestamp,
+            random_bytes,
+        }
+        .write_to(&mut bytes)?;
+
         self.io.write_all(&bytes).await?;
         self.io.flush().await?;
         tracing::debug!("s1 bytes sent, {:?}", self.io);
@@ -162,7 +156,7 @@ where
 #[derive(Debug)]
 struct ComplexHandshakeServer<T> {
     io: T,
-    writer_buffer: BytesMut,
+    writer_buffer: Vec<u8>,
     c1_digest: [u8; SHA256_DIGEST_SIZE],
     c1_bytes: Vec<u8>,
     c1_timestamp: u32,
@@ -176,7 +170,7 @@ where
     pub fn new(io: T) -> Self {
         Self {
             io,
-            writer_buffer: BytesMut::with_capacity(4096),
+            writer_buffer: Vec::with_capacity(4096),
             c1_digest: [0; SHA256_DIGEST_SIZE],
             c1_bytes: Vec::with_capacity(RTMP_HANDSHAKE_SIZE),
             c1_timestamp: 0,
@@ -230,28 +224,27 @@ where
         Ok(())
     }
     async fn write_s0(&mut self) -> HandshakeResult<()> {
-        C0S0PacketCodec.encode(
-            C0S0Packet {
-                version: RTMP_VERSION,
-            },
-            &mut self.writer_buffer,
-        )?;
+        C0S0Packet {
+            version: RTMP_VERSION,
+        }
+        .write_to(&mut self.writer_buffer)?;
+
         tracing::debug!("write s0");
         Ok(())
     }
     async fn write_s1(&mut self) -> HandshakeResult<()> {
-        let mut bytes = BytesMut::with_capacity(RTMP_HANDSHAKE_SIZE);
+        let mut bytes = Vec::with_capacity(RTMP_HANDSHAKE_SIZE);
         let mut random_bytes: [u8; 1528] = [0; 1528];
 
         utils::random::random_fill(&mut random_bytes);
-        C1S1PacketCodec.encode(
-            C1S1Packet {
-                timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap(),
-                _zeros: RTMP_SERVER_VERSION.into(),
-                random_bytes,
-            },
-            &mut bytes,
-        )?;
+
+        C1S1Packet {
+            timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap(),
+            _zeros: RTMP_SERVER_VERSION.into(),
+            random_bytes,
+        }
+        .write_to(&mut bytes)?;
+
         let mut bytes_array: [u8; 1536] = [0; RTMP_HANDSHAKE_SIZE];
         bytes.reader().read_exact(&mut bytes_array)?;
         let message = make_message(&RTMP_SERVER_KEY, &bytes_array)?;
@@ -260,18 +253,17 @@ where
         Ok(())
     }
     async fn write_s2(&mut self) -> HandshakeResult<()> {
-        let mut bytes = BytesMut::with_capacity(RTMP_HANDSHAKE_SIZE);
+        let mut bytes = Vec::with_capacity(RTMP_HANDSHAKE_SIZE);
         let mut random_bytes: [u8; 1528] = [0; 1528];
 
         utils::random::random_fill(&mut random_bytes);
-        C2S2PacketCodec.encode(
-            C2S2Packet {
-                timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap(),
-                timestamp2: time::Duration::from_millis(self.c1_timestamp as u64),
-                random_echo: random_bytes,
-            },
-            &mut bytes,
-        )?;
+        C2S2Packet {
+            timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap(),
+            timestamp2: time::Duration::from_millis(self.c1_timestamp as u64),
+            random_echo: random_bytes,
+        }
+        .write_to(&mut bytes)?;
+
         let key = make_digest(&RTMP_SERVER_KEY, &self.c1_digest)?;
         let mut bytes_array: [u8; RTMP_HANDSHAKE_SIZE] = [0; RTMP_HANDSHAKE_SIZE];
         bytes.reader().read_exact(&mut bytes_array)?;

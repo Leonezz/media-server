@@ -1,6 +1,6 @@
-use std::{backtrace::Backtrace, io};
+use std::backtrace::Backtrace;
 
-use crate::chunk::errors::{ChunkMessageError, ChunkMessageResult};
+use crate::chunk::errors::ChunkMessageError;
 
 pub mod consts;
 pub mod errors;
@@ -133,23 +133,4 @@ pub enum ProtocolControlMessage {
     Ack(Acknowledgement),
     WindowAckSize(WindowAckSize),
     SetPeerBandwidth(SetPeerBandwidth),
-}
-
-impl ProtocolControlMessage {
-    pub fn read_from<R>(
-        inner: R,
-        message_type: ProtocolControlMessageType,
-    ) -> ChunkMessageResult<ProtocolControlMessage>
-    where
-        R: io::Read,
-    {
-        reader::Reader::new(inner).read(message_type)
-    }
-
-    pub fn write_to<W>(&self, inner: W) -> ChunkMessageResult<()>
-    where
-        W: io::Write,
-    {
-        writer::Writer::new(inner).write(self)
-    }
 }

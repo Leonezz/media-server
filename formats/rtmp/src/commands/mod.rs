@@ -1,9 +1,9 @@
-use std::{collections::HashMap, io};
+use std::collections::HashMap;
 
 use amf_formats::AmfComplexObject;
 use tokio_util::either::Either;
 
-use crate::chunk::errors::{ChunkMessageError, ChunkMessageResult};
+use crate::chunk::errors::ChunkMessageError;
 
 pub mod consts;
 pub mod errors;
@@ -225,7 +225,10 @@ impl From<ConnectCommandRequestObject> for HashMap<String, amf_formats::Value> {
         let mut map: HashMap<String, amf_formats::Value> = HashMap::new();
         let version = value.object_encoding;
         map.insert("app".into(), amf_formats::string(value.app, version));
-        map.insert("flashver".into(), amf_formats::string(value.flash_version, version));
+        map.insert(
+            "flashver".into(),
+            amf_formats::string(value.flash_version, version),
+        );
         map.insert("swfUrl".into(), amf_formats::string(value.swf_url, version));
         map.insert("tcUrl".into(), amf_formats::string(value.tc_url, version));
         map.insert("fpad".into(), amf_formats::bool(value.fpad, version));
@@ -241,7 +244,10 @@ impl From<ConnectCommandRequestObject> for HashMap<String, amf_formats::Value> {
             "videoFunction".into(),
             amf_formats::number(value.video_function, version),
         );
-        map.insert("pageUrl".into(), amf_formats::string(value.page_url, version));
+        map.insert(
+            "pageUrl".into(),
+            amf_formats::string(value.page_url, version),
+        );
         map.insert(
             "objectEncoding".into(),
             amf_formats::number::<u8>(
@@ -411,43 +417,4 @@ pub enum RtmpS2CCommandsType {
     Call,
     CreateStream,
     OnStatus,
-}
-
-impl RtmpC2SCommands {
-    pub fn read_from<R>(
-        inner: R,
-        version: amf_formats::Version,
-    ) -> Result<RtmpC2SCommands, ChunkMessageError>
-    where
-        R: io::Read,
-    {
-        reader::Reader::new(inner, version).read_c2s_command()
-    }
-
-    pub fn write_to<W>(&self, inner: W, version: amf_formats::Version) -> ChunkMessageResult<()>
-    where
-        W: io::Write,
-    {
-        writer::Writer::new(inner, version).write_c2s_command(self)
-    }
-}
-
-impl RtmpS2CCommands {
-    pub fn read_from<R>(
-        inner: R,
-        command_type: RtmpS2CCommandsType,
-        version: amf_formats::Version,
-    ) -> Result<RtmpS2CCommands, ChunkMessageError>
-    where
-        R: io::Read,
-    {
-        reader::Reader::new(inner, version).read_s2c_command(command_type)
-    }
-
-    pub fn write_to<W>(&self, inner: W, version: amf_formats::Version) -> ChunkMessageResult<()>
-    where
-        W: io::Write,
-    {
-        writer::Writer::new(inner, version).write_s2c_command(self)
-    }
 }

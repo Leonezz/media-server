@@ -111,7 +111,7 @@ impl<R: io::Read> ReadFrom<R> for SDESBody {
 
 impl<W: io::Write> WriteTo<W> for SDESBody {
     type Error = RtpError;
-    fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         writer.write_u8(self.length)?;
         writer.write_all(self.value.as_bytes())?;
         Ok(())
@@ -148,9 +148,9 @@ impl<R: io::Read> ReadFrom<R> for SDESItem {
 
 impl<W: io::Write> WriteTo<W> for SDESItem {
     type Error = RtpError;
-    fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         writer.write_u8(self.item_type.into())?;
-        self.item_body.write_to(writer.by_ref())?;
+        self.item_body.write_to(writer)?;
         Ok(())
     }
 }
@@ -209,11 +209,11 @@ impl<R: io::Read> ReadFrom<R> for SDESChunk {
 
 impl<W: io::Write> WriteTo<W> for SDESChunk {
     type Error = RtpError;
-    fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         writer.write_u32::<BigEndian>(self.ssrc)?;
         self.items
             .iter()
-            .try_for_each(|item| item.write_to(writer.by_ref()))?;
+            .try_for_each(|item| item.write_to(writer))?;
         let raw_len = self.get_packet_bytes_count_without_padding();
         let padding_size = rtp_get_padding_size(raw_len);
         if padding_size == 0 {
@@ -279,12 +279,12 @@ impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpSourceDescripti
 
 impl<W: io::Write> WriteTo<W> for RtcpSourceDescriptionPacket {
     type Error = RtpError;
-    fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         let raw_size = self.get_packet_bytes_count_without_padding();
-        self.get_header().write_to(writer.by_ref())?;
+        self.get_header().write_to(writer)?;
         self.chunks
             .iter()
-            .try_for_each(|chunk| chunk.write_to(writer.by_ref()))?;
+            .try_for_each(|chunk| chunk.write_to(writer))?;
 
         if let Some(padding) = rtp_make_padding_bytes(raw_size) {
             writer.write_all(&padding)?;

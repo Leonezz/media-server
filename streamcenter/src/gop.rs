@@ -1,10 +1,8 @@
 use std::collections::VecDeque;
 
-use flv_formats::tag::{
-    audio_tag_header_info::AudioTagHeaderWithoutMultiTrack, on_meta_data::OnMetaData,
-    video_tag_header_info::VideoTagHeaderWithoutMultiTrack,
-};
-use tokio_util::bytes::BytesMut;
+use codec_common::{FrameType, audio::AudioFrameInfo, video::VideoFrameInfo};
+use flv_formats::tag::on_meta_data::OnMetaData;
+use tokio_util::bytes::Bytes;
 
 use crate::{errors::StreamCenterResult, frame_info::MediaMessageRuntimeStat};
 
@@ -12,57 +10,62 @@ use crate::{errors::StreamCenterResult, frame_info::MediaMessageRuntimeStat};
 pub enum MediaFrame {
     Video {
         runtime_stat: MediaMessageRuntimeStat,
-        pts: u64,
         // NOTE - this tag_header is also included in the frame payload
-        header: VideoTagHeaderWithoutMultiTrack,
-        payload: BytesMut,
+        frame_info: VideoFrameInfo,
+        payload: Bytes,
     },
     Audio {
         runtime_stat: MediaMessageRuntimeStat,
-        pts: u64,
         // NOTE - this tag_header is also included in the frame payload
-        header: AudioTagHeaderWithoutMultiTrack,
-        payload: BytesMut,
+        frame_info: AudioFrameInfo,
+        payload: Bytes,
     },
     Script {
         runtime_stat: MediaMessageRuntimeStat,
-        pts: u64,
+        timestamp_nano: u64,
         // onMetaData should be the content of payload,
         // note the payload still holds all the bytes
         on_meta_data: Box<Option<OnMetaData>>,
-        payload: BytesMut,
+        payload: Bytes,
     },
 }
 
 impl MediaFrame {
     #[inline]
     pub fn is_video(&self) -> bool {
-        matches!(self, MediaFrame::Video {
-            runtime_stat: _,
-            pts: _,
-            header: _,
-            payload: _,
-        })
+        matches!(
+            self,
+            MediaFrame::Video {
+                runtime_stat: _,
+                frame_info: _,
+                payload: _,
+            }
+        )
     }
 
     #[inline]
     pub fn is_audio(&self) -> bool {
-        matches!(self, MediaFrame::Audio {
-            runtime_stat: _,
-            pts: _,
-            header: _,
-            payload: _,
-        })
+        matches!(
+            self,
+            MediaFrame::Audio {
+                runtime_stat: _,
+                frame_info: _,
+                payload: _,
+            }
+        )
     }
 
     #[inline]
     pub fn is_script(&self) -> bool {
-        matches!(self, MediaFrame::Script {
-            runtime_stat: _,
-            pts: _,
-            payload: _,
-            on_meta_data: _,
-        })
+        matches!(
+            self,
+            MediaFrame::Script {
+                runtime_stat: _,
+                timestamp_nano: _,
+                payload: _,
+                on_meta_data: _,
+            }
+        )
     }
 
     #[inline]
@@ -70,16 +73,14 @@ impl MediaFrame {
         match self {
             MediaFrame::Audio {
                 runtime_stat: _,
-                pts: _,
-                header,
+                frame_info,
                 payload: _,
-            } => header.is_sequence_header(),
+            } => frame_info.frame_type == FrameType::SequenceStart,
             MediaFrame::Video {
                 runtime_stat: _,
-                pts: _,
-                header,
+                frame_info,
                 payload: _,
-            } => header.is_sequence_header(),
+            } => frame_info.frame_type == FrameType::SequenceStart,
             _ => false,
         }
     }
@@ -89,35 +90,10 @@ impl MediaFrame {
         match self {
             MediaFrame::Video {
                 runtime_stat: _,
-                pts: _,
-                header,
+                frame_info,
                 payload: _,
-            } => header.is_key_frame(),
+            } => frame_info.frame_type == FrameType::KeyFrame,
             _ => false,
-        }
-    }
-
-    #[inline]
-    pub fn get_frame_pts(&self) -> u64 {
-        match self {
-            MediaFrame::Audio {
-                runtime_stat: _,
-                pts,
-                header: _,
-                payload: _,
-            }
-            | MediaFrame::Video {
-                runtime_stat: _,
-                pts,
-                header: _,
-                payload: _,
-            }
-            | MediaFrame::Script {
-                runtime_stat: _,
-                pts,
-                on_meta_data: _,
-                payload: _,
-            } => *pts,
         }
     }
 }
@@ -128,8 +104,8 @@ pub struct Gop {
     video_tag_cnt: usize,
     audio_tag_cnt: usize,
     meta_tag_cnt: usize,
-    first_video_pts: u64,
-    last_video_pts: u64,
+    first_video_pts_nano: u64,
+    last_video_pts_nano: u64,
 }
 
 impl Gop {
@@ -139,8 +115,8 @@ impl Gop {
             video_tag_cnt: 0,
             audio_tag_cnt: 0,
             meta_tag_cnt: 0,
-            first_video_pts: 0,
-            last_video_pts: 0,
+            first_video_pts_nano: 0,
+            last_video_pts_nano: 0,
         }
     }
 
@@ -161,36 +137,34 @@ impl Gop {
 
     #[inline]
     pub fn get_first_video_pts(&self) -> u64 {
-        self.first_video_pts
+        self.first_video_pts_nano
     }
 
     #[inline]
     pub fn get_last_video_pts(&self) -> u64 {
-        self.last_video_pts
+        self.last_video_pts_nano
     }
 
     pub fn append_flv_tag(&mut self, frame: MediaFrame) {
-        match frame {
+        match &frame {
             MediaFrame::Video {
-                pts,
-                header: _,
+                frame_info,
                 payload: _,
                 runtime_stat: _,
             } => {
                 self.video_tag_cnt += 1;
                 if self.flv_frames.is_empty() {
-                    self.first_video_pts = pts;
+                    self.first_video_pts_nano = frame_info.timestamp_nano;
                 }
-                self.last_video_pts = pts;
+                self.last_video_pts_nano = frame_info.timestamp_nano;
             }
             MediaFrame::Audio {
-                pts: _,
-                header: _,
+                frame_info: _,
                 payload: _,
                 runtime_stat: _,
             } => self.audio_tag_cnt += 1,
             MediaFrame::Script {
-                pts: _,
+                timestamp_nano: _,
                 payload: _,
                 runtime_stat: _,
                 on_meta_data: _,
@@ -287,38 +261,36 @@ impl GopQueue {
     pub fn append_frame(&mut self, frame: MediaFrame) -> StreamCenterResult<()> {
         let mut is_sequence_header = false;
         let mut is_video = false;
-        match frame {
+        match &frame {
             MediaFrame::Audio {
-                pts: _,
-                header,
+                frame_info,
                 payload: _,
                 runtime_stat: _,
             } => {
-                if header.is_sequence_header() {
-                    tracing::info!("audio header: {:?}", header);
+                if frame_info.frame_type == FrameType::SequenceStart {
+                    tracing::info!("audio header: {:?}", frame_info);
                     self.audio_sequence_header = Some(frame.clone());
                     is_sequence_header = true
                 }
             }
             MediaFrame::Video {
-                pts: _,
-                header,
+                frame_info,
                 payload: _,
                 runtime_stat: _,
             } => {
                 is_video = true;
-                if header.is_sequence_header() {
-                    tracing::info!("video header: {:?}", header);
+                if frame_info.frame_type == FrameType::SequenceStart {
+                    tracing::info!("video header: {:?}", frame_info);
                     self.video_sequence_header = Some(frame.clone());
                     is_sequence_header = true;
-                } else if header.is_key_frame() {
+                } else if frame_info.frame_type == FrameType::KeyFrame {
                     self.gops.push_back(Gop::new());
                 }
             }
             MediaFrame::Script {
                 runtime_stat: _,
-                pts,
-                ref on_meta_data,
+                timestamp_nano: pts,
+                on_meta_data,
                 payload: _,
             } => {
                 self.script_frame = Some(frame.clone());

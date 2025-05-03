@@ -1,20 +1,30 @@
-use std::{collections::HashMap, io::Write};
+use std::{
+    collections::HashMap,
+    io::{self, Write},
+};
 
 use byteorder::{BigEndian, WriteBytesExt};
 
+use codec_common::FrameType;
 use flv_formats::{
     errors::FLVResult,
     header::FLVHeader,
-    tag::{FLVTagHeader, FLVTagType},
+    tag::{
+        audio_tag_header::LegacyAudioTagHeader,
+        flv_tag_header::{FLVTagHeader, FLVTagType},
+        video_tag_header::LegacyVideoTagHeader,
+    },
 };
+use num::ToPrimitive;
 use stream_center::{
     events::{StreamCenterEvent, SubscribeResponse},
     gop::MediaFrame,
     stream_source::{StreamIdentifier, StreamType},
 };
 use tokio::sync::{mpsc, oneshot};
-use tokio_util::bytes::BytesMut;
+use tokio_util::bytes::{Bytes, BytesMut};
 use utils::system::time::get_timestamp_ns;
+use utils::traits::writer::WriteTo;
 use uuid::Uuid;
 
 use crate::{
@@ -119,22 +129,20 @@ impl HttpFlvSession {
                     match &frame {
                         MediaFrame::Video {
                             runtime_stat: _,
-                            pts: _,
-                            header,
+                            frame_info,
                             payload: _,
                         } => {
-                            if header.is_sequence_header() {
+                            if frame_info.frame_type == FrameType::SequenceStart {
                                 has_video_sequence_header = true;
                                 self.runtime_stat.video_sequence_header_sent = true;
                             }
                         }
                         MediaFrame::Audio {
                             runtime_stat: _,
-                            pts: _,
-                            header,
+                            frame_info,
                             payload: _,
                         } => {
-                            if header.is_sequence_header() {
+                            if frame_info.frame_type == FrameType::SequenceStart {
                                 has_audio_sequence_header = true;
                                 self.runtime_stat.audio_sequence_header_sent = true;
                             }
@@ -167,16 +175,16 @@ impl HttpFlvSession {
         }
     }
 
-    pub fn write_flv_tag(
+    pub fn write_flv_tag<W: io::Write>(
         &mut self,
         mut frame: MediaFrame,
-        bytes_buffer: &mut Vec<u8>,
+        bytes_buffer: W,
     ) -> HttpFlvSessionResult<()> {
-        fn write_tag(
+        fn write_tag<W: io::Write>(
             tag_type: FLVTagType,
             timestamp: u32,
-            payload: &BytesMut,
-            bytes_buffer: &mut Vec<u8>,
+            payload: &Bytes,
+            mut bytes_buffer: W,
         ) -> FLVResult<()> {
             let flv_tag_header = FLVTagHeader {
                 tag_type,
@@ -186,13 +194,13 @@ impl HttpFlvSession {
             };
 
             const FLV_TAG_HEADER_SIZE: usize = 11;
-            const FLV_PREV_TAG_SIZE_BYTES: usize = 4;
+            // const FLV_PREV_TAG_SIZE_BYTES: usize = 4;
 
-            bytes_buffer.reserve(
-                FLV_TAG_HEADER_SIZE + FLV_PREV_TAG_SIZE_BYTES + flv_tag_header.data_size as usize,
-            );
+            // bytes_buffer.reserve(
+            //     FLV_TAG_HEADER_SIZE + FLV_PREV_TAG_SIZE_BYTES + flv_tag_header.data_size as usize,
+            // );
             flv_tag_header.write_to(bytes_buffer.by_ref())?;
-            bytes_buffer.extend_from_slice(&payload[..]);
+            bytes_buffer.write_all(&payload[..])?;
 
             // write prev tag size
             bytes_buffer
@@ -202,40 +210,59 @@ impl HttpFlvSession {
         match &mut frame {
             MediaFrame::Video {
                 runtime_stat,
-                pts,
-                header,
+                frame_info,
                 payload,
             } => {
                 runtime_stat.play_time_ns = get_timestamp_ns().expect("this cannot be error");
                 self.runtime_stat.video_frame_sent += 1;
+                let video_tag_header: LegacyVideoTagHeader = (&*frame_info).try_into()?;
+                let mut payload_bytes = Vec::with_capacity(payload.len());
+                video_tag_header.write_to(&mut payload_bytes)?;
+                payload_bytes.write_all(payload)?;
 
-                let timestamp =
-                    *pts + if let Some(cts) = header.composition_time {
-                        cts as u64
-                    } else {
-                        0
-                    } + if let Some(cts_nano) = header.timestamp_nano {
-                        cts_nano as u64
-                    } else {
-                        0
-                    };
+                let timestamp = frame_info
+                    .timestamp_nano
+                    .checked_div(1_000_000)
+                    .unwrap()
+                    .to_u32()
+                    .unwrap();
 
-                write_tag(FLVTagType::Video, timestamp as u32, payload, bytes_buffer)?;
+                write_tag(
+                    FLVTagType::Video,
+                    timestamp,
+                    &payload_bytes.into(),
+                    bytes_buffer,
+                )?;
             }
             MediaFrame::Audio {
                 runtime_stat,
-                pts,
-                header: _,
+                frame_info,
                 payload,
             } => {
                 runtime_stat.play_time_ns = get_timestamp_ns().expect("this cannot be error");
                 self.runtime_stat.audio_frame_sent += 1;
 
-                write_tag(FLVTagType::Audio, *pts as u32, payload, bytes_buffer)?;
+                let audio_tag_header: LegacyAudioTagHeader = (&*frame_info).try_into()?;
+                let mut payload_bytes = Vec::with_capacity(payload.len());
+                audio_tag_header.write_to(&mut payload_bytes)?;
+                payload_bytes.write_all(payload)?;
+
+                let timestamp = frame_info
+                    .timestamp_nano
+                    .checked_div(1_000_000)
+                    .unwrap()
+                    .to_u32()
+                    .unwrap();
+                write_tag(
+                    FLVTagType::Audio,
+                    timestamp,
+                    &payload_bytes.into(),
+                    bytes_buffer,
+                )?;
             }
             MediaFrame::Script {
                 runtime_stat,
-                pts,
+                timestamp_nano: pts,
                 payload,
                 on_meta_data: _,
             } => {

@@ -1,7 +1,7 @@
 use std::io::{self};
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use h264_codec::nalu::NalUnit;
+use codec_h264::nalu::NalUnit;
 use utils::traits::{
     dynamic_sized_packet::DynamicSizedPacket, reader::ReadRemainingFrom, writer::WriteTo,
 };
@@ -44,7 +44,7 @@ impl<R: io::Read> ReadRemainingFrom<u8, R> for StapAFormat {
 
 impl<W: io::Write> WriteTo<W> for StapAFormat {
     type Error = RtpH264Error;
-    fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         writer.write_u8(self.header)?;
 
         self.nal_units
@@ -109,7 +109,7 @@ impl<R: io::Read> ReadRemainingFrom<u8, R> for StapBFormat {
 
 impl<W: io::Write> WriteTo<W> for StapBFormat {
     type Error = RtpH264Error;
-    fn write_to(&self, mut writer: W) -> Result<(), Self::Error> {
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         writer.write_u8(self.header)?;
         writer.write_u16::<BigEndian>(self.decode_order_number)?;
 

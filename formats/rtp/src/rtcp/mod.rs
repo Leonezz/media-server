@@ -187,7 +187,7 @@ impl<R: AsRef<[u8]>> TryReadRemainingFrom<RtcpCommonHeader, R> for RtcpPacket {
 
 impl<W: io::Write> WriteTo<W> for RtcpPacket {
     type Error = RtpError;
-    fn write_to(&self, writer: W) -> Result<(), Self::Error> {
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         match self {
             RtcpPacket::SenderReport(packet) => packet.write_to(writer),
             RtcpPacket::ReceiverReport(packet) => packet.write_to(writer),

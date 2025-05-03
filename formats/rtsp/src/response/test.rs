@@ -24,10 +24,7 @@ mod tests {
                 RtspHeader::Supported,
                 "play.basic, setup.rtp.rtcp.mux, play.scale",
             )
-            .header(
-                RtspHeader::Server,
-                "PhonyServer/1.1",
-            )
+            .header(RtspHeader::Server, "PhonyServer/1.1")
             .build();
         assert!(response.is_ok());
         let text = "RTSP/2.0 200 OK\r\n\
@@ -61,22 +58,13 @@ a=control:video";
             .version(crate::consts::version::RtspVersion::V2)
             .status(crate::consts::status::RtspStatus::OK)
             .header(RtspHeader::CSeq, "312")
-            .header(
-                RtspHeader::Date,
-                "Thu, 23 Jan 1997 15:35:06 GMT",
-            )
-            .header(
-                RtspHeader::Server,
-                "PhonyServer/1.1",
-            )
+            .header(RtspHeader::Date, "Thu, 23 Jan 1997 15:35:06 GMT")
+            .header(RtspHeader::Server, "PhonyServer/1.1")
             .header(
                 RtspHeader::ContentBase,
                 "rtsp://server.example.com/fizzle/foo/",
             )
-            .header(
-                RtspHeader::ContentType,
-                "application/sdp",
-            )
+            .header(RtspHeader::ContentType, "application/sdp")
             .body(body.to_owned())
             .build();
 

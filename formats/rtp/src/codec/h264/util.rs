@@ -1,5 +1,5 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use h264_codec::nalu::NalUnit;
+use codec_h264::nalu::NalUnit;
 use std::io::{self, Cursor, Read};
 use tokio_util::bytes::Buf;
 use utils::traits::reader::ReadExactFrom;
@@ -65,7 +65,7 @@ pub fn read_aggregated_mtap24_nal_units<R: io::Read>(
 }
 
 pub fn write_aggregated_stap_nal_unit<W: io::Write>(
-    mut writer: W,
+    writer: &mut W,
     nal_unit: &NalUnit,
 ) -> RtpH264Result<()> {
     writer.write_u16::<BigEndian>(nal_unit.body.len() as u16 + 1)?;
@@ -74,7 +74,7 @@ pub fn write_aggregated_stap_nal_unit<W: io::Write>(
 }
 
 pub fn write_aggregated_mtap16_nal_unit<W: io::Write>(
-    mut writer: W,
+    writer: &mut W,
     nal_unit: &NalUnit,
     decode_order_number_diff: u8,
     timestamp_offset: u16,
@@ -87,7 +87,7 @@ pub fn write_aggregated_mtap16_nal_unit<W: io::Write>(
 }
 
 pub fn write_aggregated_mtap24_nal_unit<W: io::Write>(
-    mut writer: W,
+    writer: &mut W,
     nal_unit: &NalUnit,
     decode_order_number_diff: u8,
     timestamp_offset: u32,

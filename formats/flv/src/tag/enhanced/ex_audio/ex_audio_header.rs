@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use codec_common::FrameType;
+
 use crate::{
     errors::FLVError,
     tag::{
@@ -29,6 +31,18 @@ pub enum AudioPacketType {
     // enabling support for high-precision timestamps or other advanced
     // features that enhance the base packet structure.
     ModEx = 7,
+}
+
+impl TryFrom<AudioPacketType> for FrameType {
+    type Error = FLVError;
+    fn try_from(value: AudioPacketType) -> Result<Self, Self::Error> {
+        match value {
+            AudioPacketType::CodedFrames => Ok(Self::CodedFrames),
+            AudioPacketType::SequenceEnd => Ok(Self::SequenceEnd),
+            AudioPacketType::SequenceStart => Ok(Self::SequenceStart),
+            _ => Err(FLVError::UnknownAudioPacketType(255)),
+        }
+    }
 }
 
 impl From<AudioPacketType> for u8 {

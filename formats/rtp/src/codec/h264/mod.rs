@@ -99,7 +99,7 @@ impl<R: io::Read> ReadFrom<R> for RtpH264NalUnit {
 
 impl<W: io::Write> WriteTo<W> for RtpH264NalUnit {
     type Error = RtpH264Error;
-    fn write_to(&self, writer: W) -> Result<(), Self::Error> {
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         match &self {
             RtpH264NalUnit::SingleNalu(packet) => packet.write_to(writer),
             RtpH264NalUnit::Aggregated(packet) => packet.write_to(writer),

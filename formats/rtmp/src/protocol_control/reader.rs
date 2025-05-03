@@ -1,4 +1,4 @@
-use crate::chunk::errors::{ChunkMessageError, ChunkMessageResult};
+use crate::chunk::errors::ChunkMessageError;
 
 use super::{
     AbortMessage, Acknowledgement, ProtocolControlMessage, ProtocolControlMessageType,
@@ -6,44 +6,38 @@ use super::{
 };
 use byteorder::{BigEndian, ReadBytesExt};
 use std::io;
+use utils::traits::reader::{ReadFrom, ReadRemainingFrom};
 
-pub struct Reader<R> {
-    inner: R,
-}
-
-impl<R> Reader<R>
-where
-    R: io::Read,
-{
-    pub fn new(inner: R) -> Self {
-        Self { inner }
-    }
-
-    pub fn read(
-        &mut self,
-        message_type_id: ProtocolControlMessageType,
-    ) -> ChunkMessageResult<ProtocolControlMessage> {
-        match message_type_id {
+impl<R: io::Read> ReadRemainingFrom<ProtocolControlMessageType, R> for ProtocolControlMessage {
+    type Error = ChunkMessageError;
+    fn read_remaining_from(
+        header: ProtocolControlMessageType,
+        reader: R,
+    ) -> Result<Self, Self::Error> {
+        match header {
             ProtocolControlMessageType::SetChunkSize => Ok(ProtocolControlMessage::SetChunkSize(
-                self.read_set_chunk_size_message()?,
+                SetChunkSize::read_from(reader)?,
             )),
-            ProtocolControlMessageType::Abort => {
-                Ok(ProtocolControlMessage::Abort(self.read_abort_message()?))
-            }
+            ProtocolControlMessageType::Abort => Ok(ProtocolControlMessage::Abort(
+                AbortMessage::read_from(reader)?,
+            )),
             ProtocolControlMessageType::Acknowledgement => Ok(ProtocolControlMessage::Ack(
-                self.read_acknowledgement_message()?,
+                Acknowledgement::read_from(reader)?,
             )),
             ProtocolControlMessageType::WindowAckSize => Ok(ProtocolControlMessage::WindowAckSize(
-                self.read_window_ack_size_message()?,
+                WindowAckSize::read_from(reader)?,
             )),
             ProtocolControlMessageType::SetPeerBandwidth => Ok(
-                ProtocolControlMessage::SetPeerBandwidth(self.read_set_peer_bandwidth_message()?),
+                ProtocolControlMessage::SetPeerBandwidth(SetPeerBandwidth::read_from(reader)?),
             ),
         }
     }
+}
 
-    fn read_set_chunk_size_message(&mut self) -> ChunkMessageResult<SetChunkSize> {
-        let chunk_size = self.inner.read_u32::<BigEndian>()?;
+impl<R: io::Read> ReadFrom<R> for SetChunkSize {
+    type Error = ChunkMessageError;
+    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+        let chunk_size = reader.read_u32::<BigEndian>()?;
         if (chunk_size as i32) < 0 {
             return Err(ChunkMessageError::InvalidMessage(format!(
                 "invalid set chunk size message, the first bit of chunk size is not zero, chunk size bits: {:#b}",
@@ -60,28 +54,40 @@ where
             chunk_size: chunk_size.min(MAX_CHUNK_SIZE),
         })
     }
+}
 
-    fn read_abort_message(&mut self) -> ChunkMessageResult<AbortMessage> {
+impl<R: io::Read> ReadFrom<R> for AbortMessage {
+    type Error = ChunkMessageError;
+    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
         Ok(AbortMessage {
-            chunk_stream_id: self.inner.read_u32::<BigEndian>()?,
+            chunk_stream_id: reader.read_u32::<BigEndian>()?,
         })
     }
+}
 
-    fn read_acknowledgement_message(&mut self) -> ChunkMessageResult<Acknowledgement> {
+impl<R: io::Read> ReadFrom<R> for Acknowledgement {
+    type Error = ChunkMessageError;
+    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
         Ok(Acknowledgement {
-            sequence_number: self.inner.read_u32::<BigEndian>()?,
+            sequence_number: reader.read_u32::<BigEndian>()?,
         })
     }
+}
 
-    fn read_window_ack_size_message(&mut self) -> ChunkMessageResult<WindowAckSize> {
+impl<R: io::Read> ReadFrom<R> for WindowAckSize {
+    type Error = ChunkMessageError;
+    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
         Ok(WindowAckSize {
-            size: self.inner.read_u32::<BigEndian>()?,
+            size: reader.read_u32::<BigEndian>()?,
         })
     }
+}
 
-    fn read_set_peer_bandwidth_message(&mut self) -> ChunkMessageResult<SetPeerBandwidth> {
-        let size = self.inner.read_u32::<BigEndian>()?;
-        let limit_type = self.inner.read_u8()?;
+impl<R: io::Read> ReadFrom<R> for SetPeerBandwidth {
+    type Error = ChunkMessageError;
+    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+        let size = reader.read_u32::<BigEndian>()?;
+        let limit_type = reader.read_u8()?;
 
         Ok(SetPeerBandwidth {
             size,

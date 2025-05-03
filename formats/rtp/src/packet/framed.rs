@@ -20,8 +20,8 @@ impl Encoder<RtpTrivialPacket> for RtpTrivialPacketFramed {
         item: RtpTrivialPacket,
         dst: &mut tokio_util::bytes::BytesMut,
     ) -> Result<(), Self::Error> {
-        let bytes_writer = dst.writer();
-        item.write_to(bytes_writer)
+        let mut bytes_writer = dst.writer();
+        item.write_to(&mut bytes_writer)
     }
 }
 
@@ -37,7 +37,7 @@ impl Decoder for RtpTrivialPacketFramed {
             let res = RtpTrivialPacket::try_read_from(cursor.by_ref());
             (res, cursor.position())
         };
-        if res.is_ok() {
+        if let Ok(Some(_)) = &res {
             src.advance(position as usize);
         }
         res

@@ -1,7 +1,4 @@
-use crate::errors::{FLVError, FLVResult};
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use std::io;
-
+use crate::errors::FLVError;
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AudioChannelOrder {
@@ -188,60 +185,6 @@ pub fn make_channel_masks(channels: &[AudioChannel]) -> u32 {
 
 #[derive(Debug)]
 pub struct AudioMultichannelConfig {
-    channel_order: AudioChannelOrder,
-    channel_mapping: Vec<AudioChannel>,
-}
-
-impl AudioMultichannelConfig {
-    pub fn read_from<R>(mut reader: R) -> FLVResult<Self>
-    where
-        R: io::Read,
-    {
-        let audio_channel_order: AudioChannelOrder = reader.read_u8()?.try_into()?;
-        let channel_cnt = reader.read_u8()? as usize;
-        let mapping = match audio_channel_order {
-            AudioChannelOrder::Unspecified => vec![AudioChannel::Unknown; channel_cnt],
-            AudioChannelOrder::Native => {
-                let channel_mask = reader.read_u32::<BigEndian>()?;
-                read_channels_from_mask(channel_mask)
-            }
-            AudioChannelOrder::Custom => {
-                let mut channels = vec![0_u8; channel_cnt];
-                reader.read_exact(&mut channels)?;
-                let mut channel_mapping = Vec::new();
-                for v in channels {
-                    channel_mapping.push(v.try_into()?);
-                }
-                channel_mapping
-            }
-        };
-        Ok(Self {
-            channel_order: audio_channel_order,
-            channel_mapping: mapping,
-        })
-    }
-
-    pub fn write_to<W>(&self, mut writer: W) -> FLVResult<()>
-    where
-        W: io::Write,
-    {
-        writer.write_u8(self.channel_order.into())?;
-        writer.write_u8(self.channel_mapping.len() as u8)?;
-        match self.channel_order {
-            AudioChannelOrder::Unspecified => {}
-            AudioChannelOrder::Custom => {
-                let buffer: Vec<u8> = self
-                    .channel_mapping
-                    .iter()
-                    .map(|v| <AudioChannel as Into<u8>>::into(*v))
-                    .collect();
-                writer.write_all(&buffer)?;
-            }
-            AudioChannelOrder::Native => {
-                let mask = make_channel_masks(&self.channel_mapping);
-                writer.write_u32::<BigEndian>(mask)?;
-            }
-        }
-        Ok(())
-    }
+    pub channel_order: AudioChannelOrder,
+    pub channel_mapping: Vec<AudioChannel>,
 }

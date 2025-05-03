@@ -9,8 +9,7 @@ use tokio::sync::{
     RwLock,
     mpsc::{self, UnboundedSender, error::TryRecvError},
 };
-use tokio_util::codec::Framed;
-use unified_io::UnifiedIO;
+use unified_io::{UnifiedIO, UnifiyStreamed};
 
 use crate::{
     errors::{RtpSessionError, RtpSessionResult},
@@ -92,7 +91,7 @@ impl RtpSession {
         rtp_tx: mpsc::UnboundedSender<RtpTrivialPacket>,
         mut rtp_rx: mpsc::UnboundedReceiver<RtpTrivialPacket>,
     ) -> RtpSessionResult<()> {
-        let mut io = Framed::new(rtp_io, RtpTrivialPacketFramed);
+        let mut io = UnifiyStreamed::new(rtp_io, RtpTrivialPacketFramed);
         loop {
             let packet = Self::receive_rtp(&mut io).await?;
             rtcp_context
@@ -119,7 +118,7 @@ impl RtpSession {
         rtcp_context: Arc<RwLock<RtcpContext>>,
         mut rtcp_rx: mpsc::UnboundedReceiver<RtcpPacket>,
     ) -> RtpSessionResult<()> {
-        let mut io = Framed::new(rtcp_io, RtcpPacketFramed);
+        let mut io = UnifiyStreamed::new(rtcp_io, RtcpPacketFramed);
         let mut rtcp_buffer = Vec::new();
         loop {
             let packet = Self::receive_rtcp(&mut io).await?;
@@ -197,7 +196,7 @@ impl RtpSession {
     }
 
     async fn receive_rtp(
-        rtp_io: &mut Framed<Pin<Box<dyn UnifiedIO>>, RtpTrivialPacketFramed>,
+        rtp_io: &mut UnifiyStreamed<RtpTrivialPacketFramed>,
     ) -> RtpSessionResult<RtpTrivialPacket> {
         let packet = rtp_io.next().await;
         match packet {
@@ -211,7 +210,7 @@ impl RtpSession {
     }
 
     async fn receive_rtcp(
-        rtcp_io: &mut Framed<Pin<Box<dyn UnifiedIO>>, RtcpPacketFramed>,
+        rtcp_io: &mut UnifiyStreamed<RtcpPacketFramed>,
     ) -> RtpSessionResult<RtcpCompoundPacket> {
         let packet = rtcp_io.next().await;
         match packet {
