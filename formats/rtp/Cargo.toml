@@ -16,6 +16,7 @@ itertools = "0.14.0"
 bitstream-io = "4.0.0"
 futures = "0.3.31"
 unified-io = { path = "../../unifiedio" }
+base64 = "0.22.1"
 
 [lints.clippy]
 uninlined_format_args = "allow"

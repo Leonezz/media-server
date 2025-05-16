@@ -1,8 +1,10 @@
 use std::collections::VecDeque;
 
 use codec_common::{FrameType, audio::AudioFrameInfo, video::VideoFrameInfo};
+use codec_h264::avc_decoder_configuration_record::AvcDecoderConfigurationRecord;
 use flv_formats::tag::on_meta_data::OnMetaData;
-use tokio_util::bytes::Bytes;
+use tokio_util::bytes::{Buf, Bytes};
+use utils::traits::reader::ReadFrom;
 
 use crate::{errors::StreamCenterResult, frame_info::MediaMessageRuntimeStat};
 
@@ -270,17 +272,21 @@ impl GopQueue {
                 if frame_info.frame_type == FrameType::SequenceStart {
                     tracing::info!("audio header: {:?}", frame_info);
                     self.audio_sequence_header = Some(frame.clone());
-                    is_sequence_header = true
+                    is_sequence_header = true;
                 }
             }
             MediaFrame::Video {
                 frame_info,
-                payload: _,
+                payload,
                 runtime_stat: _,
             } => {
                 is_video = true;
                 if frame_info.frame_type == FrameType::SequenceStart {
                     tracing::info!("video header: {:?}", frame_info);
+
+                    let record = AvcDecoderConfigurationRecord::read_from(payload.as_ref())?;
+                    tracing::info!("avc decoder configuration record: {:?}", record);
+
                     self.video_sequence_header = Some(frame.clone());
                     is_sequence_header = true;
                 } else if frame_info.frame_type == FrameType::KeyFrame {

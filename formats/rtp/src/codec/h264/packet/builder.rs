@@ -1,7 +1,9 @@
 use std::io::{Cursor, Read};
 
 use byteorder::ReadBytesExt;
-use codec_h264::nalu::{NALUType, NalUnit, NaluHeader};
+use codec_h264::nalu::NalUnit;
+use codec_h264::nalu_header::NaluHeader;
+use codec_h264::nalu_type::NALUType;
 use tokio_util::bytes::{Buf, Bytes};
 use utils::traits::reader::ReadRemainingFrom;
 use utils::traits::{dynamic_sized_packet::DynamicSizedPacket, writer::WriteTo};

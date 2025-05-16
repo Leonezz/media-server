@@ -1,11 +1,7 @@
 use std::io;
 
 use crate::{
-    errors::H264CodecError,
-    nalu::{self, NalUnit},
-    nalu_header::NaluHeader,
-    nalu_type::NALUType,
-    sps::Sps,
+    errors::H264CodecError, nalu::NalUnit, nalu_header::NaluHeader, nalu_type::NALUType, sps::Sps,
 };
 use bitstream_io::BigEndian;
 use byteorder::ReadBytesExt;

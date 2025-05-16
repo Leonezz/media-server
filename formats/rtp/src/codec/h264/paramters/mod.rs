@@ -5,9 +5,25 @@ mod test;
 
 use std::{fmt, str::FromStr};
 
+use base64::Engine;
+use codec_h264::{
+    nalu::NalUnit,
+    nalu_type::NALUType,
+    pps::Pps,
+    rbsp::RbspReader,
+    sps::{Sps, chroma_format_idc::ChromaFormatIdc},
+};
 use errors::H264SDPError;
 use itertools::Itertools;
 use packetization_mode::PacketizationMode;
+use utils::traits::reader::{BitwiseReadFrom, BitwiseReadReaminingFrom, ReadFrom};
+
+#[derive(Debug, Clone)]
+pub struct SpropParameterSets {
+    pub raw: Vec<String>,
+    pub sps: Option<Sps>,
+    pub pps: Option<Pps>,
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct H264SDPFormatParameters {
@@ -32,7 +48,7 @@ pub struct H264SDPFormatParameters {
     pub in_band_parameter_sets: Option<bool>,
     pub use_level_src_parameter_sets: Option<bool>, // default to 0
     pub level_asymmetry_allowed: Option<bool>,      // default to 0
-    pub sprop_parameter_sets: Vec<String>,
+    pub sprop_parameter_sets: Option<SpropParameterSets>,
     pub sprop_level_parameter_sets: Vec<([u8; 3], Vec<String>)>,
     pub unknown: Vec<String>,
 }
@@ -278,7 +294,56 @@ impl FromStr for H264SDPFormatParameters {
                     );
                 }
                 "sprop-parameter-sets" => {
-                    result.sprop_parameter_sets = value.split(',').map(|s| s.to_owned()).collect();
+                    let raw: Vec<_> = value.split(',').map(|s| s.to_owned()).collect();
+                    result.sprop_parameter_sets = Some(SpropParameterSets {
+                        raw: vec![],
+                        sps: None,
+                        pps: None,
+                    });
+                    raw.iter().try_for_each(|item| {
+                        let bytes = base64::prelude::BASE64_STANDARD.decode(item.as_bytes()).map_err(|err| H264SDPError::InvalidSpropParameterSets(
+                            format!("sprop-parameter-sets value decode as base64 failed: {}, err={}", item, err)
+                        ))?;
+                        let nalu = NalUnit::read_from(bytes.as_slice()).map_err(|err| H264SDPError::InvalidSpropLevelParameterSets(
+                            format!("sprop-parameter-sets value parse as nalu failed: {}, err={}", item, err)
+                        ))?;
+                        let mut reader = RbspReader::new(&nalu.body[..]);
+                        match nalu.header.nal_unit_type {
+                            NALUType::SPS => {
+                                result.sprop_parameter_sets.as_mut().unwrap().sps = Some(Sps::read_from(&mut reader).map_err(|err| {
+                                    H264SDPError::InvalidSpropParameterSets(format!(
+                                        "sprop-parameter-sets value parse as sps failed: {}, err={}",
+                                        item, err
+                                    ))
+                                })?);
+                            },
+                            NALUType::PPS => {
+                                result.sprop_parameter_sets.as_mut().unwrap().pps = Some(
+                                    Pps::read_remaining_from(
+                                        result.sprop_parameter_sets.as_ref().unwrap().sps
+                                        .as_ref()
+                                        .map_or(ChromaFormatIdc::Chroma420, 
+                                            |sps| sps.profile_idc_related.as_ref()
+                                            .map_or(ChromaFormatIdc::Chroma420, 
+                                                |p| p.chroma_format_idc)),
+                                        &mut reader,
+                                    ).map_err(|err| {
+                                        H264SDPError::InvalidSpropParameterSets(format!(
+                                            "sprop-parameter-sets value parse as pps failed: {}, err={}",
+                                            item, err
+                                        ))
+                                    })?
+                                )
+                            },
+                            t => {
+                                return Err(H264SDPError::InvalidSpropParameterSets(
+                                    format!("sprop-parameter-sets value is not SPS or PPS: {}, nalu type: {:?}", item, t)
+                                ));
+                            }
+                        }
+                        Ok(())
+                    })?;
+                    result.sprop_parameter_sets.as_mut().unwrap().raw = raw;
                 }
                 "sprop-level-parameter-sets" => {
                     let split = value.split(":").collect::<Vec<_>>();
@@ -389,12 +454,14 @@ impl fmt::Display for H264SDPFormatParameters {
                 level_asymmetry_allowed as u8
             ));
         }
-        if !self.sprop_parameter_sets.is_empty() {
-            result.push(format!(
-                "sprop-parameter-sets={}",
-                self.sprop_parameter_sets.join(",")
-            ));
+        if let Some(sprop_parameter_sets) = &self.sprop_parameter_sets {
+            let sprop_parameter_sets = sprop_parameter_sets
+                .raw
+                .iter()
+                .join(",");
+            result.push(format!("sprop-parameter-sets={}", sprop_parameter_sets));
         }
+
         if !self.sprop_level_parameter_sets.is_empty() {
             let sprop_level_parameter_sets = self
                 .sprop_level_parameter_sets

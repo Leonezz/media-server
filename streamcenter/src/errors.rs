@@ -17,6 +17,8 @@ pub enum StreamCenterError {
     InvalidStreamType(String),
     #[error("parse flv tag failed")]
     ParseFLVTagFailed(#[from] flv_formats::errors::FLVError),
+    #[error("parse h264 codec elements failed: {0}")]
+    H264CodecError(#[from] codec_h264::errors::H264CodecError),
 }
 
 pub type StreamCenterResult<T> = Result<T, StreamCenterError>;

@@ -149,30 +149,31 @@ impl From<VideoFormat> for u8 {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VideoSignalType {
     pub video_format: VideoFormat, // u(3), see: Table E-2 – Meaning of video_format
     pub video_full_range_flag: bool, // u(1)
+    #[allow(unused)]
     pub(crate) colour_description_present_flag: bool, // u(1)
     /// colour_description_present_flag {
     pub colour_description: Option<ColourDescription>,
     // }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct ChromaLocInfo {
     pub chroma_sample_loc_type_top_field: u8, // ue(v), in [0, 5]
     pub chroma_sample_loc_type_bottom_field: u8, // ue(v), in [0, 5]
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TimingInfo {
     pub num_units_in_tick: u32,      // u(32), in (0, )
     pub time_scale: u32,             // u(32), in (0, )
     pub fixed_frame_rate_flag: bool, // u(1)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BitstreamRestriction {
     pub motion_vectors_over_pic_boundaries_flag: bool, // u(1),
     pub max_bytes_per_pic_denom: u8,                   // ue(v), in [0, 16]
@@ -185,30 +186,37 @@ pub struct BitstreamRestriction {
 
 /// @see: Recommendation  ITU-T H.264 (V15) (08/2024)   – Coding of moving video
 /// Section E.1.1 VUI parameters syntax
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VuiParameters {
+    #[allow(unused)]
     aspect_ratio_info_present_flag: bool, // u(1)
     /// if aspect_ratio_info_present_flag {
     pub aspect_ratio_info: Option<AspectRatioInfo>,
     /// }
+    #[allow(unused)]
     overscan_info_present_flag: bool, // u(1)
     /// if overscan_info_present_flag {
     pub overscan_appropriate_flag: Option<bool>, // u(1)
     /// }
+    #[allow(unused)]
     video_signal_type_present_flag: bool, // u(1)
     pub video_signal_type: Option<VideoSignalType>,
+    #[allow(unused)]
     chroma_loc_info_present_flag: bool, // u(1)
     /// if chroma_loc_info_present_flag {
     pub chroma_loc_info: Option<ChromaLocInfo>,
     /// }
+    #[allow(unused)]
     timing_info_present_flag: bool, // u(1)
     /// if timing_info_present_flag {
     pub timing_info: Option<TimingInfo>,
     /// }
+    #[allow(unused)]
     nal_hrd_parameters_present_flag: bool, // u(1)
     /// if nal_hrd_parameters_present_flag {
     pub nal_hrd_parameters: Option<HrdParameters>,
     /// }
+    #[allow(unused)]
     vcl_hrd_parameters_present_flag: bool, // u(1)
     /// if vcl_hrd_parameters_present_flag {
     pub vcl_hrd_parameters: Option<HrdParameters>,
@@ -217,6 +225,7 @@ pub struct VuiParameters {
     pub low_delay_hrd_flag: Option<bool>, // u(1)
     /// }
     pub pic_struct_present_flag: bool, // u(1)
+    #[allow(unused)]
     bitstream_restriction_flag: bool, // u(1)
     /// if bitstream_restriction_flag {
     pub bitstream_restriction: Option<BitstreamRestriction>,

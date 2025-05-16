@@ -182,7 +182,7 @@ impl<R: io::Read> ReadRemainingFrom<amf_formats::Version, R> for PlayCommand {
             _transaction_id: transaction_id,
             stream_name,
             start,
-            duration: duration.unwrap_or(-1.0) as i64,
+            duration: duration.unwrap_or(-1.0).to_i64().unwrap(),
             reset: reset.unwrap_or(false),
         })
     }
@@ -575,7 +575,7 @@ impl<R: io::Read> ReadRemainingFrom<amf_formats::Version, R> for ConnectCommandR
             );
         }
 
-        let properties = amf_formats::Value::read_object(reader.by_ref(), header)?;
+        let properties = amf_formats::Value::read_object(reader.by_ref(), header).unwrap_or(None);
         let information = amf_formats::Value::read_remaining_from(header, reader).ok();
 
         Ok(ConnectCommandResponse {
@@ -607,8 +607,9 @@ impl<R: io::Read> ReadRemainingFrom<amf_formats::Version, R> for CallCommandResp
                     backtrace: Backtrace::capture(),
                 }
             })?;
-        let command_object = amf_formats::Value::read_object(reader.by_ref(), header)?;
-        let response = amf_formats::Value::read_object(reader, header)?;
+        let command_object =
+            amf_formats::Value::read_object(reader.by_ref(), header).unwrap_or(None);
+        let response = amf_formats::Value::read_object(reader, header).unwrap_or(None);
         Ok(CallCommandResponse {
             command_name,
             transaction_id,

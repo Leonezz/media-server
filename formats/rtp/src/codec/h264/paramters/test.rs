@@ -18,7 +18,7 @@ mod tests {
 
     #[test]
     fn test_simple2() {
-        let parameters = "profile-level-id=42A01E; packetization-mode=2; sprop-parameter-sets=<parameter sets data#2>; sprop-interleaving-depth=45; sprop-deint-buf-req=64000; sprop-init-buf-time=102478; deint-buf-cap=128000";
+        let parameters = "profile-level-id=42A01E; packetization-mode=2; sprop-parameter-sets=Z2QAHqzZQNg95vARAAADAAEAAAMAMA8WLZY=,aO+Pyw==; sprop-interleaving-depth=45; sprop-deint-buf-req=64000; sprop-init-buf-time=102478; deint-buf-cap=128000";
         let parsed: H264SDPFormatParameters = parameters.parse().unwrap();
         assert_eq!(parsed.profile_level_id, Some([0x42, 0xa0, 0x1e]));
         assert_eq!(
@@ -26,8 +26,11 @@ mod tests {
             Some(PacketizationMode::Interleaved)
         );
         assert_eq!(
-            parsed.sprop_parameter_sets,
-            vec!["<parameter sets data#2>".to_string(),]
+            parsed.sprop_parameter_sets.unwrap().raw,
+            vec![
+                "Z2QAHqzZQNg95vARAAADAAEAAAMAMA8WLZY=".to_string(),
+                "aO+Pyw==".to_string()
+            ]
         );
         assert_eq!(parsed.sprop_interleaving_depth, Some(45));
         assert_eq!(parsed.sprop_deint_buf_req, Some(64000));

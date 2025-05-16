@@ -1,6 +1,6 @@
 use std::io::{self};
 
-use codec_h264::nalu::{NalUnit, NaluHeader};
+use codec_h264::{nalu::NalUnit, nalu_header::NaluHeader};
 use utils::traits::{
     dynamic_sized_packet::DynamicSizedPacket, reader::ReadRemainingFrom, writer::WriteTo,
 };

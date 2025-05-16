@@ -9,6 +9,7 @@ amf-formats = { path = "../../formats/amf" }
 flv-formats = { path = "../../formats/flv" }
 utils = { path = "../../utils" }
 codec-common = { path = "../../codec/common" }
+codec-h264 = { path = "../../codec/h264" }
 stream-center = { path = "../../streamcenter" }
 unified-io = { path = "../../unifiedio" }
 

@@ -1,9 +1,20 @@
+pub mod reader;
+pub mod writer;
+
 use bitstream_io::BitRead;
 
 use crate::{
     errors::{H264CodecError, H264CodecResult},
     exp_golomb::read_se,
 };
+
+#[derive(Debug, Clone)]
+pub struct SeqScalingMatrix {
+    pub(crate) seq_scaling_list_present_flag: [bool; 12], // u(1)
+    /// if seq_scaling_list_present_flag[i]
+    pub scaling_list_4x4: [ScalingListRaw<16>; 6], // TODO-
+    pub scaling_list_8x8: [ScalingListRaw<64>; 6],
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct ScalingListRaw<const C: usize> {
@@ -22,7 +33,7 @@ impl<const C: usize> Default for ScalingListRaw<C> {
 
 impl<const C: usize> ScalingListRaw<C> {
     pub fn new<R: BitRead>(
-        mut reader: R,
+        reader: &mut R,
         use_default_scaling_matrix_flag: &mut bool,
     ) -> H264CodecResult<Self> {
         let mut last_scale: i64 = 8;
@@ -31,7 +42,7 @@ impl<const C: usize> ScalingListRaw<C> {
         let mut delta_scale = [None; C];
         scale.iter_mut().enumerate().try_for_each(|(i, item)| {
             if next_scale != 0 {
-                let delta = read_se(&mut reader)?;
+                let delta = read_se(reader)?;
                 delta_scale[i] = Some(delta);
                 next_scale = last_scale
                     .checked_add(delta)

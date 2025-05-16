@@ -8,26 +8,13 @@ use crate::{
 };
 
 use super::{
-    FrameCropping, PicOrderCntType1, ProfileIdcRelated, Sps, scaling_list::ScalingListRaw,
+    FrameCropping, PicOrderCntType1, ProfileIdcRelated, Sps, chroma_format_idc::ChromaFormatIdc,
 };
-
-impl<const C: usize, W: BitWrite> BitwiseWriteTo<W> for ScalingListRaw<C> {
-    type Error = H264CodecError;
-    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
-        self.delta_scale.iter().try_for_each(|item| {
-            if let Some(delta) = item {
-                write_se(writer, *delta)?;
-            }
-            Ok::<(), Self::Error>(())
-        })?;
-        Ok(())
-    }
-}
 
 impl<W: BitWrite> BitwiseWriteTo<W> for ProfileIdcRelated {
     type Error = H264CodecError;
     fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
-        write_ue(writer, self.chroma_format_idc)?;
+        write_ue(writer, Into::<u8>::into(self.chroma_format_idc))?;
         if let Some(separate_colour_plane_flag) = self.separate_colour_plane_flag {
             writer.write_bit(separate_colour_plane_flag)?;
         }
@@ -36,7 +23,11 @@ impl<W: BitWrite> BitwiseWriteTo<W> for ProfileIdcRelated {
         writer.write_bit(self.qpprime_y_zero_transform_bypass_flag)?;
         if let Some(seq_scaling_matrix) = &self.seq_scaling_matrix {
             writer.write_bit(true)?; // seq_scaling_matrix_present_flag
-            let cnt = if self.chroma_format_idc != 3 { 8 } else { 12 };
+            let cnt = if !matches!(self.chroma_format_idc, ChromaFormatIdc::Chroma444) {
+                8
+            } else {
+                12
+            };
             for i in 0..cnt {
                 if seq_scaling_matrix.seq_scaling_list_present_flag[i] {
                     if i < 6 {

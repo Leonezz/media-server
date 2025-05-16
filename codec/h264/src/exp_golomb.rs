@@ -4,11 +4,7 @@ use num::{Signed, ToPrimitive};
 use crate::errors::{H264CodecError, H264CodecResult};
 
 fn read_code_num<R: BitRead>(reader: &mut R) -> H264CodecResult<u64> {
-    let mut leading_zero_bits = 0;
-    while !reader.read_bit()? {
-        leading_zero_bits += 1;
-    }
-
+    let leading_zero_bits = reader.read_unary::<1>()?;
     if leading_zero_bits > 31 {
         return Err(H264CodecError::InvalidExpGolombCode(format!(
             "got more then 31 leading zero bits: {}",

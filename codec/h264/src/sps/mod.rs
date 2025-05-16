@@ -1,29 +1,18 @@
-use scaling_list::ScalingListRaw;
+use chroma_format_idc::ChromaFormatIdc;
 
-use crate::vui::VuiParameters;
+use crate::{scaling_list::SeqScalingMatrix, vui::VuiParameters};
 
+pub mod chroma_format_idc;
 pub mod reader;
-pub mod scaling_list;
 pub mod writer;
 
-/// @see: Recommendation  ITU-T H.264 (V15) (08/2024)   – Coding of moving video
-/// Section 7.3.2.1.1 Sequence parameter set data syntax
-
-#[derive(Debug)]
-pub struct SeqScalingMatrix {
-    seq_scaling_list_present_flag: [bool; 12], // u(1)
-    /// if seq_scaling_list_present_flag[i]
-    pub scaling_list_4x4: [ScalingListRaw<16>; 6], // TODO-
-    pub scaling_list_8x8: [ScalingListRaw<64>; 6],
-}
-
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ProfileIdcRelated {
-    pub chroma_format_idc: u8, // ue(v), should be in [0, 3]
+    pub chroma_format_idc: ChromaFormatIdc, // ue(v), should be in [0, 3]
     /// if( chroma_format_idc == 3 ) {
     pub separate_colour_plane_flag: Option<bool>, // u(1)
-    pub bit_depth_luma_minus8: u64, // ue(v)
-    pub bit_depth_chroma_minus8: u64, // ue(v)
+    pub bit_depth_luma_minus8: u64,         // ue(v)
+    pub bit_depth_chroma_minus8: u64,       // ue(v)
     pub qpprime_y_zero_transform_bypass_flag: bool, // u(1)
     #[allow(unused)]
     seq_scaling_matrix_present_flag: bool, // u(1),
@@ -32,7 +21,7 @@ pub struct ProfileIdcRelated {
     // }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PicOrderCntType1 {
     pub delta_pic_order_always_zero_flag: bool, // u(1)
     pub offset_for_non_ref_pic: i64,            // se(v)
@@ -42,7 +31,7 @@ pub struct PicOrderCntType1 {
     pub offset_for_ref_frame: Vec<i64>,         // se(v)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FrameCropping {
     pub frame_crop_left_offset: u64,   // ue(v)
     pub frame_crop_right_offset: u64,  // ue(v)
@@ -50,7 +39,9 @@ pub struct FrameCropping {
     pub frame_crop_bottom_offset: u64, // ue(v)
 }
 
-#[derive(Debug)]
+/// @see: Recommendation  ITU-T H.264 (V15) (08/2024)   – Coding of moving video
+/// Section 7.3.2.1.1 Sequence parameter set data syntax
+#[derive(Debug, Clone)]
 pub struct Sps {
     pub profile_idc: u8,            // u(8)
     pub constraint_set0_flag: bool, // u(1)

@@ -1,7 +1,7 @@
 use std::{
     io,
     net::{IpAddr, SocketAddr},
-    pin::Pin,
+    pin::Pin, time::Duration,
 };
 
 use futures::SinkExt;
@@ -333,7 +333,12 @@ impl RtspMediaSession {
         })?;
         loop {
             self.process_commands(&span)?;
-            self.process_data(&span).await?;
+            match tokio::time::timeout(Duration::from_secs(2), self.process_data(&span)).await {
+                Err(_)  => {},
+                Ok(res) => {
+                    res?
+                }
+            }
         }
     }
 
