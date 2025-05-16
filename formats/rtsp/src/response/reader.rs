@@ -21,7 +21,7 @@ use super::RtspResponse;
 
 impl<R: io::BufRead> ReadRemainingFrom<RtspVersion, R> for RtspResponse {
     type Error = RtspMessageError;
-    fn read_remaining_from(header: RtspVersion, mut reader: R) -> Result<Self, Self::Error> {
+    fn read_remaining_from(header: RtspVersion, reader: &mut R) -> Result<Self, Self::Error> {
         let buffer = reader.fill_buf()?;
         let (res, position) = {
             let mut cursor = io::Cursor::new(&buffer);
@@ -44,7 +44,7 @@ impl<R: io::BufRead> ReadRemainingFrom<RtspVersion, R> for RtspResponse {
 
 impl<R: io::BufRead> ReadFrom<R> for RtspResponse {
     type Error = RtspMessageError;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let buffer = reader.fill_buf()?;
         let (res, position) = {
             let mut cursor = io::Cursor::new(&buffer);
@@ -69,7 +69,7 @@ impl<R: io::BufRead> ReadFrom<R> for RtspResponse {
 impl FromStr for RtspResponse {
     type Err = RtspMessageError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::read_from(s.as_bytes())
+        Self::read_from(&mut s.as_bytes())
     }
 }
 

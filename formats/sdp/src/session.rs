@@ -508,7 +508,7 @@ impl SessionDescription {
 
 impl<R: io::BufRead> ReadFrom<R> for SessionDescription {
     type Error = SDPError;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let mut text = String::new();
         reader.read_to_string(&mut text)?;
         Self::reader().read_from(&text)

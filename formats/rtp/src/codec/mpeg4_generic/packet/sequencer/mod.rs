@@ -107,7 +107,7 @@ impl RtpBufferedSequencer for RtpMpeg4GenericSequencer {
     ) -> Result<(), crate::errors::RtpError> {
         let packet = RtpMpeg4GenericPacket::read_remaining_from(
             (&self.params, &packet.header),
-            packet.payload.reader(),
+            &mut packet.payload.reader(),
         )
         .map_err(|err| RtpError::Mpeg4SequenceFailed(format!("{}", err)))?;
 

@@ -12,7 +12,7 @@ use super::{FLVTagHeader, FLVTagType};
 
 impl<R: io::Read> ReadFrom<R> for FLVTagHeader {
     type Error = FLVError;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let first_byte = reader.read_u8()?;
         let filter_enabled = ((first_byte >> 5) & 0b1) != 0;
         let tag_type: FLVTagType = (first_byte & 0b11111).try_into()?;

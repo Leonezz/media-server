@@ -25,7 +25,7 @@ pub struct SingleNalUnit(pub NalUnit);
 
 impl<R: io::Read> ReadRemainingFrom<u8, R> for SingleNalUnit {
     type Error = RtpH264Error;
-    fn read_remaining_from(header: u8, reader: R) -> Result<Self, Self::Error> {
+    fn read_remaining_from(header: u8, reader: &mut R) -> Result<Self, Self::Error> {
         let nal_header: NaluHeader = header.try_into()?;
         Ok(Self(NalUnit::read_remaining_from(nal_header, reader)?))
     }

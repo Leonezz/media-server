@@ -9,9 +9,9 @@ use super::{EncryptionFilterParams, EncryptionTagHeader, SelectiveEncryptionFilt
 
 impl<R: io::Read> ReadFrom<R> for EncryptionTagHeader {
     type Error = FLVError;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let num_filters = reader.read_u8()?;
-        let name = amf_formats::amf0::Value::read_from(reader.by_ref())?;
+        let name = amf_formats::amf0::Value::read_from(reader)?;
         let filter_name = match name {
             amf_formats::amf0::Value::String(str) => str,
             _ => {
@@ -33,7 +33,7 @@ impl<R: io::Read> ReadFrom<R> for EncryptionTagHeader {
 
 impl<R: io::Read> ReadFrom<R> for EncryptionFilterParams {
     type Error = FLVError;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let mut iv = [0; 16];
         reader.read_exact(&mut iv)?;
         Ok(Self { iv })
@@ -42,7 +42,7 @@ impl<R: io::Read> ReadFrom<R> for EncryptionFilterParams {
 
 impl<R: io::Read> ReadFrom<R> for SelectiveEncryptionFilterParams {
     type Error = FLVError;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let byte = reader.read_u8()?;
         let au = ((byte >> 7) & 0b1) != 0;
         if au {

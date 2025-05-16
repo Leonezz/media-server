@@ -50,7 +50,10 @@ pub enum AggregationNalUnits {
 
 impl<R: io::Read> ReadRemainingFrom<AggregationPacketType, R> for AggregationNalUnits {
     type Error = RtpH264Error;
-    fn read_remaining_from(header: AggregationPacketType, reader: R) -> Result<Self, Self::Error> {
+    fn read_remaining_from(
+        header: AggregationPacketType,
+        reader: &mut R,
+    ) -> Result<Self, Self::Error> {
         match header {
             AggregationPacketType::STAPA => Ok(Self::StapA(StapAFormat::read_remaining_from(
                 header.into(),

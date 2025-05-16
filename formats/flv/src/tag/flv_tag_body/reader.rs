@@ -21,8 +21,8 @@ use super::{FLVTagBody, FLVTagBodyWithFilter, Filter};
 
 impl<R: io::Read> ReadFrom<R> for Filter {
     type Error = FLVError;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
-        let tag_header = EncryptionTagHeader::read_from(reader.by_ref())?;
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
+        let tag_header = EncryptionTagHeader::read_from(reader)?;
         let mut bytes = vec![0_u8; tag_header.length as usize];
         reader.read_exact(&mut bytes)?;
         let mut cursor_bytes = io::Cursor::new(bytes);
@@ -48,7 +48,7 @@ impl<R: io::Read> ReadFrom<R> for Filter {
 
 impl<R: io::Read> ReadRemainingFrom<&FLVTagHeader, R> for FLVTagBodyWithFilter {
     type Error = FLVError;
-    fn read_remaining_from(header: &FLVTagHeader, mut reader: R) -> Result<Self, Self::Error> {
+    fn read_remaining_from(header: &FLVTagHeader, reader: &mut R) -> Result<Self, Self::Error> {
         // header.data_size tells us the total bytes count of the filter and the audio/video header plus the body part
         let mut body_bytes = vec![0; header.data_size.to_usize().unwrap()];
         reader.read_exact(&mut body_bytes)?;
@@ -89,7 +89,7 @@ impl<R: io::Read> ReadRemainingFrom<&FLVTagHeader, R> for FLVTagBodyWithFilter {
                 })
             }
             FLVTagType::Script => {
-                let (name, value) = read_meta(cursor)?;
+                let (name, value) = read_meta(cursor.by_ref())?;
                 Ok(FLVTagBodyWithFilter {
                     filter,
                     body: FLVTagBody::Script { name, value },
@@ -100,9 +100,9 @@ impl<R: io::Read> ReadRemainingFrom<&FLVTagHeader, R> for FLVTagBodyWithFilter {
 }
 
 fn read_meta<R: io::Read>(
-    mut reader: R,
+    reader: &mut R,
 ) -> FLVResult<(String, Vec<(String, amf_formats::amf0::Value)>)> {
-    let name = amf_formats::amf0::Value::read_from(reader.by_ref())?;
+    let name = amf_formats::amf0::Value::read_from(reader)?;
     let name_str = match name {
         amf_formats::amf0::Value::String(str) => str,
         _ => {
@@ -112,7 +112,7 @@ fn read_meta<R: io::Read>(
             )));
         }
     };
-    let value = amf_formats::amf0::Value::read_from(reader.by_ref())?;
+    let value = amf_formats::amf0::Value::read_from(reader)?;
     let value_arr = match value {
         amf_formats::amf0::Value::ECMAArray(arr) => arr,
         _ => {

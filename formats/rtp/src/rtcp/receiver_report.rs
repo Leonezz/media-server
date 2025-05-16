@@ -54,7 +54,7 @@ impl RtcpPacketSizeTrait for RtcpReceiverReport {
 
 impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpReceiverReport {
     type Error = RtpError;
-    fn read_remaining_from(header: RtcpCommonHeader, mut reader: R) -> Result<Self, Self::Error> {
+    fn read_remaining_from(header: RtcpCommonHeader, reader: &mut R) -> Result<Self, Self::Error> {
         if header.payload_type != RtcpPayloadType::ReceiverReport {
             return Err(RtpError::WrongPayloadType(format!(
                 "expect receiver report payload type but got {:?} instead",
@@ -65,7 +65,7 @@ impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpReceiverReport 
         let sender_ssrc = reader.read_u32::<BigEndian>()?;
         let mut report_blocks = Vec::with_capacity(header.count as usize);
         for _ in 0..header.count {
-            report_blocks.push(ReportBlock::read_from(reader.by_ref())?);
+            report_blocks.push(ReportBlock::read_from(reader)?);
         }
 
         let mut buffer = Vec::new();

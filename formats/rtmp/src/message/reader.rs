@@ -5,7 +5,7 @@ use crate::{
 
 use super::{RtmpMessageType, RtmpUserMessageBody};
 use num::ToPrimitive;
-use std::io::{self, Cursor};
+use std::io::{self, Cursor, Read};
 
 use utils::traits::reader::ReadRemainingFrom;
 
@@ -15,12 +15,12 @@ impl<R: io::Read> ReadRemainingFrom<(amf_formats::Version, bool, &ChunkMessageCo
     type Error = ChunkMessageError;
     fn read_remaining_from(
         header: (amf_formats::Version, bool, &ChunkMessageCommonHeader),
-        mut reader: R,
+        reader: &mut R,
     ) -> Result<Self, Self::Error> {
         let (version, c2s, header) = header;
         let mut payload = vec![0; header.message_length.to_usize().unwrap()];
         reader.read_exact(&mut payload)?;
-        let payload_reader = Cursor::new(&payload);
+        let mut payload_reader = Cursor::new(&payload);
 
         let message = match header.message_type_id.try_into()? {
             RtmpMessageType::AMF0Data | RtmpMessageType::AMF3Data => {
@@ -41,7 +41,7 @@ impl<R: io::Read> ReadRemainingFrom<(amf_formats::Version, bool, &ChunkMessageCo
                 if c2s {
                     RtmpUserMessageBody::C2SCommand(commands::RtmpC2SCommands::read_remaining_from(
                         version,
-                        payload_reader,
+                        payload_reader.by_ref(),
                     )?)
                 } else {
                     todo!()

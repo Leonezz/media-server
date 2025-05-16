@@ -20,7 +20,7 @@ impl<R: io::Read> ReadRemainingFrom<amf_formats::Version, R> for RtmpC2SCommands
     type Error = ChunkMessageError;
     fn read_remaining_from(
         header: amf_formats::Version,
-        mut reader: R,
+        reader: &mut R,
     ) -> Result<Self, Self::Error> {
         let command_name =
             amf_formats::Value::read_string(reader.by_ref(), header)?.ok_or_else(|| {
@@ -77,7 +77,7 @@ impl<R: io::Read> ReadRemainingFrom<amf_formats::Version, R> for ConnectCommandR
     type Error = ChunkMessageError;
     fn read_remaining_from(
         header: amf_formats::Version,
-        mut reader: R,
+        reader: &mut R,
     ) -> Result<Self, Self::Error> {
         let transaction_id = amf_formats::Value::read_number(reader.by_ref(), header)?
             .ok_or_else(|| ChunkMessageError::UnexpectedAmfType {
@@ -117,7 +117,7 @@ impl<R: io::Read> ReadRemainingFrom<amf_formats::Version, R> for CreateStreamCom
     type Error = ChunkMessageError;
     fn read_remaining_from(
         header: amf_formats::Version,
-        mut reader: R,
+        reader: &mut R,
     ) -> Result<Self, Self::Error> {
         let transaction_id =
             amf_formats::Value::read_number(reader.by_ref(), header)?.ok_or_else(|| {
@@ -140,7 +140,7 @@ impl<R: io::Read> ReadRemainingFrom<amf_formats::Version, R> for PlayCommand {
     type Error = ChunkMessageError;
     fn read_remaining_from(
         header: amf_formats::Version,
-        mut reader: R,
+        reader: &mut R,
     ) -> Result<Self, Self::Error> {
         let transaction_id = amf_formats::Value::read_number(reader.by_ref(), header)?
             .ok_or_else(|| ChunkMessageError::UnexpectedAmfType {
@@ -192,7 +192,7 @@ impl<R: io::Read> ReadRemainingFrom<amf_formats::Version, R> for Play2Command {
     type Error = ChunkMessageError;
     fn read_remaining_from(
         header: amf_formats::Version,
-        mut reader: R,
+        reader: &mut R,
     ) -> Result<Self, Self::Error> {
         let transaction_id = amf_formats::Value::read_number(reader.by_ref(), header)?
             .ok_or_else(|| ChunkMessageError::UnexpectedAmfType {
@@ -229,7 +229,7 @@ impl<R: io::Read> ReadRemainingFrom<amf_formats::Version, R> for DeleteStreamCom
     type Error = ChunkMessageError;
     fn read_remaining_from(
         header: amf_formats::Version,
-        mut reader: R,
+        reader: &mut R,
     ) -> Result<Self, Self::Error> {
         let transaction_id = amf_formats::Value::read_number(reader.by_ref(), header)?
             .ok_or_else(|| ChunkMessageError::UnexpectedAmfType {
@@ -268,7 +268,7 @@ impl<R: io::Read> ReadRemainingFrom<amf_formats::Version, R> for ReceiveAudioCom
     type Error = ChunkMessageError;
     fn read_remaining_from(
         header: amf_formats::Version,
-        mut reader: R,
+        reader: &mut R,
     ) -> Result<Self, Self::Error> {
         let transaction_id = amf_formats::Value::read_number(reader.by_ref(), header)?
             .ok_or_else(|| ChunkMessageError::UnexpectedAmfType {
@@ -309,7 +309,7 @@ impl<R: io::Read> ReadRemainingFrom<amf_formats::Version, R> for ReceiveVideoCom
     type Error = ChunkMessageError;
     fn read_remaining_from(
         header: amf_formats::Version,
-        mut reader: R,
+        reader: &mut R,
     ) -> Result<Self, Self::Error> {
         let transaction_id = amf_formats::Value::read_number(reader.by_ref(), header)?
             .ok_or_else(|| ChunkMessageError::UnexpectedAmfType {
@@ -350,7 +350,7 @@ impl<R: io::Read> ReadRemainingFrom<amf_formats::Version, R> for PublishCommand 
     type Error = ChunkMessageError;
     fn read_remaining_from(
         header: amf_formats::Version,
-        mut reader: R,
+        reader: &mut R,
     ) -> Result<Self, Self::Error> {
         let transaction_id = amf_formats::Value::read_number(reader.by_ref(), header)?
             .ok_or_else(|| ChunkMessageError::UnexpectedAmfType {
@@ -408,7 +408,7 @@ impl<R: io::Read> ReadRemainingFrom<amf_formats::Version, R> for SeekCommand {
     type Error = ChunkMessageError;
     fn read_remaining_from(
         header: amf_formats::Version,
-        mut reader: R,
+        reader: &mut R,
     ) -> Result<Self, Self::Error> {
         let transaction_id = amf_formats::Value::read_number(reader.by_ref(), header)?
             .ok_or_else(|| ChunkMessageError::UnexpectedAmfType {
@@ -449,7 +449,7 @@ impl<R: io::Read> ReadRemainingFrom<amf_formats::Version, R> for PauseCommand {
     type Error = ChunkMessageError;
     fn read_remaining_from(
         header: amf_formats::Version,
-        mut reader: R,
+        reader: &mut R,
     ) -> Result<Self, Self::Error> {
         let transaction_id = amf_formats::Value::read_number(reader.by_ref(), header)?
             .ok_or_else(|| ChunkMessageError::UnexpectedAmfType {
@@ -497,7 +497,7 @@ impl<R: io::Read> ReadRemainingFrom<(amf_formats::Version, String), R> for CallC
     type Error = ChunkMessageError;
     fn read_remaining_from(
         header: (amf_formats::Version, String),
-        mut reader: R,
+        reader: &mut R,
     ) -> Result<Self, Self::Error> {
         let transaction_id = amf_formats::Value::read_number(reader.by_ref(), header.0)?
             .ok_or_else(|| ChunkMessageError::UnexpectedAmfType {
@@ -522,7 +522,7 @@ impl<R: io::Read> ReadRemainingFrom<(amf_formats::Version, RtmpS2CCommandsType),
     type Error = ChunkMessageError;
     fn read_remaining_from(
         header: (amf_formats::Version, RtmpS2CCommandsType),
-        reader: R,
+        reader: &mut R,
     ) -> Result<Self, Self::Error> {
         match header.1 {
             RtmpS2CCommandsType::Connect => Ok(RtmpS2CCommands::Connect(
@@ -545,7 +545,7 @@ impl<R: io::Read> ReadRemainingFrom<amf_formats::Version, R> for ConnectCommandR
     type Error = ChunkMessageError;
     fn read_remaining_from(
         header: amf_formats::Version,
-        mut reader: R,
+        reader: &mut R,
     ) -> Result<Self, Self::Error> {
         let command_name =
             amf_formats::Value::read_string(reader.by_ref(), header)?.ok_or_else(|| {
@@ -591,24 +591,21 @@ impl<R: io::Read> ReadRemainingFrom<amf_formats::Version, R> for CallCommandResp
     type Error = ChunkMessageError;
     fn read_remaining_from(
         header: amf_formats::Version,
-        mut reader: R,
+        reader: &mut R,
     ) -> Result<Self, Self::Error> {
-        let command_name =
-            amf_formats::Value::read_string(reader.by_ref(), header)?.ok_or_else(|| {
-                ChunkMessageError::UnexpectedAmfType {
-                    amf_type: "expect string type".to_owned(),
-                    backtrace: Backtrace::capture(),
-                }
-            })?;
-        let transaction_id =
-            amf_formats::Value::read_number(reader.by_ref(), header)?.ok_or_else(|| {
-                ChunkMessageError::UnexpectedAmfType {
-                    amf_type: "expect number type".to_owned(),
-                    backtrace: Backtrace::capture(),
-                }
-            })?;
-        let command_object =
-            amf_formats::Value::read_object(reader.by_ref(), header).unwrap_or(None);
+        let command_name = amf_formats::Value::read_string(reader, header)?.ok_or_else(|| {
+            ChunkMessageError::UnexpectedAmfType {
+                amf_type: "expect string type".to_owned(),
+                backtrace: Backtrace::capture(),
+            }
+        })?;
+        let transaction_id = amf_formats::Value::read_number(reader, header)?.ok_or_else(|| {
+            ChunkMessageError::UnexpectedAmfType {
+                amf_type: "expect number type".to_owned(),
+                backtrace: Backtrace::capture(),
+            }
+        })?;
+        let command_object = amf_formats::Value::read_object(reader, header).unwrap_or(None);
         let response = amf_formats::Value::read_object(reader, header).unwrap_or(None);
         Ok(CallCommandResponse {
             command_name,
@@ -623,7 +620,7 @@ impl<R: io::Read> ReadRemainingFrom<amf_formats::Version, R> for CreateStreamCom
     type Error = ChunkMessageError;
     fn read_remaining_from(
         header: amf_formats::Version,
-        mut reader: R,
+        reader: &mut R,
     ) -> Result<Self, Self::Error> {
         let command_name =
             amf_formats::Value::read_string(reader.by_ref(), header)?.ok_or_else(|| {
@@ -667,7 +664,7 @@ impl<R: io::Read> ReadRemainingFrom<amf_formats::Version, R> for OnStatusCommand
     type Error = ChunkMessageError;
     fn read_remaining_from(
         header: amf_formats::Version,
-        mut reader: R,
+        reader: &mut R,
     ) -> Result<Self, Self::Error> {
         let command_name =
             amf_formats::Value::read_string(reader.by_ref(), header)?.ok_or_else(|| {

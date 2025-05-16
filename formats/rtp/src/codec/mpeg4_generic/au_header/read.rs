@@ -110,9 +110,9 @@ impl<R: io::Read> ReadRemainingFrom<&RtpMpeg4OutOfBandParams, R> for AuHeaderSec
     type Error = RtpMpeg4Error;
     fn read_remaining_from(
         header: &RtpMpeg4OutOfBandParams,
-        mut reader: R,
+        reader: &mut R,
     ) -> Result<Self, Self::Error> {
-        let mut reader = BitReader::endian(reader.by_ref(), BigEndian);
+        let mut reader = BitReader::endian(reader, BigEndian);
         let au_headers_length = reader.read_in::<16, u64>()?;
         let mut headers = vec![];
         let mut bits_read = 0;

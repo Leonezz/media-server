@@ -284,7 +284,8 @@ impl GopQueue {
                 if frame_info.frame_type == FrameType::SequenceStart {
                     tracing::info!("video header: {:?}", frame_info);
 
-                    let record = AvcDecoderConfigurationRecord::read_from(payload.as_ref())?;
+                    let record =
+                        AvcDecoderConfigurationRecord::read_from(&mut payload.as_ref().reader())?;
                     tracing::info!("avc decoder configuration record: {:?}", record);
 
                     self.video_sequence_header = Some(frame.clone());

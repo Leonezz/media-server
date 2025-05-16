@@ -1,4 +1,7 @@
-use std::{collections::HashMap, io};
+use std::{
+    collections::HashMap,
+    io::{self, Read},
+};
 
 use codec_h264::nalu::NalUnit;
 use tokio_util::bytes::BytesMut;
@@ -101,8 +104,8 @@ impl GenericFragmentComposer for RtpH264FragmentsBuffer {
             // fragment of this timestamp should be complete
             if let Some(fragmentation_buffer) = self.nal_fragments.remove(&rtp_header.timestamp) {
                 // happy path, gather fragmentation and try to parse as nalu
-                let reader = io::Cursor::new(fragmentation_buffer.fragment.as_ref());
-                let nalu = NalUnit::read_from(reader)?;
+                let mut reader = io::Cursor::new(fragmentation_buffer.fragment.as_ref());
+                let nalu = NalUnit::read_from(reader.by_ref())?;
                 let don = fragmentation_buffer.don;
                 return Ok(Some(RtpH264BufferItem {
                     nal_unit: nalu,

@@ -35,7 +35,7 @@ pub struct StapAFormat {
 
 impl<R: io::Read> ReadRemainingFrom<u8, R> for StapAFormat {
     type Error = RtpH264Error;
-    fn read_remaining_from(header: u8, reader: R) -> Result<Self, Self::Error> {
+    fn read_remaining_from(header: u8, reader: &mut R) -> Result<Self, Self::Error> {
         let nal_units = util::read_aggregated_trivial_nal_units(reader)?;
 
         Ok(Self { header, nal_units })
@@ -96,7 +96,7 @@ pub struct StapBFormat {
 
 impl<R: io::Read> ReadRemainingFrom<u8, R> for StapBFormat {
     type Error = RtpH264Error;
-    fn read_remaining_from(header: u8, mut reader: R) -> Result<Self, Self::Error> {
+    fn read_remaining_from(header: u8, reader: &mut R) -> Result<Self, Self::Error> {
         let decode_order_number = reader.read_u16::<BigEndian>()?;
         let nal_units = util::read_aggregated_trivial_nal_units(reader)?;
         Ok(Self {

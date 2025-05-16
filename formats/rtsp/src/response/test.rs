@@ -33,7 +33,7 @@ Public: DESCRIBE, SETUP, TEARDOWN, PLAY, PAUSE, OPTIONS\r\n\
 Supported: play.basic, setup.rtp.rtcp.mux, play.scale\r\n\
 Server: PhonyServer/1.1\r\n\r\n";
         assert_eq!(text.trim_end(), format!("{}", response.unwrap()).trim_end());
-        let parsed = RtspResponse::read_from(text.as_bytes());
+        let parsed = RtspResponse::read_from(&mut text.as_bytes());
         assert!(parsed.is_ok());
         assert_eq!(text.trim_end(), format!("{}", parsed.unwrap()).trim_end());
     }
@@ -85,7 +85,7 @@ Content-Length: 343\r\n",
         assert_eq!(text.trim_end(), format!("{}", response).trim_end());
         assert_eq!(response.body().clone().unwrap(), body);
 
-        let parsed = RtspResponse::read_from(text.as_bytes());
+        let parsed = RtspResponse::read_from(&mut text.as_bytes());
         assert!(parsed.is_ok());
         let parsed = parsed.unwrap();
         assert_eq!(text.trim_end(), format!("{}", parsed).trim_end());
@@ -119,7 +119,7 @@ Accept-Ranges: npt\r\n\
 Media-Properties: Random-Access=3.2, Time-Progressing, Time-Duration=3600.0\r\n\
 Media-Range: npt=0-2893.23\r\n\r\n";
         assert_eq!(text.trim_end(), format!("{}", response).trim_end());
-        let parsed = RtspResponse::read_from(text.as_bytes());
+        let parsed = RtspResponse::read_from(&mut text.as_bytes());
         assert!(parsed.is_ok());
         assert_eq!(text.trim_end(), format!("{}", parsed.unwrap()).trim_end());
     }
@@ -151,7 +151,7 @@ Seek-Style: First-Prior\r\n\
 Session: ULExwZCXh2pd0xuFgkgZJW\r\n\
 RTP-Info: url=\"rtsp://example.com/audio\" ssrc=0D12F123:seq=14783;rtptime=2345962545\r\n\r\n";
         assert_eq!(text.trim_end(), format!("{}", response).trim_end());
-        let parsed = RtspResponse::read_from(text.as_bytes());
+        let parsed = RtspResponse::read_from(&mut text.as_bytes());
         assert!(parsed.is_ok());
         assert_eq!(text.trim_end(), format!("{}", parsed.unwrap()).trim_end());
     }
@@ -172,7 +172,7 @@ User-Agent: PhonyClient/1.2\r\n\
 Session: CDtUJfDQXJWtJ7Iqua2xOi\r\n\r\n";
         let response = response.unwrap();
         assert_eq!(text.trim_end(), format!("{}", response).trim_end());
-        let parsed = RtspResponse::read_from(text.as_bytes());
+        let parsed = RtspResponse::read_from(&mut text.as_bytes());
         assert!(parsed.is_ok());
         assert_eq!(text.trim_end(), format!("{}", parsed.unwrap()).trim_end());
     }
@@ -195,7 +195,7 @@ Session: OoOUPyUwt0VeY9fFRHuZ6L\r\n\
 Range: npt=45.76-75.00\r\n\r\n";
         let response = response.unwrap();
         assert_eq!(text.trim_end(), format!("{}", response).trim_end());
-        let parsed = RtspResponse::read_from(text.as_bytes());
+        let parsed = RtspResponse::read_from(&mut text.as_bytes());
         assert!(parsed.is_ok());
         assert_eq!(text.trim_end(), format!("{}", parsed.unwrap()).trim_end());
     }
@@ -214,7 +214,7 @@ CSeq: 892\r\n\
 Server: PhonyServer/1.0\r\n\r\n";
         let response = response.unwrap();
         assert_eq!(text.trim_end(), format!("{}", response).trim_end());
-        let parsed = RtspResponse::read_from(text.as_bytes());
+        let parsed = RtspResponse::read_from(&mut text.as_bytes());
         assert!(parsed.is_ok());
         assert_eq!(text.trim_end(), format!("{}", parsed.unwrap()).trim_end());
     }
@@ -247,7 +247,7 @@ Content-Length: 36\r\n";
         assert!(response.body().is_some());
         assert_eq!(response.body().clone().unwrap(), body);
 
-        let parsed = RtspResponse::read_from(text.as_bytes());
+        let parsed = RtspResponse::read_from(&mut text.as_bytes());
         assert!(parsed.is_ok());
         assert_eq!(text.trim_end(), format!("{}", parsed.unwrap()).trim_end());
     }
@@ -297,7 +297,7 @@ Content-Length: 18\r\n";
         assert!(response.body().is_some());
         assert_eq!(body, response.body().clone().unwrap());
 
-        let parsed = RtspResponse::read_from(text.as_bytes());
+        let parsed = RtspResponse::read_from(&mut text.as_bytes());
         assert!(parsed.is_ok());
         let parsed = parsed.unwrap();
         assert_eq!(text.trim_end(), format!("{}", parsed).trim_end());
@@ -322,7 +322,7 @@ Session: uZ3ci0K+Ld-M\r\n\r\n";
         let response = response.unwrap();
         assert_eq!(text.trim_end(), format!("{}", response).trim_end());
         assert!(response.body().is_none());
-        let parsed = RtspResponse::read_from(text.as_bytes());
+        let parsed = RtspResponse::read_from(&mut text.as_bytes());
         assert!(parsed.is_ok());
         let parsed = parsed.unwrap();
         assert_eq!(text.trim_end(), format!("{}", parsed).trim_end());

@@ -11,7 +11,7 @@ use utils::traits::reader::{BitwiseReadFrom, ReadExactFrom, ReadFrom, ReadRemain
 /// read all the remaining bytes as body, the header was read ahead
 impl<R: io::Read> ReadRemainingFrom<NaluHeader, R> for NalUnit {
     type Error = H264CodecError;
-    fn read_remaining_from(header: NaluHeader, mut reader: R) -> Result<Self, Self::Error> {
+    fn read_remaining_from(header: NaluHeader, reader: &mut R) -> Result<Self, Self::Error> {
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes)?;
         if header.nal_unit_type == NALUType::SPS {
@@ -31,7 +31,7 @@ impl<R: io::Read> ReadRemainingFrom<(NaluHeader, usize), R> for NalUnit {
     type Error = H264CodecError;
     fn read_remaining_from(
         header: (NaluHeader, usize),
-        mut reader: R,
+        reader: &mut R,
     ) -> Result<Self, Self::Error> {
         let (header, body_size) = header;
         let mut bytes = vec![0; body_size];
@@ -52,7 +52,7 @@ impl<R: io::Read> ReadRemainingFrom<(NaluHeader, usize), R> for NalUnit {
 /// assumes all bytes from the reader consists the nalu
 impl<R: io::Read> ReadFrom<R> for NalUnit {
     type Error = H264CodecError;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let first_byte = reader.read_u8()?;
         let header: NaluHeader = first_byte.try_into()?;
         let mut bytes = Vec::new();
@@ -72,7 +72,7 @@ impl<R: io::Read> ReadFrom<R> for NalUnit {
 /// read extract bytes to consist a nalu
 impl<R: io::Read> ReadExactFrom<R> for NalUnit {
     type Error = H264CodecError;
-    fn read_exact_from(length: usize, mut reader: R) -> Result<Self, Self::Error> {
+    fn read_exact_from(length: usize, reader: &mut R) -> Result<Self, Self::Error> {
         let header: NaluHeader = reader.read_u8()?.try_into()?;
         Self::read_remaining_from((header, length - 1), reader)
     }

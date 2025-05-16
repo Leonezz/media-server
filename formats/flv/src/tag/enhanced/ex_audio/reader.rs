@@ -24,7 +24,7 @@ use super::{
 
 impl<R: io::Read> ReadRemainingFrom<u8, R> for ExAudioTagHeader {
     type Error = FLVError;
-    fn read_remaining_from(header: u8, mut reader: R) -> Result<Self, Self::Error> {
+    fn read_remaining_from(header: u8, reader: &mut R) -> Result<Self, Self::Error> {
         let mut audio_packet_type: AudioPacketType = (header & 0b1111).try_into()?;
         let mut timestamp_nano: Option<u32> = None;
         let mut audio_four_cc: AudioFourCC = AudioFourCC::AAC; // this default value would never be used
@@ -115,7 +115,7 @@ impl<R: io::Read> ReadRemainingFrom<u8, R> for ExAudioTagHeader {
 
 impl<R: io::Read> ReadFrom<R> for AudioMultichannelConfig {
     type Error = FLVError;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let audio_channel_order: AudioChannelOrder = reader.read_u8()?.try_into()?;
         let channel_cnt = reader.read_u8()? as usize;
         let mapping = match audio_channel_order {

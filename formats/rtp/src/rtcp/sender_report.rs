@@ -73,7 +73,7 @@ impl FixedPacket for SenderInfo {
 
 impl<R: io::Read> ReadFrom<R> for SenderInfo {
     type Error = RtpError;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let ntp_timestamp = reader.read_u64::<BigEndian>()?;
         let rtp_timestamp = reader.read_u32::<BigEndian>()?;
         let sender_packet_count = reader.read_u32::<BigEndian>()?;
@@ -142,7 +142,7 @@ impl RtcpPacketSizeTrait for RtcpSenderReport {
 
 impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpSenderReport {
     type Error = RtpError;
-    fn read_remaining_from(header: RtcpCommonHeader, mut reader: R) -> Result<Self, Self::Error> {
+    fn read_remaining_from(header: RtcpCommonHeader, reader: &mut R) -> Result<Self, Self::Error> {
         if header.payload_type != RtcpPayloadType::SenderReport {
             return Err(RtpError::WrongPayloadType(format!(
                 "expect sender report payload type, got {:?} instead",
@@ -151,11 +151,11 @@ impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpSenderReport {
         }
 
         let sender_ssrc = reader.read_u32::<BigEndian>()?;
-        let sender_info = SenderInfo::read_from(reader.by_ref())?;
+        let sender_info = SenderInfo::read_from(reader)?;
 
         let mut report_blocks = Vec::with_capacity(header.count as usize);
         for _ in 0..header.count {
-            report_blocks.push(ReportBlock::read_from(reader.by_ref())?);
+            report_blocks.push(ReportBlock::read_from(reader)?);
         }
 
         let mut buffer = Vec::new();

@@ -92,7 +92,7 @@ impl DynamicSizedPacket for RtpHeader {
 
 impl<R: io::Read> ReadFrom<R> for RtpHeader {
     type Error = RtpError;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let first_byte = reader.read_u8()?;
         let version = (first_byte >> 6) & 0b11;
         let padding = ((first_byte >> 5) & 0b1) == 0b1;
@@ -183,7 +183,7 @@ impl<R: AsRef<[u8]>> TryReadFrom<R> for RtpHeader {
 
 impl<R: io::Read> ReadFrom<R> for RtpHeaderExtension {
     type Error = RtpError;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let profile_defined = reader.read_u16::<BigEndian>()?;
         let length = reader.read_u16::<BigEndian>()?;
         let mut bytes = vec![0; length as usize];

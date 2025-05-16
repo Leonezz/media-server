@@ -125,12 +125,12 @@ impl Reader {
                 RtmpChunkMessageBody::ProtocolControl(
                     protocol_control::ProtocolControlMessage::read_remaining_from(
                         message_type,
-                        &bytes[..],
+                        &mut bytes.reader(),
                     )?,
                 )
             }
             ChunkMessageType::UserControl => RtmpChunkMessageBody::UserControl(
-                user_control::UserControlEvent::read_from(&bytes[..])?,
+                user_control::UserControlEvent::read_from(&mut bytes.reader())?,
             ),
             ChunkMessageType::RtmpUserMessage(message_type) => {
                 let amf_version = match message_type {
@@ -142,7 +142,7 @@ impl Reader {
                 RtmpChunkMessageBody::RtmpUserMessage(Box::new(
                     message::RtmpUserMessageBody::read_remaining_from(
                         (amf_version, c2s, &common_header),
-                        &bytes[..],
+                        &mut bytes.reader(),
                     )?,
                 ))
             }

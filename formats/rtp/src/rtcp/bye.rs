@@ -67,7 +67,7 @@ impl RtcpPacketSizeTrait for RtcpByePacket {
 
 impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpByePacket {
     type Error = RtpError;
-    fn read_remaining_from(header: RtcpCommonHeader, mut reader: R) -> Result<Self, Self::Error> {
+    fn read_remaining_from(header: RtcpCommonHeader, reader: &mut R) -> Result<Self, Self::Error> {
         if header.payload_type != RtcpPayloadType::Bye {
             return Err(RtpError::WrongPayloadType(format!(
                 "expect bye payload type got {:?} instead",

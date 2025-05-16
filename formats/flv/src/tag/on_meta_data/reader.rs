@@ -10,9 +10,9 @@ impl<R: io::Read> ReadRemainingFrom<amf_formats::Version, R> for OnMetaData {
     type Error = FLVError;
     fn read_remaining_from(
         header: amf_formats::Version,
-        mut reader: R,
+        reader: &mut R,
     ) -> Result<Self, Self::Error> {
-        let name = amf_formats::Value::read_remaining_from(header, reader.by_ref())?;
+        let name = amf_formats::Value::read_remaining_from(header, reader)?;
         let name_valid = match name.try_as_str() {
             None => false,
             Some(name) => name == "@setDataFrame",
@@ -23,7 +23,7 @@ impl<R: io::Read> ReadRemainingFrom<amf_formats::Version, R> for OnMetaData {
                 name
             )));
         }
-        let name = amf_formats::Value::read_remaining_from(header, reader.by_ref())?;
+        let name = amf_formats::Value::read_remaining_from(header, reader)?;
         let name_valid = match name.try_as_str() {
             None => false,
             Some(name) => name == "onMetaData",

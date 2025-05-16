@@ -56,7 +56,7 @@ impl DynamicSizedPacket for RtcpAppPacket {
 
 impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpAppPacket {
     type Error = RtpError;
-    fn read_remaining_from(header: RtcpCommonHeader, mut reader: R) -> Result<Self, Self::Error> {
+    fn read_remaining_from(header: RtcpCommonHeader, reader: &mut R) -> Result<Self, Self::Error> {
         if header.payload_type != RtcpPayloadType::App {
             return Err(RtpError::WrongPayloadType(format!(
                 "expect app payload type got {:?} instead",

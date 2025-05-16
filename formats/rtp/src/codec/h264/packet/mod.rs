@@ -56,16 +56,16 @@ impl RtpPacketTrait for RtpH264Packet {
 
 impl<R: io::Read> ReadFrom<R> for RtpH264Packet {
     type Error = RtpH264Error;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
-        let header = RtpHeader::read_from(reader.by_ref())?;
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
+        let header = RtpHeader::read_from(reader)?;
         Self::read_remaining_from(header, reader)
     }
 }
 
 impl<R: io::Read> ReadRemainingFrom<RtpHeader, R> for RtpH264Packet {
     type Error = RtpH264Error;
-    fn read_remaining_from(header: RtpHeader, mut reader: R) -> Result<Self, Self::Error> {
-        let payload = RtpH264NalUnit::read_from(reader.by_ref()).inspect_err(|err| {
+    fn read_remaining_from(header: RtpHeader, reader: &mut R) -> Result<Self, Self::Error> {
+        let payload = RtpH264NalUnit::read_from(reader).inspect_err(|err| {
             tracing::error!(
                 "read rtp h264 failed, rtp_header: {:?}, err: {}",
                 header,
@@ -80,7 +80,7 @@ impl<R: io::Read> ReadRemainingFrom<RtpHeader, R> for RtpH264Packet {
 impl TryFrom<RtpTrivialPacket> for RtpH264Packet {
     type Error = RtpH264Error;
     fn try_from(value: RtpTrivialPacket) -> Result<Self, Self::Error> {
-        Self::read_remaining_from(value.header, value.payload.reader())
+        Self::read_remaining_from(value.header, &mut value.payload.reader())
     }
 }
 

@@ -304,7 +304,7 @@ impl FromStr for H264SDPFormatParameters {
                         let bytes = base64::prelude::BASE64_STANDARD.decode(item.as_bytes()).map_err(|err| H264SDPError::InvalidSpropParameterSets(
                             format!("sprop-parameter-sets value decode as base64 failed: {}, err={}", item, err)
                         ))?;
-                        let nalu = NalUnit::read_from(bytes.as_slice()).map_err(|err| H264SDPError::InvalidSpropLevelParameterSets(
+                        let nalu = NalUnit::read_from(&mut bytes.as_slice()).map_err(|err| H264SDPError::InvalidSpropLevelParameterSets(
                             format!("sprop-parameter-sets value parse as nalu failed: {}, err={}", item, err)
                         ))?;
                         let mut reader = RbspReader::new(&nalu.body[..]);

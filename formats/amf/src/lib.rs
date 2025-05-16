@@ -38,7 +38,7 @@ pub enum Version {
 
 impl<R: io::Read> ReadRemainingFrom<Version, R> for Value {
     type Error = AmfError;
-    fn read_remaining_from(header: Version, reader: R) -> Result<Self, Self::Error> {
+    fn read_remaining_from(header: Version, reader: &mut R) -> Result<Self, Self::Error> {
         match header {
             Version::Amf0 => amf0::Value::read_from(reader).map(Value::AMF0Value),
             Version::Amf3 => amf3::Value::read_from(reader).map(Value::AMF3Value),
@@ -47,12 +47,12 @@ impl<R: io::Read> ReadRemainingFrom<Version, R> for Value {
 }
 
 impl Value {
-    pub fn read_string<R: io::Read>(reader: R, version: Version) -> AmfResult<Option<String>> {
+    pub fn read_string<R: io::Read>(reader: &mut R, version: Version) -> AmfResult<Option<String>> {
         let value = Value::read_remaining_from(version, reader)?;
         Ok(value.try_as_str().map(|v| v.to_owned()))
     }
 
-    pub fn read_null<R: io::Read>(reader: R, version: Version) -> AmfResult<Option<()>> {
+    pub fn read_null<R: io::Read>(reader: &mut R, version: Version) -> AmfResult<Option<()>> {
         let value = Value::read_remaining_from(version, reader)?;
         match value {
             Value::AMF0Value(value) => {
@@ -72,13 +72,13 @@ impl Value {
         }
     }
 
-    pub fn read_number<R: io::Read>(reader: R, version: Version) -> AmfResult<Option<f64>> {
+    pub fn read_number<R: io::Read>(reader: &mut R, version: Version) -> AmfResult<Option<f64>> {
         let value = Value::read_remaining_from(version, reader)?;
         Ok(value.try_as_f64())
     }
 
     pub fn read_object<R: io::Read>(
-        reader: R,
+        reader: &mut R,
         version: Version,
     ) -> AmfResult<Option<HashMap<String, Value>>> {
         let value = Value::read_remaining_from(version, reader)?;
@@ -88,7 +88,7 @@ impl Value {
         }
     }
 
-    pub fn read_bool<R: io::Read>(reader: R, version: Version) -> AmfResult<Option<bool>> {
+    pub fn read_bool<R: io::Read>(reader: &mut R, version: Version) -> AmfResult<Option<bool>> {
         let value = Value::read_remaining_from(version, reader)?;
         Ok(value.try_as_bool())
     }

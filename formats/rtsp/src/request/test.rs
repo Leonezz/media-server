@@ -31,7 +31,7 @@ Proxy-Require: gzipped-messages\r\n\
 Supported: play.basic\r\n\r\n";
 
         assert_eq!(format!("{}", request.unwrap()).trim_end(), text.trim_end());
-        let parsed = RtspRequest::read_from(text.as_bytes());
+        let parsed = RtspRequest::read_from(&mut text.as_bytes());
         assert!(parsed.is_ok());
         assert_eq!(text.trim_end(), format!("{}", parsed.unwrap()).trim_end());
     }
@@ -56,7 +56,7 @@ CSeq: 312\r\n\
 User-Agent: PhonyClient/1.2\r\n\
 Accept: application/sdp, application/example\r\n\r\n";
         assert_eq!(text.trim_end(), format!("{}", request.unwrap()).trim_end());
-        let parsed = RtspRequest::read_from(text.as_bytes());
+        let parsed = RtspRequest::read_from(&mut text.as_bytes());
         assert!(parsed.is_ok());
         assert_eq!(text.trim_end(), format!("{}", parsed.unwrap()).trim_end());
     }
@@ -82,7 +82,7 @@ Transport: RTP/AVP;unicast;dest_addr=\":4588\"/\":4589\", RTP/AVP/TCP;unicast;in
 Accept-Ranges: npt, clock\r\n\
 User-Agent: PhonyClient/1.2\r\n\r\n";
         assert_eq!(text.trim_end(), format!("{}", request).trim_end());
-        let parsed = RtspRequest::read_from(text.as_bytes());
+        let parsed = RtspRequest::read_from(&mut text.as_bytes());
         assert!(parsed.is_ok());
         assert_eq!(text.trim_end(), format!("{}", parsed.unwrap()).trim_end());
     }
@@ -106,7 +106,7 @@ Session: ULExwZCXh2pd0xuFgkgZJW\r\n\
 Range: npt=3.52-\r\n\
 User-Agent: PhonyClient/1.2\r\n\r\n";
         assert_eq!(text.trim_end(), format!("{}", request).trim_end());
-        let parsed = RtspRequest::read_from(text.as_bytes());
+        let parsed = RtspRequest::read_from(&mut text.as_bytes());
         assert!(parsed.is_ok());
         assert_eq!(text.trim_end(), format!("{}", parsed.unwrap()).trim_end());
     }
@@ -136,7 +136,7 @@ Session: CDtUJfDQXJWtJ7Iqua2xOi\r\n\
 Date: Mon, 08 Mar 2010 13:37:16 GMT\r\n\r\n";
         let request = request.unwrap();
         assert_eq!(text.trim_end(), format!("{}", request).trim_end());
-        let parsed = RtspRequest::read_from(text.as_bytes());
+        let parsed = RtspRequest::read_from(&mut text.as_bytes());
         assert!(parsed.is_ok());
         assert_eq!(text.trim_end(), format!("{}", parsed.unwrap()).trim_end());
     }
@@ -158,7 +158,7 @@ Session: OoOUPyUwt0VeY9fFRHuZ6L\r\n\
 User-Agent: PhonyClient/1.2\r\n\r\n";
         let request = request.unwrap();
         assert_eq!(text.trim_end(), format!("{}", request).trim_end());
-        let parsed = RtspRequest::read_from(text.as_bytes());
+        let parsed = RtspRequest::read_from(&mut text.as_bytes());
         assert!(parsed.is_ok());
         assert_eq!(text.trim_end(), format!("{}", parsed.unwrap()).trim_end());
     }
@@ -180,7 +180,7 @@ CSeq: 892\r\n\
 Session: OccldOFFq23KwjYpAnBbUr\r\n\
 User-Agent: PhonyClient/1.2\r\n\r\n";
         assert_eq!(text.trim_end(), format!("{}", request).trim_end());
-        let parsed = RtspRequest::read_from(text.as_bytes());
+        let parsed = RtspRequest::read_from(&mut text.as_bytes());
         assert!(parsed.is_ok());
         assert_eq!(text.trim_end(), format!("{}", parsed.unwrap()).trim_end());
     }
@@ -212,7 +212,7 @@ Content-Length: 24\r\n";
         assert_eq!(text.trim_end(), format!("{}", request).trim_end());
         assert!(request.body().is_some());
         assert_eq!(request.body().unwrap(), body);
-        let parsed = RtspRequest::read_from(text.as_bytes());
+        let parsed = RtspRequest::read_from(&mut text.as_bytes());
         assert!(parsed.is_ok());
         let parsed = parsed.unwrap();
         assert_eq!(text, format!("{}", parsed));
@@ -266,7 +266,7 @@ Content-Length: 18\r\n";
         assert!(request.body().is_some());
         assert_eq!(request.body().unwrap(), body);
 
-        let parsed = RtspRequest::read_from(text.as_bytes());
+        let parsed = RtspRequest::read_from(&mut text.as_bytes());
         assert!(parsed.is_ok());
         let parsed = parsed.unwrap();
         assert_eq!(text.trim_end(), format!("{}", parsed));

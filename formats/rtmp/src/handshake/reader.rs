@@ -7,7 +7,7 @@ use utils::traits::reader::ReadFrom;
 
 impl<R: io::Read> ReadFrom<R> for C0S0Packet {
     type Error = HandshakeError;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let version = reader.read_u8()?;
         let version = match version {
             0 => Version::V0,
@@ -22,7 +22,7 @@ impl<R: io::Read> ReadFrom<R> for C0S0Packet {
 
 impl<R: io::Read> ReadFrom<R> for C1S1Packet {
     type Error = HandshakeError;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let time = reader.read_u32::<BigEndian>()?;
         let zero = reader.read_u32::<BigEndian>()?;
         let mut buf = [0; 1528];
@@ -37,7 +37,7 @@ impl<R: io::Read> ReadFrom<R> for C1S1Packet {
 
 impl<R: io::Read> ReadFrom<R> for C2S2Packet {
     type Error = HandshakeError;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let time = reader.read_u32::<BigEndian>()?;
         let time2 = reader.read_u32::<BigEndian>()?;
         let mut buf = [0; 1528];

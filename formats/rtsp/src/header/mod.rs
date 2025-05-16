@@ -331,7 +331,7 @@ impl fmt::Display for RtspHeaders {
 
 impl<R: io::BufRead> ReadFrom<R> for RtspHeaders {
     type Error = RtspMessageError;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let buffer = reader.fill_buf()?.to_vec();
         let mut cursor = io::Cursor::new(&buffer);
         if let Some(headers) = Self::try_read_from(cursor.by_ref())? {

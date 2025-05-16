@@ -98,7 +98,7 @@ impl DynamicSizedPacket for SDESBody {
 
 impl<R: io::Read> ReadFrom<R> for SDESBody {
     type Error = RtpError;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let length = reader.read_u8()?;
         let mut str_bytes = vec![0_u8; length as usize];
         reader.read_exact(&mut str_bytes)?;
@@ -132,7 +132,7 @@ impl DynamicSizedPacket for SDESItem {
 
 impl<R: io::Read> ReadFrom<R> for SDESItem {
     type Error = RtpError;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let item_type: SDESItemType = reader.read_u8()?.try_into()?;
         if item_type == SDESItemType::PRIV {
             todo!()
@@ -183,14 +183,14 @@ impl RtpPaddedPacketTrait for SDESChunk {
 
 impl<R: io::Read> ReadFrom<R> for SDESChunk {
     type Error = RtpError;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let ssrc = reader.read_u32::<BigEndian>()?;
         let bytes_read = 0;
         let mut items = Vec::new();
         loop {
             let item_type = reader.read_u8()?;
             if item_type != 0 {
-                items.push(SDESItem::read_from(reader.by_ref())?);
+                items.push(SDESItem::read_from(reader)?);
             } else {
                 if bytes_read % 4 == 0 {
                     break;
@@ -260,7 +260,7 @@ impl RtcpPacketSizeTrait for RtcpSourceDescriptionPacket {
 
 impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpSourceDescriptionPacket {
     type Error = RtpError;
-    fn read_remaining_from(header: RtcpCommonHeader, mut reader: R) -> Result<Self, Self::Error> {
+    fn read_remaining_from(header: RtcpCommonHeader, reader: &mut R) -> Result<Self, Self::Error> {
         if header.payload_type != RtcpPayloadType::SourceDescription {
             return Err(RtpError::WrongPayloadType(format!(
                 "expect sdes payload type got {:?} instead",
@@ -270,7 +270,7 @@ impl<R: io::Read> ReadRemainingFrom<RtcpCommonHeader, R> for RtcpSourceDescripti
 
         let mut chunks = Vec::with_capacity(header.count as usize);
         for _ in 0..header.count {
-            chunks.push(SDESChunk::read_from(reader.by_ref())?);
+            chunks.push(SDESChunk::read_from(reader)?);
         }
 
         Ok(Self { header, chunks })

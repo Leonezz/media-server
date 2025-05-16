@@ -8,7 +8,7 @@ use super::{CodecID, FrameTypeFLV, LegacyVideoTagHeader, VideoTagHeader};
 
 impl<R: io::Read> ReadFrom<R> for VideoTagHeader {
     type Error = FLVError;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let byte = reader.read_u8()?;
 
         let is_ex_header = ((byte >> 7) & 0b1) == 0b1;

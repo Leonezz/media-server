@@ -18,7 +18,7 @@ use super::{
 
 impl<R: io::Read> ReadFrom<R> for SpsExtRelated {
     type Error = H264CodecError;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let byte = reader.read_u8()?;
         let chroma_format_idc: ChromaFormatIdc = (byte & 0b11).try_into()?;
         let reserved_6_bits_1 = (byte >> 2) & 0b111111;
@@ -35,7 +35,7 @@ impl<R: io::Read> ReadFrom<R> for SpsExtRelated {
             let sequence_parameter_set_length = reader.read_u16::<BigEndian>()?;
             let mut bytes = vec![0; sequence_parameter_set_length.to_usize().unwrap()];
             reader.read_exact(&mut bytes)?;
-            let nalu = NalUnit::read_from(bytes.as_slice())?;
+            let nalu = NalUnit::read_from(&mut bytes.as_slice())?;
             let mut bit_reader =
                 bitstream_io::BitReader::endian(&nalu.body[..], bitstream_io::BigEndian);
             let sps_ext = SpsExt::read_from(&mut bit_reader)?;
@@ -60,7 +60,7 @@ impl<R: io::Read> ReadFrom<R> for SpsExtRelated {
 
 impl<R: io::Read> ReadFrom<R> for AvcDecoderConfigurationRecord {
     type Error = H264CodecError;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let configuration_version = reader.read_u8()?;
         if configuration_version != 1 {
             return Err(H264CodecError::UnknownAvcDecoderConfigurationVersion(
@@ -87,7 +87,7 @@ impl<R: io::Read> ReadFrom<R> for AvcDecoderConfigurationRecord {
             let sequence_parameter_set_length = reader.read_u16::<BigEndian>()?;
             let mut bytes = vec![0; sequence_parameter_set_length.to_usize().unwrap()];
             reader.read_exact(&mut bytes)?;
-            let nalu = NalUnit::read_from(bytes.as_slice())?;
+            let nalu = NalUnit::read_from(&mut bytes.as_slice())?;
             let mut bit_reader =
                 bitstream_io::BitReader::endian(&nalu.body[..], bitstream_io::BigEndian);
             let sps = Sps::read_from(&mut bit_reader)?;
@@ -104,7 +104,7 @@ impl<R: io::Read> ReadFrom<R> for AvcDecoderConfigurationRecord {
             let picture_parameter_set_length = reader.read_u16::<BigEndian>()?;
             let mut bytes = vec![0; picture_parameter_set_length.to_usize().unwrap()];
             reader.read_exact(&mut bytes)?;
-            let nalu = NalUnit::read_from(bytes.as_slice())?;
+            let nalu = NalUnit::read_from(&mut bytes.as_slice())?;
             let mut bit_reader = RbspReader::new(&nalu.body[..]);
             let pps = Pps::read_remaining_from(ChromaFormatIdc::Chroma420, &mut bit_reader)?; // TODO
             picture_parameter_sets.push(ParameterSetInAvcDecoderConfigurationRecord {

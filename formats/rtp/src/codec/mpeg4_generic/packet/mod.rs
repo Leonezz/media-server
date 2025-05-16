@@ -38,7 +38,7 @@ impl TryFrom<(RtpTrivialPacket, &RtpMpeg4OutOfBandParams)> for RtpMpeg4GenericPa
         let (rtp_trivial_packet, params) = value;
         Self::read_remaining_from(
             (params, &rtp_trivial_packet.header),
-            rtp_trivial_packet.payload.reader(),
+            &mut rtp_trivial_packet.payload.reader(),
         )
     }
 }

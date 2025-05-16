@@ -31,7 +31,7 @@ impl FixedPacket for ReportBlock {
 
 impl<R: io::Read> ReadFrom<R> for ReportBlock {
     type Error = RtpError;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let ssrc = reader.read_u32::<BigEndian>()?;
         let fraction_lost = reader.read_u8()?;
         let cumulative_packet_lost = reader.read_i24::<BigEndian>()?;

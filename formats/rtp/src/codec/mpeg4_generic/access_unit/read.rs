@@ -17,7 +17,7 @@ impl<R: io::Read> ReadRemainingFrom<(&AuHeader, u32, &RtpMpeg4OutOfBandParams), 
     type Error = RtpMpeg4Error;
     fn read_remaining_from(
         header: (&AuHeader, u32, &RtpMpeg4OutOfBandParams),
-        mut reader: R,
+        reader: &mut R,
     ) -> Result<Self, Self::Error> {
         let (au_header, timestamp, param) = header;
         let bytes_cnt: usize = au_header
@@ -69,7 +69,7 @@ impl<R: AsRef<[u8]>> ReadRemainingFrom<(u32, &AuHeader), io::Cursor<R>> for Acce
     type Error = RtpMpeg4Error;
     fn read_remaining_from(
         header: (u32, &AuHeader),
-        mut reader: io::Cursor<R>,
+        reader: &mut io::Cursor<R>,
     ) -> Result<Self, Self::Error> {
         let (timestamp, au_header) = header;
 
@@ -98,7 +98,7 @@ impl<R: AsRef<[u8]>>
     type Error = RtpMpeg4Error;
     fn read_remaining_from(
         header: (&Vec<AuHeader>, u32, bool, &RtpMpeg4OutOfBandParams),
-        mut reader: io::Cursor<R>,
+        reader: &mut io::Cursor<R>,
     ) -> Result<Self, Self::Error> {
         let (au_headers, mut timestamp, is_fragment, params) = header;
         if au_headers.is_empty() {

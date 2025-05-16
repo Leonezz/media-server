@@ -78,7 +78,7 @@ impl RtpH264NalUnit {
 
 impl<R: io::Read> ReadFrom<R> for RtpH264NalUnit {
     type Error = RtpH264Error;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let first_byte = reader.read_u8()?;
         let payload_structure: PayloadStructureType = first_byte.try_into()?;
         let packet: RtpH264NalUnit = match payload_structure {

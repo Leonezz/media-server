@@ -9,7 +9,7 @@ use super::{UserControlEvent, UserControlEventType};
 
 impl<R: io::Read> ReadFrom<R> for UserControlEvent {
     type Error = ChunkMessageError;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let event_type = reader.read_u16::<BigEndian>()?;
         let event_type: UserControlEventType = event_type.try_into()?;
         match event_type {

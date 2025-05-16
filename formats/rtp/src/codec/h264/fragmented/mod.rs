@@ -93,7 +93,7 @@ pub struct FUAPacket {
 
 impl<R: io::Read> ReadRemainingFrom<u8, R> for FUAPacket {
     type Error = RtpH264Error;
-    fn read_remaining_from(indicator: u8, mut reader: R) -> Result<Self, Self::Error> {
+    fn read_remaining_from(indicator: u8, reader: &mut R) -> Result<Self, Self::Error> {
         let fu_header: FUHeader = reader.read_u8()?.into();
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes)?;
@@ -145,7 +145,7 @@ pub struct FUBPacket {
 
 impl<R: io::Read> ReadRemainingFrom<u8, R> for FUBPacket {
     type Error = RtpH264Error;
-    fn read_remaining_from(indicator: u8, mut reader: R) -> Result<Self, Self::Error> {
+    fn read_remaining_from(indicator: u8, reader: &mut R) -> Result<Self, Self::Error> {
         let fu_header: FUHeader = reader.read_u8()?.into();
         let decode_order_number = reader.read_u16::<BigEndian>()?;
         let mut bytes = Vec::new();
@@ -189,7 +189,7 @@ impl<R: io::Read> ReadRemainingFrom<FragmentationUnitPacketType, R> for Fragment
     type Error = RtpH264Error;
     fn read_remaining_from(
         header: FragmentationUnitPacketType,
-        reader: R,
+        reader: &mut R,
     ) -> Result<Self, Self::Error> {
         match header {
             FragmentationUnitPacketType::FUA => Ok(Self::FuA(FUAPacket::read_remaining_from(

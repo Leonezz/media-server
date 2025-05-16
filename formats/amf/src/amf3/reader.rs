@@ -346,7 +346,7 @@ where
 
 impl<R: io::Read> ReadFrom<R> for Value {
     type Error = AmfError;
-    fn read_from(reader: R) -> Result<Self, Self::Error> {
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         Reader::new(reader).read()
     }
 }

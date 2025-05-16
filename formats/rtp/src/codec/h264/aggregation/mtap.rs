@@ -56,7 +56,7 @@ pub struct Mtap16Format {
 
 impl<R: io::Read> ReadRemainingFrom<u8, R> for Mtap16Format {
     type Error = RtpH264Error;
-    fn read_remaining_from(header: u8, mut reader: R) -> Result<Self, Self::Error> {
+    fn read_remaining_from(header: u8, reader: &mut R) -> Result<Self, Self::Error> {
         let decode_order_number_base = reader.read_u16::<BigEndian>()?;
         let nal_units = util::read_aggregated_mtap16_nal_units(reader)?
             .into_iter()
@@ -140,7 +140,7 @@ pub struct Mtap24Format {
 
 impl<R: io::Read> ReadRemainingFrom<u8, R> for Mtap24Format {
     type Error = RtpH264Error;
-    fn read_remaining_from(header: u8, mut reader: R) -> Result<Self, Self::Error> {
+    fn read_remaining_from(header: u8, reader: &mut R) -> Result<Self, Self::Error> {
         let decode_order_number_base = reader.read_u16::<BigEndian>()?;
         let nal_units = util::read_aggregated_mtap24_nal_units(reader)?
             .into_iter()

@@ -11,7 +11,7 @@ use super::{
 
 impl<R: io::Read> ReadFrom<R> for AudioTagHeader {
     type Error = FLVError;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let first_byte = reader.read_u8()?;
 
         if ((first_byte >> 4) & 0b1111) == 9 {

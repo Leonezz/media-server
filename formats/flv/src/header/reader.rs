@@ -7,7 +7,7 @@ use super::FLVHeader;
 
 impl<R: io::Read> ReadFrom<R> for FLVHeader {
     type Error = FLVError;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let mut signature = [0; 3];
         reader.read_exact(&mut signature)?;
         if signature != [b'F', b'L', b'V'] {

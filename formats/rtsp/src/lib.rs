@@ -43,7 +43,7 @@ pub enum RtspMessage {
 
 impl<R: io::BufRead> ReadFrom<R> for RtspMessage {
     type Error = RtspMessageError;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let buffer = reader.fill_buf()?;
         let mut cursor = io::Cursor::new(buffer);
         Self::try_read_from(cursor.by_ref()).map(|msg| {

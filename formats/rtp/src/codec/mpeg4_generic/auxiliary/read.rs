@@ -13,7 +13,7 @@ impl<R: io::Read> ReadRemainingFrom<&RtpMpeg4OutOfBandParams, R> for AuxiliaryDa
     type Error = RtpMpeg4Error;
     fn read_remaining_from(
         header: &RtpMpeg4OutOfBandParams,
-        reader: R,
+        reader: &mut R,
     ) -> Result<Self, Self::Error> {
         let mut reader = BitReader::endian(reader, BigEndian);
         let auxiliary_data_size_length = header.auxiliary_data_size_length.unwrap_or(0);

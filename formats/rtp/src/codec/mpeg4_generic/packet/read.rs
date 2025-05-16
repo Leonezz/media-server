@@ -1,4 +1,4 @@
-use std::io;
+use std::io::{self, Read};
 
 use utils::traits::reader::ReadRemainingFrom;
 
@@ -18,19 +18,16 @@ impl<R: io::Read> ReadRemainingFrom<(&RtpMpeg4OutOfBandParams, &RtpHeader), R>
     type Error = RtpMpeg4Error;
     fn read_remaining_from(
         header: (&RtpMpeg4OutOfBandParams, &RtpHeader),
-        mut reader: R,
+        reader: &mut R,
     ) -> Result<Self, Self::Error> {
         let (param, rtp_header) = header;
         let au_header = if !param.guess_has_au_headers() {
             None
         } else {
-            Some(AuHeaderSection::read_remaining_from(
-                param,
-                reader.by_ref(),
-            )?)
+            Some(AuHeaderSection::read_remaining_from(param, reader)?)
         };
         let auxiliary = if param.auxiliary_data_size_length.is_some() {
-            Some(AuxiliaryData::read_remaining_from(param, reader.by_ref())?)
+            Some(AuxiliaryData::read_remaining_from(param, reader)?)
         } else {
             None
         };
@@ -39,7 +36,7 @@ impl<R: io::Read> ReadRemainingFrom<(&RtpMpeg4OutOfBandParams, &RtpHeader), R>
         reader.read_to_end(&mut bytes)?;
         let in_fragment_mode = !rtp_header.marker;
 
-        let reader = io::Cursor::new(bytes);
+        let mut reader = io::Cursor::new(bytes);
         let au_section = AccessUnitSection::read_remaining_from(
             (
                 au_header
@@ -50,7 +47,7 @@ impl<R: io::Read> ReadRemainingFrom<(&RtpMpeg4OutOfBandParams, &RtpHeader), R>
                 in_fragment_mode,
                 param,
             ),
-            reader,
+            reader.by_ref(),
         )?;
         Ok(Self {
             header: rtp_header.clone(),

@@ -24,7 +24,7 @@ use super::ex_video_header::ExVideoTagHeader;
 
 impl<R: io::Read> ReadRemainingFrom<u8, R> for ExVideoTagHeader {
     type Error = FLVError;
-    fn read_remaining_from(header: u8, mut reader: R) -> Result<Self, Self::Error> {
+    fn read_remaining_from(header: u8, reader: &mut R) -> Result<Self, Self::Error> {
         assert!(((header >> 7) & 0b1) == 0b1);
         let video_frame_type: FrameTypeFLV = ((header >> 4) & 0b111).try_into()?;
         let mut video_packet_type: VideoPacketType = (header & 0b1111).try_into()?;

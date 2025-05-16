@@ -162,24 +162,26 @@ impl<R: AsRef<[u8]>> TryReadRemainingFrom<RtcpCommonHeader, R> for RtcpPacket {
             remaining_bytes.truncate(padding_bytes as usize);
         }
 
-        let cursor = Cursor::new(&remaining_bytes);
+        let mut cursor = Cursor::new(&remaining_bytes);
 
         match header.payload_type {
             RtcpPayloadType::SenderReport => Ok(Some(Self::SenderReport(
                 // there must be enough bytes
-                RtcpSenderReport::read_remaining_from(header, cursor)?,
+                RtcpSenderReport::read_remaining_from(header, cursor.by_ref())?,
             ))),
             RtcpPayloadType::ReceiverReport => Ok(Some(Self::ReceiverReport(
-                RtcpReceiverReport::read_remaining_from(header, cursor)?,
+                RtcpReceiverReport::read_remaining_from(header, cursor.by_ref())?,
             ))),
             RtcpPayloadType::SourceDescription => Ok(Some(Self::SourceDescription(
-                RtcpSourceDescriptionPacket::read_remaining_from(header, cursor)?,
+                RtcpSourceDescriptionPacket::read_remaining_from(header, cursor.by_ref())?,
             ))),
             RtcpPayloadType::Bye => Ok(Some(Self::Bye(RtcpByePacket::read_remaining_from(
-                header, cursor,
+                header,
+                cursor.by_ref(),
             )?))),
             RtcpPayloadType::App => Ok(Some(Self::App(RtcpAppPacket::read_remaining_from(
-                header, cursor,
+                header,
+                cursor.by_ref(),
             )?))),
         }
     }

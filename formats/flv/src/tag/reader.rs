@@ -10,8 +10,8 @@ use super::{FLVTag, FLVTagBodyWithFilter, FLVTagHeader};
 
 impl<R: io::Read> ReadFrom<R> for FLVTag {
     type Error = FLVError;
-    fn read_from(mut reader: R) -> Result<Self, Self::Error> {
-        let tag_header = FLVTagHeader::read_from(reader.by_ref())?;
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
+        let tag_header = FLVTagHeader::read_from(reader)?;
 
         let tag_body = FLVTagBodyWithFilter::read_remaining_from(&tag_header, reader)?;
         Ok(FLVTag {
