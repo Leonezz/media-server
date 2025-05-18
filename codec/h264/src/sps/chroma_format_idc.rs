@@ -1,7 +1,7 @@
 use crate::errors::H264CodecError;
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChromaFormatIdc {
     Monochrome = 0,
     Chroma420 = 1,

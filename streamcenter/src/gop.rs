@@ -1,29 +1,49 @@
-use std::collections::VecDeque;
+use std::{
+    collections::{HashMap, VecDeque},
+    io,
+};
 
-use codec_common::{FrameType, audio::AudioFrameInfo, video::VideoFrameInfo};
+use codec_common::{
+    FrameType,
+    audio::AudioFrameInfo,
+    video::{VideoCodecCommon, VideoConfig, VideoFrameInfo, VideoFrameUnit},
+};
 use codec_h264::avc_decoder_configuration_record::AvcDecoderConfigurationRecord;
-use flv_formats::tag::on_meta_data::OnMetaData;
-use tokio_util::bytes::{Buf, Bytes};
+use flv_formats::tag::{
+    FLVTag,
+    audio_tag_header::LegacyAudioTagHeader,
+    audio_tag_header_info::AudioTagHeaderWithoutMultiTrack,
+    enhanced::ex_video::ex_video_header::VideoPacketType,
+    flv_tag_body::FLVTagBody,
+    flv_tag_header::FLVTagType,
+    on_meta_data::OnMetaData,
+    video_tag_header::{FrameTypeFLV, LegacyVideoTagHeader},
+    video_tag_header_info::VideoTagHeaderWithoutMultiTrack,
+};
+use num::ToPrimitive;
+use tokio_util::bytes::{Buf, Bytes, BytesMut};
+use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
 use utils::traits::reader::ReadFrom;
+use utils::traits::writer::WriteTo;
 
-use crate::{errors::StreamCenterResult, frame_info::MediaMessageRuntimeStat};
+use crate::errors::{StreamCenterError, StreamCenterResult};
 
 #[derive(Debug, Clone)]
 pub enum MediaFrame {
+    VideoConfig {
+        timestamp_nano: u64,
+        config: Box<VideoConfig>,
+    },
     Video {
-        runtime_stat: MediaMessageRuntimeStat,
-        // NOTE - this tag_header is also included in the frame payload
         frame_info: VideoFrameInfo,
-        payload: Bytes,
+        payload: VideoFrameUnit,
     },
     Audio {
-        runtime_stat: MediaMessageRuntimeStat,
         // NOTE - this tag_header is also included in the frame payload
         frame_info: AudioFrameInfo,
         payload: Bytes,
     },
     Script {
-        runtime_stat: MediaMessageRuntimeStat,
         timestamp_nano: u64,
         // onMetaData should be the content of payload,
         // note the payload still holds all the bytes
@@ -38,7 +58,6 @@ impl MediaFrame {
         matches!(
             self,
             MediaFrame::Video {
-                runtime_stat: _,
                 frame_info: _,
                 payload: _,
             }
@@ -50,7 +69,6 @@ impl MediaFrame {
         matches!(
             self,
             MediaFrame::Audio {
-                runtime_stat: _,
                 frame_info: _,
                 payload: _,
             }
@@ -62,7 +80,6 @@ impl MediaFrame {
         matches!(
             self,
             MediaFrame::Script {
-                runtime_stat: _,
                 timestamp_nano: _,
                 payload: _,
                 on_meta_data: _,
@@ -74,12 +91,10 @@ impl MediaFrame {
     pub fn is_sequence_header(&self) -> bool {
         match self {
             MediaFrame::Audio {
-                runtime_stat: _,
                 frame_info,
                 payload: _,
             } => frame_info.frame_type == FrameType::SequenceStart,
             MediaFrame::Video {
-                runtime_stat: _,
                 frame_info,
                 payload: _,
             } => frame_info.frame_type == FrameType::SequenceStart,
@@ -91,11 +106,320 @@ impl MediaFrame {
     pub fn is_video_key_frame(&self) -> bool {
         match self {
             MediaFrame::Video {
-                runtime_stat: _,
                 frame_info,
                 payload: _,
             } => frame_info.frame_type == FrameType::KeyFrame,
             _ => false,
+        }
+    }
+
+    pub fn to_flv_tag(&self, nalu_size_length: u8) -> StreamCenterResult<flv_formats::tag::FLVTag> {
+        assert!(nalu_size_length == 1 || nalu_size_length == 2 || nalu_size_length == 4);
+        match self {
+            Self::Audio {
+                frame_info,
+                payload,
+            } => {
+                let legacy_header: LegacyAudioTagHeader = frame_info.try_into()?;
+                Ok(flv_formats::tag::FLVTag {
+                    tag_header: flv_formats::tag::flv_tag_header::FLVTagHeader {
+                        tag_type: FLVTagType::Audio,
+                        data_size: legacy_header
+                            .get_packet_bytes_count()
+                            .checked_add(payload.len())
+                            .and_then(|v| v.to_u32())
+                            .unwrap(),
+                        timestamp: frame_info
+                            .timestamp_nano
+                            .checked_div(1_000_000)
+                            .and_then(|v| v.to_u32())
+                            .unwrap(),
+                        filter_enabled: false,
+                    },
+                    body_with_filter: flv_formats::tag::flv_tag_body::FLVTagBodyWithFilter {
+                        filter: None,
+                        body: flv_formats::tag::flv_tag_body::FLVTagBody::Audio {
+                            header: flv_formats::tag::audio_tag_header::AudioTagHeader::Legacy(
+                                legacy_header,
+                            ),
+                            body: payload.clone(),
+                        },
+                    },
+                })
+            }
+            Self::Script {
+                timestamp_nano,
+                on_meta_data,
+                payload,
+            } => Ok(flv_formats::tag::FLVTag {
+                tag_header: flv_formats::tag::flv_tag_header::FLVTagHeader {
+                    tag_type: FLVTagType::Script,
+                    data_size: payload.len().to_u32().unwrap(),
+                    timestamp: timestamp_nano
+                        .checked_div(1_000_000)
+                        .and_then(|v| v.to_u32())
+                        .unwrap(),
+                    filter_enabled: false,
+                },
+                body_with_filter: flv_formats::tag::flv_tag_body::FLVTagBodyWithFilter {
+                    filter: None,
+                    body: flv_formats::tag::flv_tag_body::FLVTagBody::Script {
+                        value: vec![
+                            amf_formats::amf0::string("@setDataFrame"),
+                            amf_formats::amf0::string("@onMetaData"),
+                            amf_formats::amf0::Value::ECMAArray(
+                                on_meta_data.clone().map_or(vec![], |ref v| v.into()),
+                            ),
+                        ],
+                    },
+                },
+            }),
+            Self::Video {
+                frame_info,
+                payload,
+            } => {
+                let legacy_header: LegacyVideoTagHeader = frame_info.try_into()?;
+                let mut bytes =
+                    BytesMut::zeroed(payload.bytes_cnt(nalu_size_length.to_usize().unwrap()));
+                let mut writer = io::Cursor::new(bytes.as_mut());
+                codec_common::video::writer::VideoFrameUnitAvccWriter(payload, nalu_size_length)
+                    .write_to(&mut writer)
+                    .map_err(|err| {
+                        StreamCenterError::RemuxFailed(format!(
+                            "remux from video frame to flv video tag failed: {}",
+                            err
+                        ))
+                    })?;
+
+                Ok(flv_formats::tag::FLVTag {
+                    tag_header: flv_formats::tag::flv_tag_header::FLVTagHeader {
+                        tag_type: FLVTagType::Video,
+                        data_size: legacy_header
+                            .get_packet_bytes_count()
+                            .checked_add(bytes.len())
+                            .and_then(|v| v.to_u32())
+                            .unwrap(),
+                        timestamp: frame_info
+                            .timestamp_nano
+                            .checked_div(1_000_000)
+                            .and_then(|v| v.to_u32())
+                            .unwrap(),
+                        filter_enabled: false,
+                    },
+                    body_with_filter: flv_formats::tag::flv_tag_body::FLVTagBodyWithFilter {
+                        filter: None,
+                        body: flv_formats::tag::flv_tag_body::FLVTagBody::Video {
+                            header: flv_formats::tag::video_tag_header::VideoTagHeader::Legacy(
+                                legacy_header,
+                            ),
+                            body: bytes.freeze(),
+                        },
+                    },
+                })
+            }
+            Self::VideoConfig {
+                timestamp_nano,
+                config,
+            } => {
+                let frame_info = VideoFrameInfo {
+                    codec_id: config.as_ref().into(),
+                    frame_type: FrameType::SequenceStart,
+                    timestamp_nano: *timestamp_nano,
+                };
+                let legacy_header: LegacyVideoTagHeader = (&frame_info).try_into()?;
+                match config.as_ref() {
+                    VideoConfig::H264 {
+                        sps: _,
+                        pps: _,
+                        sps_ext: _,
+                        avc_decoder_configuration_record,
+                    } => {
+                        if let Some(record) = avc_decoder_configuration_record {
+                            let mut bytes = BytesMut::zeroed(record.get_packet_bytes_count());
+                            let mut writer = io::Cursor::new(bytes.as_mut());
+                            record.write_to(&mut writer)?;
+                            Ok(flv_formats::tag::FLVTag {
+                                tag_header: flv_formats::tag::flv_tag_header::FLVTagHeader {
+                                    tag_type: FLVTagType::Video,
+                                    data_size: legacy_header
+                                        .get_packet_bytes_count()
+                                        .checked_add(bytes.len())
+                                        .and_then(|v| v.to_u32())
+                                        .unwrap(),
+                                    timestamp: timestamp_nano
+                                        .checked_div(1_000_000)
+                                        .and_then(|v| v.to_u32())
+                                        .unwrap(),
+                                    filter_enabled: false,
+                                },
+                                body_with_filter:
+                                    flv_formats::tag::flv_tag_body::FLVTagBodyWithFilter {
+                                        filter: None,
+                                        body: flv_formats::tag::flv_tag_body::FLVTagBody::Video {
+                                            header: flv_formats::tag::video_tag_header::VideoTagHeader::Legacy(legacy_header),
+                                            body: bytes.freeze(),
+                                        },
+                                    },
+                            })
+                        } else {
+                            unimplemented!()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn from_flv_tag(tag: FLVTag, nalu_size_length: u8) -> StreamCenterResult<Self> {
+        match tag.body_with_filter.body {
+            FLVTagBody::Audio { header, body } => {
+                let tag_header_info: AudioTagHeaderWithoutMultiTrack = (&header).try_into()?;
+                Ok(Self::Audio {
+                    frame_info: AudioFrameInfo::new(
+                        tag_header_info.codec_id,
+                        tag_header_info.packet_type.try_into()?,
+                        tag_header_info
+                            .legacy_info
+                            .unwrap_or_default()
+                            .sound_rate
+                            .into(),
+                        tag_header_info
+                            .legacy_info
+                            .unwrap_or_default()
+                            .sound_size
+                            .into(),
+                        tag_header_info
+                            .legacy_info
+                            .unwrap_or_default()
+                            .sound_type
+                            .into(),
+                        tag.tag_header
+                            .timestamp
+                            .to_u64()
+                            .and_then(|v| v.checked_mul(1_000_000))
+                            .and_then(|v| {
+                                v.checked_add(
+                                    tag_header_info
+                                        .timestamp_nano
+                                        .unwrap_or(0)
+                                        .to_u64()
+                                        .unwrap(),
+                                )
+                            })
+                            .unwrap(),
+                    ),
+                    payload: body,
+                })
+            }
+            FLVTagBody::Script { ref value } => {
+                let mut bytes = Vec::new();
+                tag.body_with_filter.write_to(&mut bytes)?;
+
+                let mut map = HashMap::new();
+                for v in value {
+                    let pairs = v.clone().try_into_pairs();
+                    if let Ok(pairs) = pairs {
+                        for (k, v) in pairs {
+                            map.insert(k, v);
+                        }
+                    }
+                }
+
+                Ok(Self::Script {
+                    timestamp_nano: tag
+                        .tag_header
+                        .timestamp
+                        .to_u64()
+                        .and_then(|v| v.checked_mul(1_000_000))
+                        .unwrap(),
+                    on_meta_data: Box::new(Some(OnMetaData::from(map))),
+                    payload: bytes.into(),
+                })
+            }
+            FLVTagBody::Video { header, body } => {
+                let tag_header_info: VideoTagHeaderWithoutMultiTrack = (&header).try_into()?;
+                match tag_header_info.packet_type {
+                    VideoPacketType::SequenceStart => {
+                        // avc decoder configuration record
+                        let video_config = match tag_header_info.codec_id {
+                            VideoCodecCommon::AVC => {
+                                let config =
+                                    AvcDecoderConfigurationRecord::read_from(&mut body.reader())?;
+                                tracing::debug!(
+                                    "got avc_decoder_configuration_record: {:?}",
+                                    config
+                                );
+                                VideoConfig::from(config)
+                            }
+                            _ => {
+                                todo!()
+                            }
+                        };
+                        Ok(Self::VideoConfig {
+                            timestamp_nano: tag
+                                .tag_header
+                                .timestamp
+                                .to_u64()
+                                .and_then(|v| v.checked_mul(1_000_000))
+                                .unwrap(),
+                            config: Box::new(video_config),
+                        })
+                    }
+                    VideoPacketType::MPEG2TSSequenceStart => {
+                        unimplemented!()
+                    }
+                    _ => {
+                        let nalus = codec_common::video::reader::parse_to_nal_units(
+                            &body,
+                            tag_header_info.codec_id,
+                            Some(nalu_size_length),
+                        )
+                        .map_err(|err| {
+                            StreamCenterError::RemuxFailed(format!(
+                                "demux video nalus for codec id: {:?} failed: {}",
+                                tag_header_info.codec_id, err
+                            ))
+                        })?;
+                        Ok(Self::Video {
+                            frame_info: VideoFrameInfo::new(
+                                tag_header_info.codec_id,
+                                if tag_header_info.packet_type == VideoPacketType::SequenceEnd {
+                                    FrameType::SequenceEnd
+                                } else if tag_header_info.frame_type == FrameTypeFLV::KeyFrame {
+                                    FrameType::KeyFrame
+                                } else {
+                                    FrameType::CodedFrames
+                                },
+                                tag.tag_header
+                                    .timestamp
+                                    .to_u64()
+                                    .and_then(|v| v.checked_mul(1_000_000))
+                                    .and_then(|v| {
+                                        v.checked_add(
+                                            tag_header_info
+                                                .composition_time
+                                                .unwrap_or(0)
+                                                .to_u64()
+                                                .and_then(|v| v.checked_mul(1_000_000))
+                                                .unwrap(),
+                                        )
+                                    })
+                                    .and_then(|v| {
+                                        v.checked_add(
+                                            tag_header_info
+                                                .timestamp_nano
+                                                .unwrap_or(0)
+                                                .to_u64()
+                                                .unwrap(),
+                                        )
+                                    })
+                                    .unwrap(),
+                            ),
+                            payload: nalus,
+                        })
+                    }
+                }
+            }
         }
     }
 }
@@ -147,12 +471,15 @@ impl Gop {
         self.last_video_pts_nano
     }
 
-    pub fn append_flv_tag(&mut self, frame: MediaFrame) {
+    pub fn append_media_frame(&mut self, frame: MediaFrame) {
         match &frame {
+            MediaFrame::VideoConfig {
+                timestamp_nano: _,
+                config: _,
+            } => {}
             MediaFrame::Video {
                 frame_info,
                 payload: _,
-                runtime_stat: _,
             } => {
                 self.video_tag_cnt += 1;
                 if self.flv_frames.is_empty() {
@@ -163,12 +490,10 @@ impl Gop {
             MediaFrame::Audio {
                 frame_info: _,
                 payload: _,
-                runtime_stat: _,
             } => self.audio_tag_cnt += 1,
             MediaFrame::Script {
                 timestamp_nano: _,
                 payload: _,
-                runtime_stat: _,
                 on_meta_data: _,
             } => self.meta_tag_cnt += 1,
         }
@@ -185,8 +510,8 @@ impl Default for Gop {
 
 #[derive(Debug)]
 pub struct GopQueue {
-    pub video_sequence_header: Option<MediaFrame>,
-    pub audio_sequence_header: Option<MediaFrame>,
+    pub video_config: Option<VideoConfig>,
+    pub audio_config: Option<MediaFrame>,
     pub script_frame: Option<MediaFrame>,
     pub gops: VecDeque<Gop>,
     total_frame_cnt: u64,
@@ -200,8 +525,8 @@ pub struct GopQueue {
 impl GopQueue {
     pub fn new(max_duration_ms: u64, max_frame_cnt: u64) -> Self {
         Self {
-            video_sequence_header: None,
-            audio_sequence_header: None,
+            video_config: None,
+            audio_config: None,
             script_frame: None,
             gops: VecDeque::new(),
             max_duration_ms,
@@ -267,35 +592,30 @@ impl GopQueue {
             MediaFrame::Audio {
                 frame_info,
                 payload: _,
-                runtime_stat: _,
             } => {
                 if frame_info.frame_type == FrameType::SequenceStart {
                     tracing::info!("audio header: {:?}", frame_info);
-                    self.audio_sequence_header = Some(frame.clone());
+                    self.audio_config = Some(frame.clone());
                     is_sequence_header = true;
                 }
             }
+            MediaFrame::VideoConfig {
+                timestamp_nano: _,
+                config,
+            } => {
+                self.video_config = Some(*config.clone());
+                is_sequence_header = true;
+            }
             MediaFrame::Video {
                 frame_info,
-                payload,
-                runtime_stat: _,
+                payload: _,
             } => {
                 is_video = true;
-                if frame_info.frame_type == FrameType::SequenceStart {
-                    tracing::info!("video header: {:?}", frame_info);
-
-                    let record =
-                        AvcDecoderConfigurationRecord::read_from(&mut payload.as_ref().reader())?;
-                    tracing::info!("avc decoder configuration record: {:?}", record);
-
-                    self.video_sequence_header = Some(frame.clone());
-                    is_sequence_header = true;
-                } else if frame_info.frame_type == FrameType::KeyFrame {
+                if frame_info.frame_type == FrameType::KeyFrame {
                     self.gops.push_back(Gop::new());
                 }
             }
             MediaFrame::Script {
-                runtime_stat: _,
                 timestamp_nano: pts,
                 on_meta_data,
                 payload: _,
@@ -341,7 +661,7 @@ impl GopQueue {
             self.gops
                 .back_mut()
                 .expect("this cannot be empty")
-                .append_flv_tag(frame);
+                .append_media_frame(frame);
             self.total_frame_cnt += 1;
         }
 

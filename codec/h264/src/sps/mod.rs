@@ -1,6 +1,11 @@
 use chroma_format_idc::ChromaFormatIdc;
+use utils::traits::dynamic_sized_packet::DynamicSizedBitsPacket;
 
-use crate::{scaling_list::SeqScalingMatrix, vui::VuiParameters};
+use crate::{
+    exp_golomb::{find_se_bits_count, find_ue_bits_cound},
+    scaling_list::SeqScalingMatrix,
+    vui::VuiParameters,
+};
 
 pub mod chroma_format_idc;
 pub mod reader;
@@ -21,6 +26,36 @@ pub struct ProfileIdcRelated {
     // }
 }
 
+impl DynamicSizedBitsPacket for ProfileIdcRelated {
+    fn get_packet_bits_count(&self) -> usize {
+        let mut result = find_ue_bits_cound(Into::<u8>::into(self.chroma_format_idc)).unwrap();
+        if self.separate_colour_plane_flag.is_some() {
+            result += 1;
+        }
+        result += find_ue_bits_cound(self.bit_depth_luma_minus8).unwrap();
+        result += find_ue_bits_cound(self.bit_depth_chroma_minus8).unwrap();
+        result += 1; // qpprime_y_zero_transform_bypass_flag
+        result += 1; // seq_scaling_matrix_present_flag
+        if let Some(matrix) = &self.seq_scaling_matrix {
+            let cnt = if !matches!(self.chroma_format_idc, ChromaFormatIdc::Chroma444) {
+                8
+            } else {
+                12
+            };
+            for i in 0..cnt {
+                if matrix.seq_scaling_list_present_flag[i] {
+                    if i < 6 {
+                        result += matrix.scaling_list_4x4[i].get_packet_bits_count();
+                    } else {
+                        result += matrix.scaling_list_8x8[i - 6].get_packet_bits_count();
+                    }
+                }
+            }
+        }
+        result
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PicOrderCntType1 {
     pub delta_pic_order_always_zero_flag: bool, // u(1)
@@ -31,12 +66,31 @@ pub struct PicOrderCntType1 {
     pub offset_for_ref_frame: Vec<i64>,         // se(v)
 }
 
+impl DynamicSizedBitsPacket for PicOrderCntType1 {
+    fn get_packet_bits_count(&self) -> usize {
+        1 + // delta_pic_order_always_zero_flag
+            find_se_bits_count(self.offset_for_non_ref_pic).unwrap() +
+            find_se_bits_count(self.offset_for_top_to_bottom_field).unwrap() +
+            find_ue_bits_cound(self.num_ref_frames_in_pic_order_cnt_cycle).unwrap() +
+            self.offset_for_ref_frame.iter().fold(0, |prev, item| prev + find_se_bits_count(*item).unwrap())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct FrameCropping {
     pub frame_crop_left_offset: u64,   // ue(v)
     pub frame_crop_right_offset: u64,  // ue(v)
     pub frame_crop_top_offset: u64,    // ue(v)
     pub frame_crop_bottom_offset: u64, // ue(v)
+}
+
+impl DynamicSizedBitsPacket for FrameCropping {
+    fn get_packet_bits_count(&self) -> usize {
+        find_ue_bits_cound(self.frame_crop_left_offset).unwrap()
+            + find_ue_bits_cound(self.frame_crop_right_offset).unwrap()
+            + find_ue_bits_cound(self.frame_crop_top_offset).unwrap()
+            + find_ue_bits_cound(self.frame_crop_bottom_offset).unwrap()
+    }
 }
 
 /// @see: Recommendation  ITU-T H.264 (V15) (08/2024)   – Coding of moving video
@@ -89,4 +143,49 @@ pub struct Sps {
     /// if vui_parameters_present_flag {
     pub vui_parameters: Option<VuiParameters>,
     // }
+}
+
+impl DynamicSizedBitsPacket for Sps {
+    fn get_packet_bits_count(&self) -> usize {
+        8  + // profile_idc
+        1 + // constraint_set0_flag
+        1 + // constraint_set1_flag
+        1 + // constraint_set2_flag
+        1 + // constraint_set3_flag
+        1 + // constraint_set4_flag
+        1 + // constraint_set5_flag
+        2 + // reserved_zero_2bits
+        8 + // level_idc
+        find_ue_bits_cound(self.seq_parameter_set_id).unwrap() +
+        self
+            .profile_idc_related
+            .as_ref()
+            .map_or(0, |v| v.get_packet_bits_count()) +
+        find_ue_bits_cound(self.log2_max_frame_num_minus4).unwrap() +
+        find_ue_bits_cound(self.pic_order_cnt_type).unwrap() +
+        self
+            .log2_max_pic_order_cnt_lsb_minus4
+            .map_or(0, |v| find_ue_bits_cound(v).unwrap()) +
+        self
+            .pic_order_cnt_type_1
+            .as_ref()
+            .map_or(0, |v| v.get_packet_bits_count()) +
+        find_ue_bits_cound(self.max_num_ref_frames).unwrap() +
+        1 + // gaps_in_frame_num_value_allowed_flag 
+        find_ue_bits_cound(self.pic_width_in_mbs_minus1).unwrap() +
+        find_ue_bits_cound(self.pic_height_in_map_units_minus1).unwrap() +
+        1 + // frame_mbs_only_flag
+        self.mb_adaptive_frame_field_flag.map_or(0, |_| 1) +
+        1 + // direct_8x8_inference_flag
+        1 + // frame_cropping_flag
+        self
+            .frame_cropping
+            .as_ref()
+            .map_or(0, |v| v.get_packet_bits_count()) +
+        1 + // vui_parameters_present_flag
+        self
+            .vui_parameters
+            .as_ref()
+            .map_or(0, |v| v.get_packet_bits_count())
+    }
 }

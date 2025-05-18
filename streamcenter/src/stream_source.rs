@@ -30,6 +30,19 @@ pub enum StreamType {
     Append,
 }
 
+#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
+pub enum PublishProtocol {
+    RTMP,
+    RTSP,
+}
+
+#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
+pub enum PlayProtocol {
+    RTMP,
+    HTTPFLV,
+    RTSP,
+}
+
 impl Display for StreamType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -259,9 +272,12 @@ impl StreamSource {
                 handler.stat.script_frames_sent += 1;
             }
         }
-        if let Some(video_sh) = &self.gop_cache.video_sequence_header {
+        if let Some(video_sh) = &self.gop_cache.video_config {
             if !handler.parsed_context.audio_only {
-                let res = handler.data_sender.try_send(video_sh.clone());
+                let res = handler.data_sender.try_send(MediaFrame::VideoConfig {
+                    timestamp_nano: 0,
+                    config: Box::new(video_sh.clone()),
+                });
                 if res.is_err() {
                     tracing::error!(
                         "distribute video sh frame data to {} failed: {:?}",
@@ -275,7 +291,7 @@ impl StreamSource {
                 }
             }
         }
-        if let Some(audio_sh) = &self.gop_cache.audio_sequence_header {
+        if let Some(audio_sh) = &self.gop_cache.audio_config {
             if !handler.parsed_context.video_only {
                 let res = handler.data_sender.try_send(audio_sh.clone());
                 if res.is_err() {

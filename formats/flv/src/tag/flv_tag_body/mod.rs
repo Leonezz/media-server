@@ -27,12 +27,7 @@ pub enum FLVTagBody {
         body: Bytes,
     },
     Script {
-        /// Method or object name.
-        /// SCRIPTDATAVALUE.Type = 2 (String)
-        name: String,
-        /// AMF arguments or object properties.
-        /// SCRIPTDATAVALUE.Type = 8 (ECMA array)
-        value: Vec<(String, amf_formats::amf0::Value)>,
+        value: Vec<amf_formats::amf0::Value>,
     },
 }
 
@@ -49,10 +44,9 @@ impl fmt::Debug for FLVTagBody {
                 header,
                 body.len()
             )),
-            FLVTagBody::Script { name, value } => f.write_fmt(format_args!(
-                "Meta tag body, name: {}, value: {:?}",
-                name, value
-            )),
+            FLVTagBody::Script { value } => {
+                f.write_fmt(format_args!("Meta tag body, value: {:?}", value))
+            }
         }
     }
 }

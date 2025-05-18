@@ -16,6 +16,7 @@ tokio-util = "0.7.14"
 tracing = "0.1.41"
 codec-common = { path = "../codec/common" }
 codec-h264 = { path = "../codec/h264" }
+num = "0.4.3"
 
 [dependencies.uuid]
 version = "1.11.0"

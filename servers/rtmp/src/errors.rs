@@ -22,6 +22,10 @@ pub enum RtmpServerError {
     InvalidStreamParam(String),
     #[error("stream is gone")]
     StreamIsGone,
+    #[error("video codec demux failed: {0}")]
+    VideoCodecDemuxFailed(String),
+    #[error("video codec mux failed: {0}")]
+    VideoCodecMuxFailed(String),
 }
 
 pub type RtmpServerResult<T> = Result<T, RtmpServerError>;

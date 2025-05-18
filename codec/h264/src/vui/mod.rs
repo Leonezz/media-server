@@ -1,6 +1,9 @@
 use hrd_parameters::HrdParameters;
+use utils::traits::{
+    dynamic_sized_packet::DynamicSizedBitsPacket, fixed_packet::FixedBitwisePacket,
+};
 
-use crate::errors::H264CodecError;
+use crate::{errors::H264CodecError, exp_golomb::find_ue_bits_cound};
 
 pub mod hrd_parameters;
 pub mod reader;
@@ -10,6 +13,12 @@ pub mod writer;
 pub struct AspectRatioInfoExtendedSAR {
     pub sar_width: u16,  // u(16)
     pub sar_height: u16, // u(16)
+}
+
+impl FixedBitwisePacket for AspectRatioInfoExtendedSAR {
+    fn bits_count() -> usize {
+        32
+    }
 }
 
 /// @see: Table E-1 – Meaning of sample aspect ratio indicator
@@ -96,11 +105,24 @@ pub struct AspectRatioInfo {
     pub aspect_ratio_info_extended_sar: Option<AspectRatioInfoExtendedSAR>, // }
 }
 
+impl DynamicSizedBitsPacket for AspectRatioInfo {
+    fn get_packet_bits_count(&self) -> usize {
+        8 + // aspect_ratio_idc
+        self.aspect_ratio_info_extended_sar.map_or(0, |_| AspectRatioInfoExtendedSAR::bits_count())
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct ColourDescription {
     pub colour_primaries: u8, // u(8), see: Table E-3 – Colour primaries interpretation using colour_primaries syntax element
     pub transfer_characteristics: u8, // u(8), see: Table E-4 – Transfer characteristics interpretation using transfer_characteristics syntax element
     pub matrix_coefficients: u8, // u(8), see: Table E-5 – Matrix coefficients interpretation using the matrix_coefficients syntax element
+}
+
+impl FixedBitwisePacket for ColourDescription {
+    fn bits_count() -> usize {
+        24
+    }
 }
 
 /// @see: Table E-2 – Meaning of video_format
@@ -160,10 +182,26 @@ pub struct VideoSignalType {
     // }
 }
 
+impl DynamicSizedBitsPacket for VideoSignalType {
+    fn get_packet_bits_count(&self) -> usize {
+        3 + // video_format
+        1 + // video_full_range_flag
+        1 + // colour_description_present_flag
+        self.colour_description.map_or(0, |_| ColourDescription::bits_count())
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct ChromaLocInfo {
     pub chroma_sample_loc_type_top_field: u8, // ue(v), in [0, 5]
     pub chroma_sample_loc_type_bottom_field: u8, // ue(v), in [0, 5]
+}
+
+impl DynamicSizedBitsPacket for ChromaLocInfo {
+    fn get_packet_bits_count(&self) -> usize {
+        find_ue_bits_cound(self.chroma_sample_loc_type_top_field).unwrap()
+            + find_ue_bits_cound(self.chroma_sample_loc_type_bottom_field).unwrap()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -171,6 +209,12 @@ pub struct TimingInfo {
     pub num_units_in_tick: u32,      // u(32), in (0, )
     pub time_scale: u32,             // u(32), in (0, )
     pub fixed_frame_rate_flag: bool, // u(1)
+}
+
+impl FixedBitwisePacket for TimingInfo {
+    fn bits_count() -> usize {
+        65
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -182,6 +226,18 @@ pub struct BitstreamRestriction {
     pub log2_max_mv_length_vertical: u8,               // ue(v), in [0, 15]
     pub max_num_reorder_frames: u64,                   // ue(v), in [0, max_dec_frame_buffering]
     pub max_dec_frame_buffering: u64,                  // ue(v)
+}
+
+impl DynamicSizedBitsPacket for BitstreamRestriction {
+    fn get_packet_bits_count(&self) -> usize {
+        1 + // motion_vectors_over_pic_boundaries_flag
+        find_ue_bits_cound(self.max_bytes_per_pic_denom).unwrap() +
+        find_ue_bits_cound(self.max_bits_per_mb_denom).unwrap() +
+        find_ue_bits_cound(self.log2_max_mv_length_horizontal).unwrap() +
+        find_ue_bits_cound(self.log2_max_mv_length_vertical).unwrap() +
+        find_ue_bits_cound(self.max_num_reorder_frames).unwrap() +
+        find_ue_bits_cound(self.max_dec_frame_buffering).unwrap()
+    }
 }
 
 /// @see: Recommendation  ITU-T H.264 (V15) (08/2024)   – Coding of moving video
@@ -200,7 +256,9 @@ pub struct VuiParameters {
     /// }
     #[allow(unused)]
     video_signal_type_present_flag: bool, // u(1)
+    // if video_signal_type_present_flag {
     pub video_signal_type: Option<VideoSignalType>,
+    // }
     #[allow(unused)]
     chroma_loc_info_present_flag: bool, // u(1)
     /// if chroma_loc_info_present_flag {
@@ -230,4 +288,27 @@ pub struct VuiParameters {
     /// if bitstream_restriction_flag {
     pub bitstream_restriction: Option<BitstreamRestriction>,
     // }
+}
+
+impl DynamicSizedBitsPacket for VuiParameters {
+    fn get_packet_bits_count(&self) -> usize {
+        1 + // aspect_ratio_info_present_flag
+        self.aspect_ratio_info.map_or(0, |v| v.get_packet_bits_count()) +
+        1 + // overscan_info_present_flag 
+        self.overscan_appropriate_flag.map_or(0, |_|1) +
+        1 + // video_signal_type_present_flag
+        self.video_signal_type.as_ref().map_or(0, |v| v.get_packet_bits_count()) +
+        1 + // chroma_loc_info_present_flag
+        self.chroma_loc_info.as_ref().map_or(0, |v| v.get_packet_bits_count()) +
+        1 + // timing_info_present_flag
+        self.timing_info.as_ref().map_or(0, |_| TimingInfo::bits_count()) + 
+        1 + // nal_hrd_parameters_present_flag
+        self.nal_hrd_parameters.as_ref().map_or(0, |v|v.get_packet_bits_count()) +
+        1 + // vcl_hrd_parameters_present_flag
+        self.vcl_hrd_parameters.as_ref().map_or(0, |v| v.get_packet_bits_count()) +
+        self.low_delay_hrd_flag.map_or(0, |_|1) +
+        1 + // pic_struct_present_flag
+        1 + // bitstream_restriction_flag
+        self.bitstream_restriction.as_ref().map_or(0, |v| v.get_packet_bits_count())
+    } 
 }

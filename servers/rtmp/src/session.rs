@@ -10,15 +10,11 @@ use ::stream_center::{
     events::StreamCenterEvent,
     stream_source::{StreamIdentifier, StreamType},
 };
-use codec_common::{FrameType, audio::AudioFrameInfo, video::VideoFrameInfo};
+use codec_common::video::VideoConfig;
 use flv_formats::tag::{
-    audio_tag_header::AudioTagHeader,
-    audio_tag_header_info::AudioTagHeaderWithoutMultiTrack,
-    enhanced::ex_video::ex_video_header::VideoPacketType,
+    FLVTag,
+    flv_tag_body::FLVTagBodyWithFilter,
     flv_tag_header::{FLVTagHeader, FLVTagType},
-    on_meta_data::OnMetaData,
-    video_tag_header::{FrameTypeFLV, VideoTagHeader},
-    video_tag_header_info::VideoTagHeaderWithoutMultiTrack,
 };
 use num::ToPrimitive;
 use rtmp_formats::{
@@ -35,9 +31,7 @@ use rtmp_formats::{
     protocol_control::SetPeerBandWidthLimitType,
     user_control::UserControlEvent,
 };
-use stream_center::{
-    events::SubscribeResponse, frame_info::MediaMessageRuntimeStat, gop::MediaFrame,
-};
+use stream_center::{events::SubscribeResponse, gop::MediaFrame};
 use tokio::{
     net::TcpStream,
     sync::{
@@ -65,7 +59,7 @@ use super::{
     errors::RtmpServerResult,
 };
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct SessionStat {
     video_frame_cnt: u64,
     audio_frame_cnt: u64,
@@ -89,7 +83,7 @@ struct PlayHandle {
     stat: SessionStat,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct PublishHandle {
     stream_data_producer: mpsc::Sender<MediaFrame>,
     no_data_since: Option<SystemTime>,
@@ -99,7 +93,7 @@ struct PublishHandle {
 #[derive(Debug)]
 enum SessionRuntime {
     Play(Arc<RwLock<PlayHandle>>),
-    Publish(PublishHandle),
+    Publish(Arc<RwLock<PublishHandle>>),
     Unknown,
 }
 
@@ -118,6 +112,7 @@ pub struct RtmpSession {
     chunk_stream: RtmpChunkStream,
     runtime_handle: SessionRuntime,
     stream_properties: StreamProperties,
+    video_nalu_size_length: Option<u8>,
     connect_info: ConnectCommandRequestObject,
     total_wrote_bytes: usize,
     config: RtmpSessionConfig,
@@ -139,6 +134,7 @@ impl RtmpSession {
                 config.write_timeout_ms,
             ),
             stream_properties: StreamProperties::default(),
+            video_nalu_size_length: None,
             connect_info: Default::default(),
             runtime_handle: SessionRuntime::Unknown,
             total_wrote_bytes: 0,
@@ -179,7 +175,9 @@ impl RtmpSession {
                         if let SessionRuntime::Publish(handle) = &self.runtime_handle {
                             let current_time = SystemTime::now();
                             if current_time
-                                .duration_since(handle.no_data_since.unwrap_or(current_time))
+                                .duration_since(
+                                    handle.read().await.no_data_since.unwrap_or(current_time),
+                                )
                                 .expect("stop time must be before")
                                 .as_secs()
                                 > 10
@@ -259,6 +257,7 @@ impl RtmpSession {
                 )
             }
             SessionRuntime::Publish(handle) => {
+                let handle = handle.read().await;
                 tracing::info!(
                     "publish stats: no_data_since: {:?}, stat: {:?}",
                     handle.no_data_since,
@@ -284,59 +283,27 @@ impl RtmpSession {
                     return Err(RtmpServerError::StreamIsGone);
                 }
                 _len => {
-                    for message in &mut messages {
-                        match message {
-                            MediaFrame::Video {
-                                runtime_stat,
-                                frame_info: _,
-                                payload: _,
-                            } => {
-                                runtime_stat.play_time_ns = get_timestamp_ns().unwrap_or(0);
-
-                                let res = self.chunk_stream.write_tag(message).await;
-                                if res.is_err() {
-                                    tracing::error!(
-                                        "write video message to rtmp chunk failed, err: {:?}",
-                                        res
-                                    );
-                                    handle.stat.failed_video_frame_cnt += 1;
-                                } else {
-                                    handle.stat.video_frame_cnt += 1;
+                    for message in &messages {
+                        if let MediaFrame::VideoConfig {
+                            timestamp_nano: _,
+                            config,
+                        } = message
+                        {
+                            match config.as_ref() {
+                                VideoConfig::H264 {
+                                    sps: _,
+                                    pps: _,
+                                    sps_ext: _,
+                                    avc_decoder_configuration_record,
+                                } => {
+                                    self.video_nalu_size_length = avc_decoder_configuration_record
+                                        .as_ref()
+                                        .map(|v| v.length_size_minus_one.checked_add(1).unwrap());
                                 }
-                                res?
-                            }
-                            MediaFrame::Audio {
-                                runtime_stat,
-                                frame_info: _,
-                                payload: _,
-                            } => {
-                                runtime_stat.play_time_ns = get_timestamp_ns().unwrap_or(0);
-
-                                let res = self.chunk_stream.write_tag(message).await;
-                                if res.is_err() {
-                                    tracing::error!(
-                                        "write audio message to rtmp chunk failed, err: {:?}",
-                                        res
-                                    );
-                                    handle.stat.failed_audio_frame_cnt += 1;
-                                } else {
-                                    handle.stat.audio_frame_cnt += 1;
-                                }
-                                res?
-                            }
-                            MediaFrame::Script {
-                                runtime_stat,
-                                timestamp_nano: _,
-                                payload: _,
-                                on_meta_data: _,
-                            } => {
-                                runtime_stat.play_time_ns = get_timestamp_ns().unwrap_or(0);
-
-                                self.chunk_stream.write_tag(message).await?;
-                                //TODO -
-                                handle.stat.script_frame_cnt += 1;
                             }
                         }
+                        let tag = message.to_flv_tag(self.video_nalu_size_length.unwrap_or(4))?;
+                        self.chunk_stream.write_tag(tag).await?;
                         // message.log_runtime_stat();
                     }
                 }
@@ -373,12 +340,42 @@ impl RtmpSession {
             RtmpUserMessageBody::C2SCommand(command) => {
                 self.process_user_command(command, header).await?
             }
-            RtmpUserMessageBody::MetaData { payload } => self.process_meta(header, payload).await?,
-            RtmpUserMessageBody::Aggregate { payload } => {
-                self.process_aggregate(header, payload).await?
-            }
-            RtmpUserMessageBody::Audio { payload } => self.process_audio(header, payload).await?,
-            RtmpUserMessageBody::Video { payload } => self.process_video(header, payload).await?,
+            RtmpUserMessageBody::MetaData { payload } => match &self.runtime_handle {
+                SessionRuntime::Publish(publish_handle) => {
+                    self.process_meta(publish_handle.clone(), header, payload)
+                        .await?
+                }
+                _ => {
+                    unreachable!()
+                }
+            },
+            RtmpUserMessageBody::Aggregate { payload } => match &self.runtime_handle {
+                SessionRuntime::Publish(publish_handle) => {
+                    self.process_aggregate(publish_handle.clone(), header, payload)
+                        .await?
+                }
+                _ => {
+                    unreachable!()
+                }
+            },
+            RtmpUserMessageBody::Audio { payload } => match &self.runtime_handle {
+                SessionRuntime::Publish(publish_handle) => {
+                    self.process_audio(publish_handle.clone(), header, payload)
+                        .await?
+                }
+                _ => {
+                    unreachable!()
+                }
+            },
+            RtmpUserMessageBody::Video { payload } => match &self.runtime_handle {
+                SessionRuntime::Publish(publish_handle) => {
+                    self.process_video(publish_handle.clone(), header, payload)
+                        .await?
+                }
+                _ => {
+                    unreachable!()
+                }
+            },
             RtmpUserMessageBody::S2Command(command) => {
                 tracing::error!("got unexpected s2c command: {:?}", command);
             }
@@ -391,317 +388,252 @@ impl RtmpSession {
 
     async fn process_audio(
         &mut self,
+        publish_handle: Arc<RwLock<PublishHandle>>,
         header: ChunkMessageCommonHeader,
         audio: Bytes,
     ) -> RtmpServerResult<()> {
-        match &mut self.runtime_handle {
-            SessionRuntime::Publish(handle) => {
-                handle.no_data_since = None;
-                let media_frames = Self::chunked_rtmp_frame_to_media_frame(
-                    &header,
-                    RtmpUserMessageBody::Audio { payload: audio },
-                    None,
-                )?;
-                for media_frame in media_frames {
-                    let res = handle
-                        .stream_data_producer
-                        .send(media_frame)
-                        .await
-                        .map_err(|err| {
-                            tracing::error!("send audio data to stream center failed: {:?}", err);
-                            RtmpServerError::ChannelSendFailed {
-                                backtrace: Backtrace::capture(),
-                            }
-                        });
-                    if res.is_err() {
-                        handle.stat.failed_audio_frame_cnt += 1;
-                    } else {
-                        handle.stat.audio_frame_cnt += 1;
+        let mut handle = publish_handle.write().await;
+        handle.no_data_since = None;
+        let media_frames = self.chunked_rtmp_frame_to_media_frame(
+            &header,
+            RtmpUserMessageBody::Audio { payload: audio },
+            None,
+        )?;
+        for media_frame in media_frames {
+            let res = handle
+                .stream_data_producer
+                .send(media_frame)
+                .await
+                .map_err(|err| {
+                    tracing::error!("send audio data to stream center failed: {:?}", err);
+                    RtmpServerError::ChannelSendFailed {
+                        backtrace: Backtrace::capture(),
                     }
-                    res?;
-                }
+                });
+            if res.is_err() {
+                handle.stat.failed_audio_frame_cnt += 1;
+            } else {
+                handle.stat.audio_frame_cnt += 1;
             }
-            _ => {
-                tracing::error!(
-                    "got audio data while stream not published, length: {}",
-                    audio.len()
-                );
-            }
-        };
+            res?;
+        }
         Ok(())
     }
 
     async fn process_video(
         &mut self,
+        publish_handle: Arc<RwLock<PublishHandle>>,
         header: ChunkMessageCommonHeader,
         video: Bytes,
     ) -> RtmpServerResult<()> {
-        match &mut self.runtime_handle {
-            SessionRuntime::Publish(handle) => {
-                handle.no_data_since = None;
-                let media_frames = Self::chunked_rtmp_frame_to_media_frame(
-                    &header,
-                    RtmpUserMessageBody::Video { payload: video },
-                    None,
-                )?;
-                for media_frame in media_frames {
-                    let res = handle
-                        .stream_data_producer
-                        .send(media_frame)
-                        .await
-                        .map_err(|err| {
-                            tracing::error!("send video to stream center failed: {:?}", err);
-                            RtmpServerError::ChannelSendFailed {
-                                backtrace: Backtrace::capture(),
-                            }
-                        });
-                    if res.is_err() {
-                        handle.stat.failed_video_frame_cnt += 1;
-                    } else {
-                        handle.stat.video_frame_cnt += 1;
+        let mut handle = publish_handle.write().await;
+        handle.no_data_since = None;
+        let media_frames = self.chunked_rtmp_frame_to_media_frame(
+            &header,
+            RtmpUserMessageBody::Video { payload: video },
+            None,
+        )?;
+        for media_frame in media_frames {
+            let res = handle
+                .stream_data_producer
+                .send(media_frame)
+                .await
+                .map_err(|err| {
+                    tracing::error!("send video to stream center failed: {:?}", err);
+                    RtmpServerError::ChannelSendFailed {
+                        backtrace: Backtrace::capture(),
                     }
-                    res?;
-                }
+                });
+            if res.is_err() {
+                handle.stat.failed_video_frame_cnt += 1;
+            } else {
+                handle.stat.video_frame_cnt += 1;
             }
-            _ => {
-                tracing::error!(
-                    "got video data while stream not published, length: {}",
-                    video.len()
-                );
-            }
-        };
+            res?;
+        }
+
         Ok(())
     }
 
     async fn process_meta(
         &mut self,
+        publish_handle: Arc<RwLock<PublishHandle>>,
         header: ChunkMessageCommonHeader,
         payload: Bytes,
     ) -> RtmpServerResult<()> {
-        match &mut self.runtime_handle {
-            SessionRuntime::Publish(handle) => {
-                handle.no_data_since = None;
-                let media_frames = Self::chunked_rtmp_frame_to_media_frame(
-                    &header,
-                    RtmpUserMessageBody::MetaData { payload },
-                    None,
-                )?;
+        let mut handle = publish_handle.write().await;
+        handle.no_data_since = None;
+        let media_frames = self.chunked_rtmp_frame_to_media_frame(
+            &header,
+            RtmpUserMessageBody::MetaData { payload },
+            None,
+        )?;
 
-                for media_frame in media_frames {
-                    let res = handle
-                        .stream_data_producer
-                        .send(media_frame)
-                        .await
-                        .map_err(|err| {
-                            tracing::error!("send meta to stream center failed: {:?}", err);
-                            RtmpServerError::ChannelSendFailed {
-                                backtrace: Backtrace::capture(),
-                            }
-                        });
-                    if res.is_err() {
-                        handle.stat.failed_meta_frame_cnt += 1;
-                    } else {
-                        handle.stat.script_frame_cnt += 1;
+        for media_frame in media_frames {
+            let res = handle
+                .stream_data_producer
+                .send(media_frame)
+                .await
+                .map_err(|err| {
+                    tracing::error!("send meta to stream center failed: {:?}", err);
+                    RtmpServerError::ChannelSendFailed {
+                        backtrace: Backtrace::capture(),
                     }
-                    res?;
-                }
+                });
+            if res.is_err() {
+                handle.stat.failed_meta_frame_cnt += 1;
+            } else {
+                handle.stat.script_frame_cnt += 1;
             }
-            _ => {
-                tracing::error!(
-                    "got meta data while stream not published, value: {:?}",
-                    payload
-                );
-            }
-        };
+            res?;
+        }
+
         Ok(())
     }
 
     async fn process_aggregate(
         &mut self,
+        publish_handle: Arc<RwLock<PublishHandle>>,
         header: ChunkMessageCommonHeader,
         aggregate: Bytes,
     ) -> RtmpServerResult<()> {
-        match &mut self.runtime_handle {
-            SessionRuntime::Publish(handle) => {
-                handle.no_data_since = None;
-                let media_frames = Self::chunked_rtmp_frame_to_media_frame(
-                    &header,
-                    RtmpUserMessageBody::Aggregate { payload: aggregate },
-                    None,
-                )?;
-                for media_frame in media_frames {
-                    let res = handle
-                        .stream_data_producer
-                        .send(media_frame)
-                        .await
-                        .map_err(|_err| RtmpServerError::ChannelSendFailed {
-                            backtrace: Backtrace::capture(),
-                        });
+        let mut handle = publish_handle.write().await;
+        handle.no_data_since = None;
+        let media_frames = self.chunked_rtmp_frame_to_media_frame(
+            &header,
+            RtmpUserMessageBody::Aggregate { payload: aggregate },
+            None,
+        )?;
+        for media_frame in media_frames {
+            let res = handle
+                .stream_data_producer
+                .send(media_frame)
+                .await
+                .map_err(|_err| RtmpServerError::ChannelSendFailed {
+                    backtrace: Backtrace::capture(),
+                });
 
-                    if res.is_err() {
-                        handle.stat.failed_aggregate_frame_cnt += 1;
-                    } else {
-                        handle.stat.aggregate_frame_cnt += 1;
-                    }
-                    res?;
-                }
+            if res.is_err() {
+                handle.stat.failed_aggregate_frame_cnt += 1;
+            } else {
+                handle.stat.aggregate_frame_cnt += 1;
             }
-            _ => {
-                tracing::error!(
-                    "got aggregate data while stream not published, length: {}",
-                    aggregate.len()
-                );
-            }
-        };
+            res?;
+        }
+
         Ok(())
     }
 
     fn chunked_rtmp_frame_to_media_frame(
+        &mut self,
         header: &ChunkMessageCommonHeader,
         frame: RtmpUserMessageBody,
         timestamp_delta_nano: Option<u64>,
     ) -> RtmpServerResult<Vec<MediaFrame>> {
-        let mut runtime_stat = MediaMessageRuntimeStat {
-            read_time_ns: header.runtime_stat.read_time_ns,
-            session_process_time_ns: header.runtime_stat.process_time_ns,
-            publish_stream_source_time_ns: get_timestamp_ns().unwrap_or(0),
-            ..Default::default()
-        };
-
-        match frame {
+        let flv_tags = match frame {
             RtmpUserMessageBody::Audio { payload } => {
-                runtime_stat.stream_source_received_time_ns = get_timestamp_ns().unwrap_or(0);
-
-                let mut cursor = Cursor::new(&payload);
-                let tag_header_info: AudioTagHeaderWithoutMultiTrack =
-                    (&AudioTagHeader::read_from(&mut cursor)?).try_into()?;
-                let mut remaining_payload = vec![0; cursor.remaining()];
-                cursor.read_exact(&mut remaining_payload)?;
-                runtime_stat.stream_source_parse_time_ns = get_timestamp_ns().unwrap_or(0);
-
-                let frame = MediaFrame::Audio {
-                    runtime_stat,
-                    frame_info: AudioFrameInfo::new(
-                        tag_header_info.codec_id,
-                        tag_header_info.packet_type.try_into()?,
-                        tag_header_info
-                            .legacy_info
-                            .unwrap_or_default()
-                            .sound_rate
-                            .into(),
-                        tag_header_info
-                            .legacy_info
-                            .unwrap_or_default()
-                            .sound_size
-                            .into(),
-                        tag_header_info
-                            .legacy_info
-                            .unwrap_or_default()
-                            .sound_type
-                            .into(),
-                        header
-                            .timestamp
-                            .to_u64()
-                            .unwrap()
-                            .checked_mul(1_000_000)
-                            .unwrap()
-                            .checked_add(
-                                tag_header_info
-                                    .timestamp_nano
-                                    .unwrap_or(0)
-                                    .to_u64()
-                                    .unwrap(),
-                            )
-                            .unwrap()
-                            .checked_add(timestamp_delta_nano.unwrap_or(0))
-                            .unwrap(),
-                    ),
-                    payload: remaining_payload.into(),
+                let flv_tag_header = FLVTagHeader {
+                    tag_type: FLVTagType::Audio,
+                    data_size: payload.len().to_u32().unwrap(),
+                    timestamp: header
+                        .timestamp
+                        .checked_add(
+                            timestamp_delta_nano
+                                .unwrap_or(0)
+                                .checked_div(1_000_000)
+                                .and_then(|v| v.to_u32())
+                                .unwrap(),
+                        )
+                        .unwrap(),
+                    filter_enabled: false,
                 };
-                Ok(vec![frame])
+                vec![(flv_tag_header, payload)]
             }
             RtmpUserMessageBody::Video { payload } => {
-                runtime_stat.stream_source_received_time_ns = get_timestamp_ns().unwrap_or(0);
-
-                let mut cursor = Cursor::new(&payload);
-                let tag_header_info: VideoTagHeaderWithoutMultiTrack =
-                    (&VideoTagHeader::read_from(&mut cursor)?).try_into()?;
-                let mut remaining_payload = vec![0; cursor.remaining()];
-                cursor.read_exact(&mut remaining_payload)?;
-                runtime_stat.stream_source_parse_time_ns = get_timestamp_ns().unwrap_or(0);
-
-                let frame = MediaFrame::Video {
-                    runtime_stat,
-                    frame_info: VideoFrameInfo::new(
-                        tag_header_info.codec_id,
-                        if tag_header_info.packet_type == VideoPacketType::MPEG2TSSequenceStart
-                            || tag_header_info.packet_type == VideoPacketType::SequenceStart
-                        {
-                            FrameType::SequenceStart
-                        } else if tag_header_info.packet_type == VideoPacketType::SequenceEnd {
-                            FrameType::SequenceEnd
-                        } else if tag_header_info.frame_type == FrameTypeFLV::KeyFrame {
-                            FrameType::KeyFrame
-                        } else {
-                            FrameType::CodedFrames
-                        },
-                        header
-                            .timestamp
-                            .to_u64()
-                            .unwrap()
-                            .checked_mul(1_000_000)
-                            .unwrap()
-                            .checked_add(
-                                tag_header_info
-                                    .composition_time
-                                    .unwrap_or(0)
-                                    .to_u64()
-                                    .unwrap()
-                                    .checked_mul(1_000_000)
-                                    .unwrap(),
-                            )
-                            .unwrap()
-                            .checked_add(
-                                tag_header_info
-                                    .timestamp_nano
-                                    .unwrap_or(0)
-                                    .to_u64()
-                                    .unwrap(),
-                            )
-                            .unwrap()
-                            .checked_add(timestamp_delta_nano.unwrap_or(0))
-                            .unwrap(),
-                    ),
-                    payload: remaining_payload.into(),
+                let flv_tag_header = FLVTagHeader {
+                    tag_type: FLVTagType::Video,
+                    data_size: payload.len().to_u32().unwrap(),
+                    timestamp: header
+                        .timestamp
+                        .checked_add(
+                            timestamp_delta_nano
+                                .unwrap_or(0)
+                                .checked_div(1_000_000)
+                                .and_then(|v| v.to_u32())
+                                .unwrap(),
+                        )
+                        .unwrap(),
+                    filter_enabled: false,
                 };
-                Ok(vec![frame])
+                vec![(flv_tag_header, payload)]
             }
-            RtmpUserMessageBody::MetaData { ref payload } => {
-                runtime_stat.stream_source_received_time_ns = get_timestamp_ns().unwrap_or(0);
-                runtime_stat.stream_source_parse_time_ns = get_timestamp_ns().unwrap_or(0);
-                let mut cursor = Cursor::new(payload);
-                let on_meta_data: Option<OnMetaData> =
-                    OnMetaData::read_remaining_from(amf_formats::Version::Amf0, &mut cursor).ok();
 
-                tracing::trace!("got script tag, onMetaData: {:?}", on_meta_data);
-
-                Ok(vec![MediaFrame::Script {
-                    runtime_stat,
-                    timestamp_nano: header.timestamp as u64,
-                    payload: payload.clone(),
-                    on_meta_data: Box::new(on_meta_data),
-                }])
+            RtmpUserMessageBody::MetaData { payload } => {
+                let flv_tag_header = FLVTagHeader {
+                    tag_type: FLVTagType::Script,
+                    data_size: payload.len().to_u32().unwrap(),
+                    timestamp: header
+                        .timestamp
+                        .checked_add(
+                            timestamp_delta_nano
+                                .unwrap_or(0)
+                                .checked_div(1_000_000)
+                                .and_then(|v| v.to_u32())
+                                .unwrap(),
+                        )
+                        .unwrap(),
+                    filter_enabled: false,
+                };
+                vec![(flv_tag_header, payload)]
             }
             RtmpUserMessageBody::Aggregate { ref payload } => {
-                Ok(Self::parse_aggregate_frame(header, payload)?)
+                return self.parse_aggregate_frame(header, payload);
             }
             _ => {
                 todo!()
             }
+        };
+        let mut result = vec![];
+        for (tag_header, payload) in flv_tags {
+            let flv_tag_body =
+                FLVTagBodyWithFilter::read_remaining_from(&tag_header, &mut payload.reader())?;
+            let flv_tag = FLVTag {
+                tag_header,
+                body_with_filter: flv_tag_body,
+            };
+            result.push(MediaFrame::from_flv_tag(
+                flv_tag,
+                self.video_nalu_size_length.unwrap_or(4),
+            )?);
         }
+        for item in &result {
+            if let MediaFrame::VideoConfig {
+                timestamp_nano: _,
+                config,
+            } = item
+            {
+                match config.as_ref() {
+                    VideoConfig::H264 {
+                        sps: _,
+                        pps: _,
+                        sps_ext: _,
+                        avc_decoder_configuration_record,
+                    } => {
+                        if let Some(record) = avc_decoder_configuration_record {
+                            self.video_nalu_size_length =
+                                Some(record.length_size_minus_one.checked_add(1).unwrap());
+                        } else {
+                            unimplemented!()
+                        }
+                    }
+                }
+            }
+        }
+        Ok(result)
     }
 
     pub fn parse_aggregate_frame(
+        &mut self,
         header: &ChunkMessageCommonHeader,
         payload: &Bytes,
     ) -> RtmpServerResult<Vec<MediaFrame>> {
@@ -746,11 +678,8 @@ impl RtmpSession {
                 },
             };
 
-            let frames = Self::chunked_rtmp_frame_to_media_frame(
-                header,
-                rtmp_message,
-                timestamp_delta_nano,
-            )?;
+            let frames =
+                self.chunked_rtmp_frame_to_media_frame(header, rtmp_message, timestamp_delta_nano)?;
             assert!(frames.len() == 1);
             result.extend(frames);
         }
@@ -1018,11 +947,12 @@ impl RtmpSession {
                 return Err(err.into());
             }
             Ok(Ok(sender)) => {
-                self.runtime_handle = SessionRuntime::Publish(PublishHandle {
-                    stream_data_producer: sender,
-                    no_data_since: None,
-                    stat: Default::default(),
-                });
+                self.runtime_handle =
+                    SessionRuntime::Publish(Arc::new(RwLock::new(PublishHandle {
+                        stream_data_producer: sender,
+                        no_data_since: None,
+                        stat: Default::default(),
+                    })));
                 tracing::info!(
                     "publish to stream center success, stream_name: {}, app: {}",
                     self.stream_properties.stream_name,

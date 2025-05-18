@@ -72,6 +72,14 @@ pub fn write_ue<W: BitWrite, T: Into<u64> + Copy>(writer: &mut W, value: T) -> H
     write_code_num(writer, value)
 }
 
+pub fn find_ue_bits_cound<T: Into<u64>>(value: T) -> H264CodecResult<usize> {
+    Ok(find_leading_zero_bits_count(value)?
+        .checked_mul(2)
+        .and_then(|v| v.checked_add(1))
+        .and_then(|v| v.to_usize())
+        .unwrap())
+}
+
 pub fn read_se<R: BitRead>(reader: &mut R) -> H264CodecResult<i64> {
     let code_num = read_code_num(reader)?;
     let negetive = code_num & 0b1 != 0b1;
@@ -82,11 +90,8 @@ pub fn read_se<R: BitRead>(reader: &mut R) -> H264CodecResult<i64> {
         .unwrap())
 }
 
-pub fn write_se<W: BitWrite, T: Signed + ToPrimitive>(
-    writer: &mut W,
-    value: T,
-) -> H264CodecResult<()> {
-    let code_num = value
+fn se_to_code_num<T: Signed + ToPrimitive>(value: T) -> u64 {
+    value
         .abs()
         .to_u64()
         .unwrap()
@@ -98,8 +103,24 @@ pub fn write_se<W: BitWrite, T: Signed + ToPrimitive>(
                 Some(v)
             }
         })
-        .unwrap();
+        .unwrap()
+}
+
+pub fn write_se<W: BitWrite, T: Signed + ToPrimitive>(
+    writer: &mut W,
+    value: T,
+) -> H264CodecResult<()> {
+    let code_num = se_to_code_num(value);
     write_code_num(writer, code_num)
+}
+
+pub fn find_se_bits_count<T: Signed + ToPrimitive>(value: T) -> H264CodecResult<usize> {
+    let codec_num = se_to_code_num(value);
+    Ok(find_leading_zero_bits_count(codec_num)?
+        .checked_mul(2)
+        .and_then(|v| v.checked_add(1))
+        .and_then(|v| v.to_usize())
+        .unwrap())
 }
 
 pub fn read_me<R: BitRead>(

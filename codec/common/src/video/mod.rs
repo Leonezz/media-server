@@ -1,3 +1,9 @@
+pub mod reader;
+pub mod writer;
+
+use codec_h264::avc_decoder_configuration_record::AvcDecoderConfigurationRecord;
+use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
+
 use crate::FrameType;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,5 +34,74 @@ impl VideoFrameInfo {
             frame_type,
             timestamp_nano,
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum VideoConfig {
+    H264 {
+        sps: Option<codec_h264::sps::Sps>,
+        pps: Option<codec_h264::pps::Pps>,
+        sps_ext: Option<codec_h264::sps_ext::SpsExt>,
+        avc_decoder_configuration_record:
+            Option<codec_h264::avc_decoder_configuration_record::AvcDecoderConfigurationRecord>,
+    },
+    // TODO
+}
+
+impl From<AvcDecoderConfigurationRecord> for VideoConfig {
+    fn from(value: AvcDecoderConfigurationRecord) -> Self {
+        VideoConfig::H264 {
+            sps: value
+                .sequence_parameter_sets
+                .first()
+                .map(|v| v.parameter_set.clone()),
+            pps: value
+                .picture_parameter_sets
+                .first()
+                .map(|v| v.parameter_set.clone()),
+            sps_ext: value
+                .sps_ext_related
+                .as_ref()
+                .map(|v| v.sequence_parameter_set_ext.first())
+                .unwrap_or_default()
+                .map(|v| v.parameter_set.clone()),
+            avc_decoder_configuration_record: Some(value),
+        }
+    }
+}
+
+impl From<&VideoConfig> for VideoCodecCommon {
+    fn from(value: &VideoConfig) -> Self {
+        match value {
+            VideoConfig::H264 { .. } => VideoCodecCommon::AVC,
+            // TODO
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum VideoFrameUnit {
+    H264 {
+        nal_units: Vec<codec_h264::nalu::NalUnit>,
+    },
+    // TODO
+}
+
+impl VideoFrameUnit {
+    pub fn nal_units_cnt(&self) -> usize {
+        match self {
+            Self::H264 { nal_units } => nal_units.len(),
+        }
+    }
+
+    pub fn bytes_cnt(&self, delimiter_size: usize) -> usize {
+        match self {
+            Self::H264 { nal_units } => nal_units
+                .iter()
+                .fold(0, |prev, item| prev + item.get_packet_bytes_count()),
+        }
+        .checked_add(self.nal_units_cnt().checked_mul(delimiter_size).unwrap())
+        .unwrap()
     }
 }

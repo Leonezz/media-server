@@ -55,9 +55,8 @@ impl<W: io::Write> WriteTo<W> for FLVTagBodyWithFilter {
                 }
                 writer.write_all(body)?;
             }
-            FLVTagBody::Script { name, value } => {
-                amf_formats::amf0::Value::write_string(writer, name)?;
-                amf_formats::amf0::Value::write_ecma_array(writer, value)?;
+            FLVTagBody::Script { value } => {
+                value.iter().try_for_each(|item| item.write_to(writer))?;
             }
         }
         Ok(())

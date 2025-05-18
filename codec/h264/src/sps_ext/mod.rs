@@ -1,7 +1,7 @@
 pub mod reader;
 pub mod writer;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AuxFormatIdcRelated {
     pub bit_depth_aux_minus8: u8,     // ue(v), in [0, 4]
     pub alpha_incr_flag: bool,        // u(1)
@@ -11,7 +11,7 @@ pub struct AuxFormatIdcRelated {
 
 /// @see: Recommendation  ITU-T H.264 (V15) (08/2024)   – Coding of moving video
 /// Section 7.3.2.1.2 Sequence parameter set extension RBSP syntax
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SpsExt {
     pub seq_parameter_set_id: u64, // ue(v)
     pub aux_format_idc: u8,        // ue(v), in [0, 3]

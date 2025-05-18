@@ -1,12 +1,9 @@
 use std::io;
 
-use crate::{
-    errors::H264CodecError, nalu::NalUnit, nalu_header::NaluHeader, nalu_type::NALUType, sps::Sps,
-};
-use bitstream_io::BigEndian;
+use crate::{errors::H264CodecError, nalu::NalUnit, nalu_header::NaluHeader};
 use byteorder::ReadBytesExt;
 use tokio_util::bytes::Bytes;
-use utils::traits::reader::{BitwiseReadFrom, ReadExactFrom, ReadFrom, ReadRemainingFrom};
+use utils::traits::reader::{ReadExactFrom, ReadFrom, ReadRemainingFrom};
 
 /// read all the remaining bytes as body, the header was read ahead
 impl<R: io::Read> ReadRemainingFrom<NaluHeader, R> for NalUnit {
@@ -14,11 +11,6 @@ impl<R: io::Read> ReadRemainingFrom<NaluHeader, R> for NalUnit {
     fn read_remaining_from(header: NaluHeader, reader: &mut R) -> Result<Self, Self::Error> {
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes)?;
-        if header.nal_unit_type == NALUType::SPS {
-            let mut bit_reader = bitstream_io::BitReader::endian(&bytes[..], BigEndian);
-            let sps = Sps::read_from(&mut bit_reader)?;
-            tracing::info!("got h264 sps: {:?}", sps);
-        }
         Ok(Self {
             header,
             body: Bytes::from(bytes),
@@ -36,11 +28,6 @@ impl<R: io::Read> ReadRemainingFrom<(NaluHeader, usize), R> for NalUnit {
         let (header, body_size) = header;
         let mut bytes = vec![0; body_size];
         reader.read_exact(&mut bytes)?;
-        if header.nal_unit_type == NALUType::SPS {
-            let mut bit_reader = bitstream_io::BitReader::endian(&bytes[..], BigEndian);
-            let sps = Sps::read_from(&mut bit_reader)?;
-            tracing::info!("got h264 sps: {:?}", sps);
-        }
         Ok(Self {
             header,
             body: Bytes::from(bytes),
@@ -57,11 +44,6 @@ impl<R: io::Read> ReadFrom<R> for NalUnit {
         let header: NaluHeader = first_byte.try_into()?;
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes)?;
-        if header.nal_unit_type == NALUType::SPS {
-            let mut bit_reader = bitstream_io::BitReader::endian(&bytes[..], BigEndian);
-            let sps = Sps::read_from(&mut bit_reader)?;
-            tracing::info!("got h264 sps: {:?}", sps);
-        }
         Ok(Self {
             header,
             body: Bytes::from(bytes),

@@ -9,6 +9,8 @@ byteorder = "1.5.0"
 tokio-util = { version = "0.7.13", features = ["full"] }
 tracing = "0.1.41"
 utils = { path = "../../utils" }
+codec-h264 = { path = "../../codec/h264" }
+num = "0.4.3"
 
 [lints.clippy]
 uninlined_format_args = "allow"

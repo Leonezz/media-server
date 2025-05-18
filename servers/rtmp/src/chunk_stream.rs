@@ -4,9 +4,7 @@ use std::{
     time::Duration,
 };
 
-use flv_formats::tag::{
-    audio_tag_header::LegacyAudioTagHeader, video_tag_header::LegacyVideoTagHeader,
-};
+use flv_formats::tag::{FLVTag, flv_tag_header::FLVTagType};
 use num::ToPrimitive;
 use rtmp_formats::{
     chunk::{self, ChunkMessage, RtmpChunkMessageBody, errors::ChunkMessageError},
@@ -16,14 +14,13 @@ use rtmp_formats::{
         SetPeerBandWidthLimitType, SetPeerBandwidth, WindowAckSize,
     },
 };
-use stream_center::gop::MediaFrame;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, BufWriter},
     net::TcpStream,
     time,
 };
-use tokio_util::bytes::{Buf, BufMut, BytesMut};
-use utils::traits::{dynamic_sized_packet::DynamicSizedPacket, writer::WriteTo};
+use tokio_util::bytes::{Buf, BytesMut};
+use utils::traits::writer::WriteTo;
 
 use crate::errors::{RtmpServerError, RtmpServerResult};
 
@@ -191,55 +188,22 @@ impl RtmpChunkStream {
         Ok(())
     }
 
-    pub async fn write_tag(&mut self, tag: &MediaFrame) -> RtmpServerResult<()> {
-        match tag {
-            MediaFrame::Audio {
-                runtime_stat: _,
-                frame_info,
-                payload,
-            } => {
-                let tag_header: LegacyAudioTagHeader = frame_info.try_into()?;
-                let mut payload_bytes =
-                    Vec::with_capacity(payload.len() + tag_header.get_packet_bytes_count());
-                tag_header.write_to(&mut payload_bytes)?;
-                payload_bytes.put_slice(payload);
-                self.chunk_writer.write_audio(
-                    payload_bytes.into(),
-                    frame_info
-                        .timestamp_nano
-                        .checked_div(1_000_000)
-                        .unwrap()
-                        .to_u32()
-                        .unwrap(),
-                )?;
+    pub async fn write_tag(&mut self, tag: FLVTag) -> RtmpServerResult<()> {
+        let mut payload_bytes = BytesMut::zeroed(tag.tag_header.data_size.to_usize().unwrap());
+        let mut writer: Cursor<&mut [u8]> = io::Cursor::new(payload_bytes.as_mut());
+        tag.body_with_filter.write_to(&mut writer)?;
+        match tag.tag_header.tag_type {
+            FLVTagType::Audio => {
+                self.chunk_writer
+                    .write_audio(payload_bytes.freeze(), tag.tag_header.timestamp)?;
             }
-            MediaFrame::Video {
-                runtime_stat: _,
-                frame_info,
-                payload,
-            } => {
-                let tag_header: LegacyVideoTagHeader = frame_info.try_into()?;
-                let mut payload_bytes =
-                    Vec::with_capacity(payload.len() + tag_header.get_packet_bytes_count());
-                tag_header.write_to(&mut payload_bytes)?;
-                payload_bytes.put_slice(payload);
-                self.chunk_writer.write_video(
-                    payload_bytes.into(),
-                    frame_info
-                        .timestamp_nano
-                        .checked_div(1_000_000)
-                        .unwrap()
-                        .to_u32()
-                        .unwrap(),
-                )?;
+            FLVTagType::Video => {
+                self.chunk_writer
+                    .write_video(payload_bytes.freeze(), tag.tag_header.timestamp)?;
             }
-            MediaFrame::Script {
-                runtime_stat: _,
-                timestamp_nano: pts,
-                on_meta_data: _,
-                payload,
-            } => {
-                self.chunk_writer.write_meta(payload.clone(), *pts as u32)?;
+            FLVTagType::Script => {
+                self.chunk_writer
+                    .write_meta(payload_bytes.freeze(), tag.tag_header.timestamp)?;
             }
         }
         self.flush_chunk().await?;

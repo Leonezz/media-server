@@ -2,10 +2,11 @@ pub mod reader;
 pub mod writer;
 
 use bitstream_io::BitRead;
+use utils::traits::dynamic_sized_packet::DynamicSizedBitsPacket;
 
 use crate::{
     errors::{H264CodecError, H264CodecResult},
-    exp_golomb::read_se,
+    exp_golomb::{find_se_bits_count, read_se},
 };
 
 #[derive(Debug, Clone)]
@@ -20,6 +21,14 @@ pub struct SeqScalingMatrix {
 pub struct ScalingListRaw<const C: usize> {
     pub(crate) delta_scale: [Option<i64>; C], // for write only
     pub scale: [i64; C],
+}
+
+impl<const C: usize> DynamicSizedBitsPacket for ScalingListRaw<C> {
+    fn get_packet_bits_count(&self) -> usize {
+        self.delta_scale.iter().fold(0, |prev, item| {
+            prev + item.map(|v| find_se_bits_count(v).unwrap()).unwrap_or(0)
+        })
+    }
 }
 
 impl<const C: usize> Default for ScalingListRaw<C> {

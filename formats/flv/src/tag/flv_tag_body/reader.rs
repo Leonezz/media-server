@@ -5,7 +5,7 @@ use tokio_util::{bytes::Buf, either::Either};
 use utils::traits::reader::{ReadFrom, ReadRemainingFrom};
 
 use crate::{
-    errors::{FLVError, FLVResult},
+    errors::FLVError,
     tag::{
         audio_tag_header::AudioTagHeader,
         encryption::{
@@ -88,39 +88,12 @@ impl<R: io::Read> ReadRemainingFrom<&FLVTagHeader, R> for FLVTagBodyWithFilter {
                     },
                 })
             }
-            FLVTagType::Script => {
-                let (name, value) = read_meta(cursor.by_ref())?;
-                Ok(FLVTagBodyWithFilter {
-                    filter,
-                    body: FLVTagBody::Script { name, value },
-                })
-            }
+            FLVTagType::Script => Ok(FLVTagBodyWithFilter {
+                filter,
+                body: FLVTagBody::Script {
+                    value: amf_formats::amf0::Value::read_all(&mut cursor)?,
+                },
+            }),
         }
     }
-}
-
-fn read_meta<R: io::Read>(
-    reader: &mut R,
-) -> FLVResult<(String, Vec<(String, amf_formats::amf0::Value)>)> {
-    let name = amf_formats::amf0::Value::read_from(reader)?;
-    let name_str = match name {
-        amf_formats::amf0::Value::String(str) => str,
-        _ => {
-            return Err(FLVError::UnexpectedValue(format!(
-                "expect an amf string for meta name, got {:?} instead",
-                name
-            )));
-        }
-    };
-    let value = amf_formats::amf0::Value::read_from(reader)?;
-    let value_arr = match value {
-        amf_formats::amf0::Value::ECMAArray(arr) => arr,
-        _ => {
-            return Err(FLVError::UnexpectedValue(format!(
-                "expect an amf ECMA Array for meta value, got {:?} instead",
-                value
-            )));
-        }
-    };
-    Ok((name_str, value_arr))
 }
