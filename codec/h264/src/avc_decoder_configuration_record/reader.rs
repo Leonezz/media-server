@@ -1,4 +1,5 @@
 use byteorder::{BigEndian, ReadBytesExt};
+use codec_bitstream::reader::BitstreamReader;
 use num::ToPrimitive;
 use std::io;
 use utils::traits::reader::{BitwiseReadFrom, BitwiseReadReaminingFrom, ReadFrom};
@@ -7,7 +8,6 @@ use crate::{
     errors::H264CodecError,
     nalu::NalUnit,
     pps::Pps,
-    rbsp::RbspReader,
     sps::{Sps, chroma_format_idc::ChromaFormatIdc},
     sps_ext::SpsExt,
 };
@@ -105,7 +105,7 @@ impl<R: io::Read> ReadFrom<R> for AvcDecoderConfigurationRecord {
             let mut bytes = vec![0; picture_parameter_set_length.to_usize().unwrap()];
             reader.read_exact(&mut bytes)?;
             let nalu = NalUnit::read_from(&mut bytes.as_slice())?;
-            let mut bit_reader = RbspReader::new(&nalu.body[..]);
+            let mut bit_reader = BitstreamReader::new(&nalu.body[..]);
             let pps = Pps::read_remaining_from(ChromaFormatIdc::Chroma420, &mut bit_reader)?; // TODO
             picture_parameter_sets.push(ParameterSetInAvcDecoderConfigurationRecord {
                 sequence_parameter_set_length: picture_parameter_set_length,

@@ -6,11 +6,11 @@ mod test;
 use std::{fmt, str::FromStr};
 
 use base64::Engine;
+use codec_bitstream::reader::BitstreamReader;
 use codec_h264::{
     nalu::NalUnit,
     nalu_type::NALUType,
     pps::Pps,
-    rbsp::RbspReader,
     sps::{Sps, chroma_format_idc::ChromaFormatIdc},
 };
 use errors::H264SDPError;
@@ -307,7 +307,7 @@ impl FromStr for H264SDPFormatParameters {
                         let nalu = NalUnit::read_from(&mut bytes.as_slice()).map_err(|err| H264SDPError::InvalidSpropLevelParameterSets(
                             format!("sprop-parameter-sets value parse as nalu failed: {}, err={}", item, err)
                         ))?;
-                        let mut reader = RbspReader::new(&nalu.body[..]);
+                        let mut reader = BitstreamReader::new(&nalu.body[..]);
                         match nalu.header.nal_unit_type {
                             NALUType::SPS => {
                                 result.sprop_parameter_sets.as_mut().unwrap().sps = Some(Sps::read_from(&mut reader).map_err(|err| {

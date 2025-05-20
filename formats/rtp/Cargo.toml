@@ -12,6 +12,7 @@ tracing = "0.1.41"
 num = "0.4.3"
 utils = { path = "../../utils" }
 codec-h264 = { path = "../../codec/h264" }
+codec-bitstream = { path = "../../codec/bitstream" }
 itertools = "0.14.0"
 bitstream-io = "4.0.0"
 futures = "0.3.31"

@@ -1,8 +1,11 @@
 use std::{
     collections::{HashMap, VecDeque},
-    io,
+    io::{self, Read},
 };
 
+use bitstream_io::BigEndian;
+use codec_aac::mpeg4_configuration::audio_specific_config::AudioSpecificConfig;
+use codec_bitstream::reader::BitstreamReader;
 use codec_common::{
     FrameType,
     audio::AudioFrameInfo,
@@ -21,10 +24,10 @@ use flv_formats::tag::{
     video_tag_header_info::VideoTagHeaderWithoutMultiTrack,
 };
 use num::ToPrimitive;
-use tokio_util::bytes::{Buf, Bytes, BytesMut};
-use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
+use tokio_util::bytes::{Buf, BufMut, Bytes, BytesMut};
 use utils::traits::reader::ReadFrom;
-use utils::traits::writer::WriteTo;
+use utils::traits::writer::{BitwiseWriteTo, WriteTo};
+use utils::traits::{dynamic_sized_packet::DynamicSizedPacket, reader::BitwiseReadFrom};
 
 use crate::errors::{StreamCenterError, StreamCenterResult};
 
@@ -591,10 +594,18 @@ impl GopQueue {
         match &frame {
             MediaFrame::Audio {
                 frame_info,
-                payload: _,
+                payload,
             } => {
                 if frame_info.frame_type == FrameType::SequenceStart {
                     tracing::info!("audio header: {:?}", frame_info);
+                    let mut reader = BitstreamReader::new(payload);
+                    let audio_config = AudioSpecificConfig::read_from(&mut reader)?;
+                    tracing::info!("got aac specific config: \n{:#?}", audio_config);
+                    let mut bytes = BytesMut::new();
+                    let mut writer =
+                        bitstream_io::BitWriter::endian(bytes.as_mut().writer(), BigEndian);
+                    audio_config.write_to(&mut writer)?;
+                    assert!(payload.eq(&bytes.freeze()));
                     self.audio_config = Some(frame.clone());
                     is_sequence_header = true;
                 }
