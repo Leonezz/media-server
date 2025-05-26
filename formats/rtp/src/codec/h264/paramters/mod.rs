@@ -8,15 +8,15 @@ use std::{fmt, str::FromStr};
 use base64::Engine;
 use codec_bitstream::reader::BitstreamReader;
 use codec_h264::{
-    nalu::NalUnit,
-    nalu_type::NALUType,
-    pps::Pps,
-    sps::{Sps, chroma_format_idc::ChromaFormatIdc},
+    avc_decoder_configuration_record::{AvcDecoderConfigurationRecord, ParameterSetInAvcDecoderConfigurationRecord}, nalu::NalUnit, nalu_type::NALUType, pps::Pps, sps::{chroma_format_idc::ChromaFormatIdc, Sps}
 };
 use errors::H264SDPError;
 use itertools::Itertools;
+use num::ToPrimitive;
 use packetization_mode::PacketizationMode;
 use utils::traits::reader::{BitwiseReadFrom, BitwiseReadReaminingFrom, ReadFrom};
+use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
+
 
 #[derive(Debug, Clone)]
 pub struct SpropParameterSets {
@@ -25,9 +25,63 @@ pub struct SpropParameterSets {
     pub pps: Option<Pps>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct RtpH264FmtpProfileLevelId {
+    pub profile_idc: u8,
+    pub constraint_set0_flag: bool,
+    pub constraint_set1_flag: bool, 
+    pub constraint_set2_flag: bool,
+    pub constraint_set3_flag: bool,
+    pub constraint_set4_flag: bool,
+    pub constraint_set5_flag: bool,
+    pub reserved_zero_2bits: u8, // 2 bits
+    pub level_idc: u8
+}
+
+impl From<[u8; 3]> for RtpH264FmtpProfileLevelId {
+    fn from(value: [u8; 3]) -> Self {
+        let profile_level_id = value[0];
+        let constraint_set0_flag = (value[1] >> 7) & 0b1 == 0b1;
+        let constraint_set1_flag = (value[1] >> 6) & 0b1 == 0b1;
+        let constraint_set2_flag = (value[1] >> 5) & 0b1 == 0b1;
+        let constraint_set3_flag = (value[1] >> 4) & 0b1 == 0b1;
+        let constraint_set4_flag = (value[1] >> 3) & 0b1 == 0b1;
+        let constraint_set5_flag = (value[1] >> 2) & 0b1 == 0b1;
+        let reserved_zero_2bits = value[1] & 0b11;
+        let level_idc = value[2];
+        Self {
+            profile_idc: profile_level_id,
+            constraint_set0_flag,
+            constraint_set1_flag,
+            constraint_set2_flag,
+            constraint_set3_flag,
+            constraint_set4_flag,
+            constraint_set5_flag,
+            reserved_zero_2bits,
+            level_idc,
+        }
+    }
+}
+
+impl From<RtpH264FmtpProfileLevelId> for [u8; 3] {
+    fn from(value: RtpH264FmtpProfileLevelId) -> Self {
+        let b1 = value.profile_idc;
+        let mut b2 = 0u8;
+        if value.constraint_set0_flag { b2 |= 1 << 7; }
+        if value.constraint_set1_flag { b2 |= 1 << 6; }
+        if value.constraint_set2_flag { b2 |= 1 << 5; }
+        if value.constraint_set3_flag { b2 |= 1 << 4; }
+        if value.constraint_set4_flag { b2 |= 1 << 3; }
+        if value.constraint_set5_flag { b2 |= 1 << 2; }
+        b2 |= value.reserved_zero_2bits & 0b11;
+        let b3 = value.level_idc;
+        [b1, b2, b3]
+    }
+}
+
 #[derive(Debug, Clone, Default)]
-pub struct H264SDPFormatParameters {
-    pub profile_level_id: Option<[u8; 3]>, // TODO: make this a concrete level id
+pub struct RtpH264Fmtp {
+    pub profile_level_id: Option<RtpH264FmtpProfileLevelId>, // TODO: make this a concrete level id
     pub max_recv_level: Option<[u8; 2]>,
     pub packetization_mode: Option<PacketizationMode>, // 0, 1, 2. default to 0
     pub sprop_deint_buf_req: Option<u64>,              // in [0, 4294967295]
@@ -53,9 +107,92 @@ pub struct H264SDPFormatParameters {
     pub unknown: Vec<String>,
 }
 
-impl H264SDPFormatParameters {
+impl TryFrom<&RtpH264Fmtp> for AvcDecoderConfigurationRecord {
+    type Error = H264SDPError;
+    fn try_from(value: &RtpH264Fmtp) -> Result<Self, Self::Error> {
+        let sps = if let Some(params) = value.sprop_parameter_sets.as_ref() && let Some(sps) = params.sps.as_ref() {
+            vec![sps]
+        } else {
+            vec![]
+        };
+        let pps = if let Some(params) = value.sprop_parameter_sets.as_ref() && let Some(pps) = params.pps.as_ref() {
+            vec![pps]
+        } else {
+            vec![]
+        };
+
+        Ok(Self {
+            configuration_version: 1,
+            avc_profile_indication: value.get_profile_idc().ok_or(H264SDPError::FmptToAvcDecoderConfigurationRecordError(format!("no profile_idc found: {:?}", value)))?,
+            avc_level_indication: value.get_level_idc().ok_or(H264SDPError::FmptToAvcDecoderConfigurationRecordError(format!("no level_idc found: {:?}", value)))?,
+            profile_compatibility: value.get_profile_compatibility().ok_or(H264SDPError::FmptToAvcDecoderConfigurationRecordError(format!("no profile_compatibility found: {:?}", value)))?,
+            length_size_minus_one: 3,
+            reserved_3_bits_1: 0b111,
+            reserved_6_bits_1: 0b111111,
+            num_of_sequence_parameter_sets: sps.len().to_u8().unwrap(),
+            sequence_parameter_sets: sps.into_iter().map(| p| {
+                let nalu: NalUnit = p.into();
+                ParameterSetInAvcDecoderConfigurationRecord { sequence_parameter_set_length: nalu.get_packet_bytes_count().to_u16().unwrap(), nalu, parameter_set: p.clone() }
+            }).collect(),
+            num_of_picture_parameter_sets: pps.len().to_u8().unwrap(),
+            picture_parameter_sets: pps.into_iter().map(|p| {
+                let nalu: NalUnit = p.into();
+                ParameterSetInAvcDecoderConfigurationRecord { sequence_parameter_set_length: nalu.get_packet_bytes_count().to_u16().unwrap(), nalu, parameter_set: p.clone() }
+            }).collect(),
+            sps_ext_related: None,
+        })
+    }
+}
+
+impl RtpH264Fmtp {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn get_profile_idc(&self) -> Option<u8> {
+        if let Some(profile_level_id) = self.profile_level_id {
+            return Some(profile_level_id.profile_idc);
+        }
+
+        if let Some(parameter_sets) = self.sprop_parameter_sets.as_ref()
+            && let Some(sps) = parameter_sets.sps.as_ref() {
+                return Some(sps.profile_idc);
+            }
+
+        None
+    }
+
+    /// profile_compatibility is a byte defined exactly the same as the byte
+    /// which occurs between the profile_IDC and level_IDC in a sequence parameter set (SPS),
+    /// as defined in ISO/IEC 14496-10.
+    pub fn get_profile_compatibility(&self) -> Option<u8> {
+        if let Some(profile_level_id) = self.profile_level_id {
+            let bytes: [u8; 3] = profile_level_id.into();
+            return Some(bytes[1]);
+        }
+
+        if let Some(parameter_sets) = self.sprop_parameter_sets.as_ref() && let Some(sps) = parameter_sets.sps.as_ref() {
+            let mut b2 = 0u8;
+            if sps.constraint_set0_flag { b2 |= 1 << 7; }
+            if sps.constraint_set1_flag { b2 |= 1 << 6; }
+            if sps.constraint_set2_flag { b2 |= 1 << 5; }
+            if sps.constraint_set3_flag { b2 |= 1 << 4; }
+            if sps.constraint_set4_flag { b2 |= 1 << 3; }
+            if sps.constraint_set5_flag { b2 |= 1 << 2; }
+            b2 |= sps.reserved_zero_2bits & 0b11;
+            return Some(b2);
+        }
+        None
+    }
+
+    pub fn get_level_idc(&self) -> Option<u8> {
+        if let Some(profile_level_id) = self.profile_level_id {
+            return Some(profile_level_id.level_idc);
+        }
+        if let Some(parameters) = self.sprop_parameter_sets.as_ref() && let Some(sps) = parameters.sps.as_ref() {
+            return Some(sps.level_idc);
+        }
+        None
     }
 }
 
@@ -91,7 +228,7 @@ fn parse_max_recv_level(value: &str) -> Result<[u8; 2], H264SDPError> {
     Ok(result)
 }
 
-impl FromStr for H264SDPFormatParameters {
+impl FromStr for RtpH264Fmtp {
     type Err = H264SDPError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut result = Self::default();
@@ -105,7 +242,7 @@ impl FromStr for H264SDPFormatParameters {
                 )))?;
             match key {
                 "profile-level-id" => {
-                    result.profile_level_id = Some(parse_profile_level_id(value)?)
+                    result.profile_level_id = Some(parse_profile_level_id(value)?.into())
                 }
                 "max-recv-level" => result.max_recv_level = Some(parse_max_recv_level(value)?),
                 "packetization-mode" => {
@@ -304,6 +441,7 @@ impl FromStr for H264SDPFormatParameters {
                         let bytes = base64::prelude::BASE64_STANDARD.decode(item.as_bytes()).map_err(|err| H264SDPError::InvalidSpropParameterSets(
                             format!("sprop-parameter-sets value decode as base64 failed: {}, err={}", item, err)
                         ))?;
+
                         let nalu = NalUnit::read_from(&mut bytes.as_slice()).map_err(|err| H264SDPError::InvalidSpropLevelParameterSets(
                             format!("sprop-parameter-sets value parse as nalu failed: {}, err={}", item, err)
                         ))?;
@@ -370,13 +508,14 @@ impl FromStr for H264SDPFormatParameters {
     }
 }
 
-impl fmt::Display for H264SDPFormatParameters {
+impl fmt::Display for RtpH264Fmtp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut result: Vec<String> = Vec::new();
         if let Some(profile_level_id) = self.profile_level_id {
+            let bytes: [u8; 3] = profile_level_id.into();
             result.push(format!(
                 "profile-level-id={:02x}{:02x}{:02x}",
-                profile_level_id[0], profile_level_id[1], profile_level_id[2]
+                bytes[0], bytes[1], bytes[2]
             ));
         }
         if let Some(max_recv_level) = self.max_recv_level {

@@ -58,9 +58,13 @@ fn write_code_num<W: BitWrite, T: Into<u64> + Copy>(
         .checked_add(1)
         .and_then(|v| v.checked_sub(2_u64.checked_pow(leading_zero_bits).unwrap()))
         .unwrap();
-    writer.write_var(leading_zero_bits, 0)?;
+    if leading_zero_bits > 0 {
+        writer.write_var(leading_zero_bits, 0)?;
+    }
     writer.write_bit(true)?;
-    writer.write_var(leading_zero_bits, remaining)?;
+    if leading_zero_bits > 0 {
+        writer.write_var(leading_zero_bits, remaining)?;
+    }
     Ok(())
 }
 
@@ -72,7 +76,7 @@ pub fn write_ue<W: BitWrite, T: Into<u64> + Copy>(writer: &mut W, value: T) -> H
     write_code_num(writer, value)
 }
 
-pub fn find_ue_bits_cound<T: Into<u64>>(value: T) -> H264CodecResult<usize> {
+pub fn find_ue_bits_count<T: Into<u64>>(value: T) -> H264CodecResult<usize> {
     Ok(find_leading_zero_bits_count(value)?
         .checked_mul(2)
         .and_then(|v| v.checked_add(1))

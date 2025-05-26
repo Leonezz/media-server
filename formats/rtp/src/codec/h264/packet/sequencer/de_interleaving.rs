@@ -1,9 +1,10 @@
 use std::{collections::VecDeque, time};
 
+use utils::traits::buffer::GenericSequencer;
+
 use crate::{
-    codec::h264::{paramters::H264SDPFormatParameters, util::don_diff},
+    codec::h264::{paramters::RtpH264Fmtp, util::don_diff},
     errors::RtpError,
-    packet::sequencer::GenericSequencer,
 };
 
 use super::{DEFAULT_BUFFER_CAPACITY, RtpH264BufferItem};
@@ -16,8 +17,8 @@ pub struct RtpH264DeInterleavingParameters {
     pub sprop_max_don_diff: Option<u64>,
 }
 
-impl From<H264SDPFormatParameters> for RtpH264DeInterleavingParameters {
-    fn from(value: H264SDPFormatParameters) -> Self {
+impl From<RtpH264Fmtp> for RtpH264DeInterleavingParameters {
+    fn from(value: RtpH264Fmtp) -> Self {
         Self {
             sprop_interleaving_depth: value.sprop_interleaving_depth.map(|v| v.into()),
             sprop_deint_buf_req: value.sprop_deint_buf_req,

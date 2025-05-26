@@ -31,13 +31,18 @@ use rtmp_formats::{
     protocol_control::SetPeerBandWidthLimitType,
     user_control::UserControlEvent,
 };
-use stream_center::{events::SubscribeResponse, gop::MediaFrame};
+use server_utils::stream_properities::StreamProperties;
+use stream_center::{
+    events::SubscribeResponse,
+    gop::MediaFrame,
+    stream_center::StreamCenter,
+    stream_source::{PlayProtocol, PublishProtocol},
+};
 use tokio::{
     net::TcpStream,
     sync::{
         RwLock,
         mpsc::{self},
-        oneshot,
     },
 };
 use tokio_util::{
@@ -97,21 +102,12 @@ enum SessionRuntime {
     Unknown,
 }
 
-#[derive(Debug, Default)]
-struct StreamProperties {
-    stream_name: String,
-    app: String,
-
-    stream_type: StreamType,
-
-    stream_context: HashMap<String, String>,
-}
-
 #[derive(Debug)]
 pub struct RtmpSession {
     chunk_stream: RtmpChunkStream,
     runtime_handle: SessionRuntime,
     stream_properties: StreamProperties,
+    stream_type: StreamType,
     video_nalu_size_length: Option<u8>,
     connect_info: ConnectCommandRequestObject,
     total_wrote_bytes: usize,
@@ -134,6 +130,7 @@ impl RtmpSession {
                 config.write_timeout_ms,
             ),
             stream_properties: StreamProperties::default(),
+            stream_type: Default::default(),
             video_nalu_size_length: None,
             connect_info: Default::default(),
             runtime_handle: SessionRuntime::Unknown,
@@ -222,20 +219,9 @@ impl RtmpSession {
         match &self.runtime_handle {
             SessionRuntime::Play(play_handle) => {
                 let play_id = play_handle.read().await.play_id;
-                self.unsubscribe_from_stream_center(
-                    play_id,
-                    &self.stream_properties.stream_name,
-                    &self.stream_properties.app,
-                )
-                .await?
+                self.unsubscribe_from_stream_center(play_id).await?
             }
-            SessionRuntime::Publish(_publish_handle) => {
-                self.unpublish_from_stream_center(
-                    &self.stream_properties.stream_name,
-                    &self.stream_properties.app,
-                )
-                .await?
-            }
+            SessionRuntime::Publish(_publish_handle) => self.unpublish_from_stream_center().await?,
             _ => {}
         }
         Ok(())
@@ -809,56 +795,15 @@ impl RtmpSession {
         Ok(())
     }
 
-    async fn unpublish_from_stream_center(
-        &self,
-        stream_name: &str,
-        app: &str,
-    ) -> RtmpServerResult<()> {
-        let (tx, rx) = oneshot::channel();
-        self.stream_center_event_sender
-            .send(StreamCenterEvent::Unpublish {
-                stream_id: StreamIdentifier {
-                    stream_name: stream_name.to_string(),
-                    app: app.to_string(),
-                },
-                result_sender: tx,
-            })
-            .map_err(|err| {
-                tracing::error!(
-                    "send unpublish event to stream center failed, {:?}. stream_name: {}, app: {}",
-                    err,
-                    stream_name,
-                    app
-                );
-                RtmpServerError::ChannelSendFailed {
-                    backtrace: Backtrace::capture(),
-                }
-            })?;
-
-        match rx.await {
-            Err(_err) => {
-                tracing::error!("channel closed while trying to receive unpublish result");
-                return Err(RtmpServerError::ChannelSendFailed {
-                    backtrace: Backtrace::capture(),
-                });
-            }
-            Ok(Err(err)) => {
-                tracing::error!(
-                    "stream unpublish from stream center failed, {:?}. stream_name: {}, app: {}",
-                    err,
-                    stream_name,
-                    app
-                );
-            }
-            Ok(Ok(())) => {
-                tracing::info!(
-                    "unpublish from stream center success, stream_name: {}, app: {}",
-                    stream_name,
-                    app
-                );
-            }
-        }
-
+    async fn unpublish_from_stream_center(&self) -> RtmpServerResult<()> {
+        StreamCenter::unpublish(
+            &self.stream_center_event_sender,
+            &StreamIdentifier {
+                stream_name: self.stream_properties.stream_name.to_owned(),
+                app: self.stream_properties.app.to_owned(),
+            },
+        )
+        .await?;
         Ok(())
     }
 
@@ -867,12 +812,7 @@ impl RtmpSession {
         request: DeleteStreamCommand,
     ) -> RtmpServerResult<()> {
         tracing::info!("process delete stream command, request: {:?}", request);
-        let _ = self
-            .unpublish_from_stream_center(
-                &self.stream_properties.stream_name.clone(),
-                &self.stream_properties.app.clone(),
-            )
-            .await;
+        let _ = self.unpublish_from_stream_center().await;
 
         self.chunk_stream.chunk_writer().write_on_status_response(
             response_level::STATUS,
@@ -904,63 +844,22 @@ impl RtmpSession {
         }
 
         self.stream_properties.stream_name = stream_name.to_string();
-        self.stream_properties.stream_type = stream_type;
-
-        let (tx, rx) = oneshot::channel();
-        self.stream_center_event_sender
-            .send(StreamCenterEvent::Publish {
-                stream_type: self.stream_properties.stream_type,
-                stream_id: StreamIdentifier {
-                    stream_name: self.stream_properties.stream_name.clone(),
-                    app: self.stream_properties.app.clone(),
-                },
-                context: self.stream_properties.stream_context.clone(),
-                result_sender: tx,
-            })
-            .map_err(|err| {
-                tracing::error!(
-                    "send publish event to stream center failed, {:?}. stream_name: {}, app: {}",
-                    err,
-                    stream_name,
-                    self.stream_properties.app.clone(),
-                );
-                RtmpServerError::ChannelSendFailed {
-                    backtrace: Backtrace::capture(),
-                }
-            })?;
-
-        match rx.await {
-            Err(_err) => {
-                tracing::error!("channel closed while trying to receive publish result");
-                return Err(RtmpServerError::ChannelSendFailed {
-                    backtrace: Backtrace::capture(),
-                });
-            }
-            Ok(Err(err)) => {
-                tracing::error!(
-                    "publish to stream center failed, {:?}. stream_name: {},  app: {}, stream_type: {}",
-                    err,
-                    self.stream_properties.stream_name,
-                    self.stream_properties.app,
-                    self.stream_properties.stream_type,
-                );
-                return Err(err.into());
-            }
-            Ok(Ok(sender)) => {
-                self.runtime_handle =
-                    SessionRuntime::Publish(Arc::new(RwLock::new(PublishHandle {
-                        stream_data_producer: sender,
-                        no_data_since: None,
-                        stat: Default::default(),
-                    })));
-                tracing::info!(
-                    "publish to stream center success, stream_name: {}, app: {}",
-                    self.stream_properties.stream_name,
-                    self.stream_properties.app
-                );
-            }
-        }
-
+        let media_sender = StreamCenter::publish(
+            &self.stream_center_event_sender,
+            stream_type,
+            PublishProtocol::RTMP,
+            &StreamIdentifier {
+                stream_name: stream_name.to_owned(),
+                app: self.stream_properties.app.clone(),
+            },
+            &self.stream_properties.stream_context,
+        )
+        .await?;
+        self.runtime_handle = SessionRuntime::Publish(Arc::new(RwLock::new(PublishHandle {
+            stream_data_producer: media_sender,
+            no_data_since: None,
+            stat: Default::default(),
+        })));
         Ok(())
     }
 
@@ -988,12 +887,7 @@ impl RtmpSession {
                     Some(stream_name) => {
                         // ignore the result
                         let res = if command_name == "FCUnpublish" {
-                            let _res = self
-                                .unpublish_from_stream_center(
-                                    &self.stream_properties.stream_name.clone(),
-                                    &self.stream_properties.app.clone(),
-                                )
-                                .await;
+                            let _res = self.unpublish_from_stream_center().await;
                             // we do not care the unpublish result
                             Ok(())
                         } else {
@@ -1023,120 +917,31 @@ impl RtmpSession {
         Ok(())
     }
 
-    async fn subscribe_from_stream_center(
-        &self,
-        stream_name: &str,
-        app: &str,
-        context: HashMap<String, String>,
-    ) -> RtmpServerResult<SubscribeResponse> {
-        let (tx, rx) = oneshot::channel();
-        self.stream_center_event_sender
-            .send(StreamCenterEvent::Subscribe {
-                stream_id: StreamIdentifier {
-                    stream_name: stream_name.to_string(),
-                    app: app.to_string(),
-                },
-                context,
-                result_sender: tx,
-            })
-            .map_err(|err| {
-                tracing::error!(
-                    "send subscribe event to stream center failed, {:?}. stream_name: {}, app: {}",
-                    err,
-                    stream_name,
-                    app
-                );
-                RtmpServerError::ChannelSendFailed {
-                    backtrace: Backtrace::capture(),
-                }
-            })?;
-
-        match rx.await {
-            Err(_err) => {
-                tracing::error!(
-                    "channel closed while trying receive subscribe result, stream_name: {}, app: {}",
-                    stream_name,
-                    app
-                );
-                Err(RtmpServerError::ChannelSendFailed {
-                    backtrace: Backtrace::capture(),
-                })
-            }
-            Ok(Err(err)) => {
-                tracing::error!(
-                    "subscribe from stream center failed, {:?}, stream_name: {}, app: {}",
-                    err,
-                    stream_name,
-                    app
-                );
-                Err(err.into())
-            }
-            Ok(Ok(response)) => {
-                tracing::info!(
-                    "subscribe from stream center success, stream_name: {}, app: {}",
-                    stream_name,
-                    app
-                );
-                Ok(response)
-            }
-        }
+    async fn subscribe_from_stream_center(&self) -> RtmpServerResult<SubscribeResponse> {
+        StreamCenter::subscribe(
+            &self.stream_center_event_sender,
+            &StreamIdentifier {
+                stream_name: self.stream_properties.stream_name.to_owned(),
+                app: self.stream_properties.app.to_owned(),
+            },
+            PlayProtocol::RTMP,
+            &self.stream_properties.stream_context,
+        )
+        .await
+        .map_err(|err| err.into())
     }
 
-    async fn unsubscribe_from_stream_center(
-        &self,
-        uuid: Uuid,
-        stream_name: &str,
-        app: &str,
-    ) -> RtmpServerResult<()> {
-        let (tx, rx) = oneshot::channel();
-        self.stream_center_event_sender
-            .send(StreamCenterEvent::Unsubscribe {
-                stream_id: StreamIdentifier {
-                    stream_name: stream_name.to_string(),
-                    app: app.to_string(),
-                },
-                uuid,
-                result_sender: tx,
-            })
-            .map_err(|err| {
-                tracing::error!(
-                    "send unsubscribe event to stream center failed, {:?}. stream_name: {}, app: {}, uuid: {}",
-                    err,
-                    stream_name,
-                    app,
-                    uuid,
-                );
-                RtmpServerError::ChannelSendFailed {
-                    backtrace: Backtrace::capture(),
-                }
-            })?;
-
-        match rx.await {
-            Err(_err) => {
-                tracing::error!("channel closed while trying to receive unsubscribe result");
-                return Err(RtmpServerError::ChannelSendFailed {
-                    backtrace: Backtrace::capture(),
-                });
-            }
-            Ok(Err(err)) => {
-                tracing::error!(
-                    "unsubscribe from stream center failed, uuid: {}, stream_name: {}, app: {}",
-                    uuid,
-                    stream_name,
-                    app
-                );
-                return Err(err.into());
-            }
-            Ok(Ok(())) => {
-                tracing::info!(
-                    "unsubscribe from stream center success, uuid: {}, stream_name: {}, app: {}",
-                    uuid,
-                    stream_name,
-                    app
-                );
-            }
-        }
-        Ok(())
+    async fn unsubscribe_from_stream_center(&self, uuid: Uuid) -> RtmpServerResult<()> {
+        StreamCenter::unsubscribe(
+            &self.stream_center_event_sender,
+            uuid,
+            &StreamIdentifier {
+                stream_name: self.stream_properties.stream_name.clone(),
+                app: self.stream_properties.app.clone(),
+            },
+        )
+        .await
+        .map_err(|err| err.into())
     }
 
     async fn process_play_request(
@@ -1179,19 +984,13 @@ impl RtmpSession {
         let reset = request.reset; // this should be ignored
 
         self.stream_properties.stream_name = stream_name.to_string();
-        let subscribe_result = self
-            .subscribe_from_stream_center(
-                stream_name,
-                &self.stream_properties.app.clone(),
-                self.stream_properties.stream_context.clone(),
-            )
-            .await;
+        let subscribe_result = self.subscribe_from_stream_center().await;
 
         self.chunk_stream
             .chunk_writer()
             .write_set_chunk_size(self.config.chunk_size)?;
         self.chunk_stream.flush_chunk().await?;
-        if self.stream_properties.stream_type == StreamType::Record {
+        if self.stream_type == StreamType::Record {
             self.chunk_stream
                 .chunk_writer()
                 .write_stream_ids_recorded(header.message_stream_id)?; // I bet the stream_id is useless

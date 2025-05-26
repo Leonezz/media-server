@@ -1,12 +1,14 @@
 use std::{fmt::Display, str::FromStr};
 
+use bitstream_io::BitRead;
 use tokio_util::bytes::Bytes;
+use utils::traits::reader::BitwiseReadFrom;
 
-use crate::codec::mpeg4_generic::errors::RtpMpeg4Error;
+use crate::codec::mpeg4_generic::{errors::RtpMpeg4Error, parameters::Mode};
 
-use super::RtpMpeg4OutOfBandParams;
+use super::RtpMpeg4Fmtp;
 
-impl FromStr for RtpMpeg4OutOfBandParams {
+impl FromStr for RtpMpeg4Fmtp {
     type Err = RtpMpeg4Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut result = Self::default();
@@ -31,7 +33,12 @@ impl FromStr for RtpMpeg4OutOfBandParams {
                     result.profile_level_id = parse_from_str(key, value)?;
                 }
                 "config" => {
-                    result.config = Bytes::from(value.to_owned());
+                    result.config = Bytes::from_owner(utils::bytes::hex_to_bytes(value).ok_or(
+                        RtpMpeg4Error::ParseFromFmtpFailed(format!(
+                            "parse fmtp.config from hex string failed: {}",
+                            value
+                        )),
+                    )?);
                 }
                 "mode" => {
                     result.mode = value.parse()?;
@@ -79,6 +86,17 @@ impl FromStr for RtpMpeg4OutOfBandParams {
             }
         }
         result.validate()?;
+        if result.mode == Mode::Generic {
+            return Err(RtpMpeg4Error::InvalidMode(
+                "generic mode is not supported".to_owned(),
+            ));
+        }
+        let mut reader = codec_bitstream::reader::BitstreamReader::new(&result.config);
+        result.aac_audio_specific_config = Some(
+            codec_aac::mpeg4_configuration::audio_specific_config::AudioSpecificConfig::read_from(
+                reader.by_ref(),
+            )?,
+        );
         Ok(result)
     }
 }

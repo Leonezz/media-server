@@ -23,6 +23,8 @@ pub enum StreamCenterError {
     AACCodecError(#[from] codec_aac::errors::AACCodecError),
     #[error("remux failed: {0}")]
     RemuxFailed(String),
+    #[error("mix queue full: {0} {1}")]
+    MixQueueFull(String, usize),
 }
 
 pub type StreamCenterResult<T> = Result<T, StreamCenterError>;

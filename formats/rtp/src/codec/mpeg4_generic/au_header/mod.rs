@@ -2,8 +2,8 @@ use builder::AuHeaderBuilder;
 
 pub mod builder;
 pub mod packet_size;
-pub mod read;
-pub mod write;
+pub mod reader;
+pub mod writer;
 ///
 /// +---------------------------------------+
 /// |             AU-size                   |

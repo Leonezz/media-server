@@ -10,7 +10,7 @@ use std::io;
 use aggregation::{AggregationNalUnits, AggregationPacketType};
 use byteorder::ReadBytesExt;
 use errors::RtpH264Error;
-use fragmented::{FragmentationUnitPacketType, FragmentedUnit};
+use fragmented::{FragmentedUnit, FuIndicator};
 use single_nalu::SingleNalUnit;
 use utils::traits::{
     dynamic_sized_packet::DynamicSizedPacket,
@@ -22,7 +22,7 @@ use utils::traits::{
 pub enum PayloadStructureType {
     SingleNALUPacket(u8),
     AggregationPacket(AggregationPacketType),
-    FragmentationUnit(FragmentationUnitPacketType),
+    FragmentationUnit(FuIndicator),
 }
 
 impl From<PayloadStructureType> for u8 {
@@ -43,9 +43,7 @@ impl TryFrom<u8> for PayloadStructureType {
             v if (24..=27).contains(&v) => Ok(Self::AggregationPacket(
                 AggregationPacketType::try_from(v).unwrap(),
             )),
-            v if v == 28 || v == 29 => Ok(Self::FragmentationUnit(
-                FragmentationUnitPacketType::try_from(v).unwrap(),
-            )),
+            v if v == 28 || v == 29 => Ok(Self::FragmentationUnit(value.try_into().unwrap())),
             v => Err(RtpH264Error::InvalidH264PacketType(v)),
         }
     }
@@ -69,8 +67,8 @@ impl RtpH264NalUnit {
                 AggregationNalUnits::Mtap24(packet) => packet.header,
             },
             Self::Fragmented(nalu) => match nalu {
-                FragmentedUnit::FuA(packet) => packet.indicator,
-                FragmentedUnit::FuB(packet) => packet.indicator,
+                FragmentedUnit::FuA(packet) => packet.indicator.into(),
+                FragmentedUnit::FuB(packet) => packet.indicator.into(),
             },
         }
     }

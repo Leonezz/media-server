@@ -139,10 +139,13 @@ async fn app_run(config: AppConfig) {
     }
 
     if config.rtsp_server.enable {
-        let rtsp_server = RtspServer::new(rtsp_server::config::RtspServerConfig {
-            address: config.rtsp_server.address,
-            port: config.rtsp_server.port,
-        });
+        let rtsp_server = RtspServer::new(
+            stream_center.get_event_sender(),
+            rtsp_server::config::RtspServerConfig {
+                address: config.rtsp_server.address,
+                port: config.rtsp_server.port,
+            },
+        );
         tokio::spawn(async move {
             if let Err(err) = rtsp_server.run().await {
                 tracing::error!("rtsp server thread exit with err: {:?}", err);

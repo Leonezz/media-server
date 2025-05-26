@@ -28,6 +28,7 @@ impl TryFrom<u8> for NaluHeader {
     type Error = H264CodecError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         let forbidden_zero_bit = ((value >> 7) & 0b1) == 0b1;
+        assert!(!forbidden_zero_bit);
         let nal_ref_idc = (value >> 5) & 0b11;
         let nal_unit_type: NALUType = (value & H264_NALU_TYPE_U8_MASK).try_into()?;
         Ok(Self {

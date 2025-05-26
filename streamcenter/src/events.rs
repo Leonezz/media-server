@@ -6,13 +6,14 @@ use uuid::Uuid;
 use crate::{
     errors::StreamCenterResult,
     gop::MediaFrame,
-    stream_source::{StreamIdentifier, StreamType},
+    stream_source::{PlayProtocol, PublishProtocol, StreamIdentifier, StreamType},
 };
 
 #[derive(Debug)]
 pub enum StreamCenterEvent {
     Publish {
         stream_type: StreamType,
+        protocol: PublishProtocol,
         stream_id: StreamIdentifier,
         context: HashMap<String, String>,
         result_sender: oneshot::Sender<StreamCenterResult<mpsc::Sender<MediaFrame>>>, // success or not
@@ -23,6 +24,7 @@ pub enum StreamCenterEvent {
     },
     Subscribe {
         stream_id: StreamIdentifier,
+        protocol: PlayProtocol,
         context: HashMap<String, String>,
         result_sender: oneshot::Sender<StreamCenterResult<SubscribeResponse>>,
     },

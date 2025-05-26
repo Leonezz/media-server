@@ -3,6 +3,7 @@ use std::collections::VecDeque;
 use codec_h264::nalu::NalUnit;
 use de_interleaving::{DeInterleavingBuffer, RtpH264DeInterleavingParameters};
 use fragments::RtpH264FragmentsBuffer;
+use utils::traits::buffer::{GenericFragmentComposer, GenericSequencer};
 
 use crate::{
     codec::h264::{
@@ -15,10 +16,7 @@ use crate::{
     },
     errors::RtpError,
     header::RtpHeader,
-    packet::sequencer::{
-        GenericFragmentComposer, GenericSequencer, RtpBufferItem, RtpBufferVideoItem,
-        RtpBufferedSequencer,
-    },
+    packet::sequencer::{RtpBufferItem, RtpBufferVideoItem, RtpBufferedSequencer},
 };
 
 use super::RtpH264Packet;
@@ -50,6 +48,11 @@ impl RtpH264Sequencer {
         packetization_mode: PacketizationMode,
         de_interleaving_parameters: RtpH264DeInterleavingParameters,
     ) -> Self {
+        tracing::info!(
+            "creating h264 rtp sequencer with: {}, {:?}",
+            packetization_mode,
+            de_interleaving_parameters
+        );
         Self {
             buffer_capacity: DEFAULT_BUFFER_CAPACITY,
             fragments_buffer: Some(RtpH264FragmentsBuffer::new(
@@ -71,7 +74,10 @@ impl RtpH264Sequencer {
     fn enqueue_decoder_buffer(&mut self, item: RtpH264BufferItem) -> RtpH264Result<()> {
         if self.decoder_buffer.len() >= self.buffer_capacity {
             let dropped = self.decoder_buffer.pop_front();
-            tracing::warn!("dropped item from rtp h264 sequencer: {:?}", dropped);
+            tracing::warn!(
+                "dropped item from rtp h264 sequencer because of capacity exceed: {:?}",
+                dropped
+            );
         }
 
         self.decoder_buffer.push_back(item);

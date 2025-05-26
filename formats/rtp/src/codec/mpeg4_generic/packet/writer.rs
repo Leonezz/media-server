@@ -3,15 +3,15 @@ use std::io;
 use utils::traits::writer::WriteTo;
 
 use crate::codec::mpeg4_generic::{
-    au_header::write::AuHeaderSectionWriteWrapper, auxiliary::write::AuxiliaryDataWriteWrapper,
-    errors::RtpMpeg4Error, parameters::RtpMpeg4OutOfBandParams,
+    au_header::writer::AuHeaderSectionWriteWrapper, auxiliary::writer::AuxiliaryDataWriteWrapper,
+    errors::RtpMpeg4Error, parameters::RtpMpeg4Fmtp,
 };
 
 use super::RtpMpeg4GenericPacket;
 
 pub struct RtpMpeg4GenericPacketWriteWrapper<'a>(
     pub &'a RtpMpeg4GenericPacket,
-    pub &'a RtpMpeg4OutOfBandParams,
+    pub &'a RtpMpeg4Fmtp,
 );
 impl<'a, W: io::Write> WriteTo<W> for RtpMpeg4GenericPacketWriteWrapper<'a> {
     type Error = RtpMpeg4Error;

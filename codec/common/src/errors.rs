@@ -1,4 +1,6 @@
 use thiserror::Error;
+
+use crate::audio::AudioConfig;
 #[derive(Debug, Error)]
 pub enum CodecCommonError {
     #[error("io error: {0}")]
@@ -9,5 +11,7 @@ pub enum CodecCommonError {
     InvalidNaluSizeLengthMinueOne(u8),
     #[error("parse h264 nalu failed: {0}")]
     ParseH264NaluFailed(#[from] codec_h264::errors::H264CodecError),
+    #[error("write audio config failed: {0:?}, {1}")]
+    WriteAudioConfigFailed(Box<AudioConfig>, String),
 }
 pub type CodecCommonResult<T> = Result<T, CodecCommonError>;

@@ -1,14 +1,11 @@
 use num::ToPrimitive;
 use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
 
-use crate::codec::mpeg4_generic::parameters::RtpMpeg4OutOfBandParams;
+use crate::codec::mpeg4_generic::parameters::RtpMpeg4Fmtp;
 
 use super::AuxiliaryData;
 
-pub struct AuxiliaryDataBytesCountWrapper<'a>(
-    pub &'a AuxiliaryData,
-    pub &'a RtpMpeg4OutOfBandParams,
-);
+pub struct AuxiliaryDataBytesCountWrapper<'a>(pub &'a AuxiliaryData, pub &'a RtpMpeg4Fmtp);
 
 impl<'a> DynamicSizedPacket for AuxiliaryDataBytesCountWrapper<'a> {
     fn get_packet_bytes_count(&self) -> usize {

@@ -30,6 +30,8 @@ pub enum RtpMpeg4Error {
     PacketizeToRtpFailed(String),
     #[error("Unexpected fragment packet: {0}")]
     UnexpectedFragmentPacket(String),
+    #[error("aac codec error: {0}")]
+    AACCodecError(#[from] codec_aac::errors::AACCodecError),
 }
 
 pub type RtpMpeg4Result<T> = Result<T, RtpMpeg4Error>;

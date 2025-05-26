@@ -2,6 +2,7 @@ use std::io;
 
 use bitstream_io::BitRead;
 use codec_bitstream::reader::BitstreamReader;
+use tokio_util::bytes::BytesMut;
 
 use crate::errors::H264CodecError;
 
@@ -28,4 +29,33 @@ impl<'a> RbspReadExt for BitstreamReader<'a> {
             Ok(_) => Ok(true),
         }
     }
+}
+
+/// for every 0 0 1 in rbsp, it should be transformed to 0 0 3 1
+pub fn count_rbsp_bytes(value: &[u8]) -> usize {
+    if value.len() < 3 {
+        return value.len();
+    }
+    let mut extra = 0;
+    for i in 2..value.len() {
+        if value[i - 2..=i] == [0, 0, 1] {
+            extra += 1;
+        }
+    }
+    extra + value.len() + 1 // 1 for trailing bits
+}
+
+pub fn raw_bytes_to_rbsp(value: &[u8]) -> Vec<u8> {
+    if value.len() < 3 {
+        return Vec::from(value);
+    }
+    let mut result = Vec::with_capacity(value.len());
+    result.extend_from_slice(&value[0..2]);
+    for i in 2..value.len() {
+        if value[i - 2..=i] == [0, 0, 1] {
+            result.push(0x03);
+        }
+        result.push(value[i]);
+    }
+    result
 }

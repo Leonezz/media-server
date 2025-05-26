@@ -1,14 +1,14 @@
 use std::io;
 
-use bitstream_io::{BigEndian, BitWrite2, BitWriter};
+use bitstream_io::{BigEndian, BitWrite, BitWriter};
 use num::ToPrimitive;
 use utils::traits::writer::WriteTo;
 
-use crate::codec::mpeg4_generic::{errors::RtpMpeg4Error, parameters::RtpMpeg4OutOfBandParams};
+use crate::codec::mpeg4_generic::{errors::RtpMpeg4Error, parameters::RtpMpeg4Fmtp};
 
 use super::AuxiliaryData;
 
-pub struct AuxiliaryDataWriteWrapper<'a>(pub &'a AuxiliaryData, pub &'a RtpMpeg4OutOfBandParams);
+pub struct AuxiliaryDataWriteWrapper<'a>(pub &'a AuxiliaryData, pub &'a RtpMpeg4Fmtp);
 
 impl<'a, W: io::Write> WriteTo<W> for AuxiliaryDataWriteWrapper<'a> {
     type Error = RtpMpeg4Error;
@@ -20,16 +20,12 @@ impl<'a, W: io::Write> WriteTo<W> for AuxiliaryDataWriteWrapper<'a> {
         }
 
         let mut writer = BitWriter::endian(writer, BigEndian);
-
-        BitWrite2::write(
-            &mut writer,
-            auxiliary_data_size_length
-                .to_u32()
-                .expect("integer overflow u32"),
+        writer.write_var(
+            auxiliary_data_size_length.to_u32().unwrap(),
             value.auxiliary_data_size,
         )?;
-        BitWrite2::write_bytes(&mut writer, &value.data)?;
-        BitWrite2::byte_align(&mut writer)?;
+        writer.write_bytes(&value.data)?;
+        writer.byte_align()?;
         Ok(())
     }
 }

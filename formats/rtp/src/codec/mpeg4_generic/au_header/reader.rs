@@ -6,14 +6,14 @@ use utils::traits::reader::ReadRemainingFrom;
 
 use crate::codec::mpeg4_generic::{
     errors::{RtpMpeg4Error, RtpMpeg4Result},
-    parameters::RtpMpeg4OutOfBandParams,
+    parameters::RtpMpeg4Fmtp,
 };
 
 use super::{AuHeader, AuHeaderSection};
 
 impl AuHeader {
     pub fn read_remaining_from<R: BitRead2>(
-        header: (&RtpMpeg4OutOfBandParams, bool),
+        header: (&RtpMpeg4Fmtp, bool),
         mut reader: R,
     ) -> RtpMpeg4Result<Self> {
         let (param, is_first) = header;
@@ -106,12 +106,9 @@ impl AuHeader {
     }
 }
 
-impl<R: io::Read> ReadRemainingFrom<&RtpMpeg4OutOfBandParams, R> for AuHeaderSection {
+impl<R: io::Read> ReadRemainingFrom<&RtpMpeg4Fmtp, R> for AuHeaderSection {
     type Error = RtpMpeg4Error;
-    fn read_remaining_from(
-        header: &RtpMpeg4OutOfBandParams,
-        reader: &mut R,
-    ) -> Result<Self, Self::Error> {
+    fn read_remaining_from(header: &RtpMpeg4Fmtp, reader: &mut R) -> Result<Self, Self::Error> {
         let mut reader = BitReader::endian(reader, BigEndian);
         let au_headers_length = reader.read_in::<16, u64>()?;
         let mut headers = vec![];

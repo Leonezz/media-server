@@ -3,14 +3,14 @@ use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
 use crate::codec::mpeg4_generic::{
     access_unit::packet_size::AccessUnitSectionBytesCountWrapper,
     au_header::packet_size::AuHeaderSectionBytesCountWrapper,
-    auxiliary::packet_size::AuxiliaryDataBytesCountWrapper, parameters::RtpMpeg4OutOfBandParams,
+    auxiliary::packet_size::AuxiliaryDataBytesCountWrapper, parameters::RtpMpeg4Fmtp,
 };
 
 use super::RtpMpeg4GenericPacket;
 
 pub struct RtpMpeg4GenericPacketBytesCountWrapper<'a>(
     pub &'a RtpMpeg4GenericPacket,
-    pub &'a RtpMpeg4OutOfBandParams,
+    pub &'a RtpMpeg4Fmtp,
 );
 
 impl<'a> DynamicSizedPacket for RtpMpeg4GenericPacketBytesCountWrapper<'a> {

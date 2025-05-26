@@ -1,20 +1,20 @@
 use de_interleaving::RtpMpeg4GenericDeInterleavingBuffer;
 use fragments::RtpMpeg4GenericFragmentationBuffer;
 use tokio_util::{bytes::Buf, either::Either};
-use utils::traits::reader::ReadRemainingFrom;
+use utils::traits::{
+    buffer::{GenericFragmentComposer, GenericSequencer},
+    reader::ReadRemainingFrom,
+};
 
 use crate::{
     codec::mpeg4_generic::{
         access_unit::{AccessUnit, AccessUnitFragment},
         errors::{RtpMpeg4Error, RtpMpeg4Result},
-        parameters::RtpMpeg4OutOfBandParams,
+        parameters::RtpMpeg4Fmtp,
     },
     errors::RtpError,
     header::RtpHeader,
-    packet::sequencer::{
-        GenericFragmentComposer, GenericSequencer, RtpBufferAudioItem, RtpBufferItem,
-        RtpBufferedSequencer,
-    },
+    packet::sequencer::{RtpBufferAudioItem, RtpBufferItem, RtpBufferedSequencer},
 };
 
 use super::RtpMpeg4GenericPacket;
@@ -24,22 +24,18 @@ pub mod fragments;
 
 #[derive(Debug)]
 pub struct RtpMpeg4GenericBufferItem {
-    access_unit: AccessUnit,
-    rtp_header: RtpHeader,
+    pub access_unit: AccessUnit,
+    pub rtp_header: RtpHeader,
 }
 
 pub struct RtpMpeg4GenericSequencer {
-    params: RtpMpeg4OutOfBandParams,
+    params: RtpMpeg4Fmtp,
     de_interleaving_buffer: RtpMpeg4GenericDeInterleavingBuffer,
     fragmentation_buffer: Option<RtpMpeg4GenericFragmentationBuffer>,
 }
 
 impl RtpMpeg4GenericSequencer {
-    pub fn new(
-        param: RtpMpeg4OutOfBandParams,
-        capacity: usize,
-        initial_buffer_size: usize,
-    ) -> Self {
+    pub fn new(param: RtpMpeg4Fmtp, capacity: usize, initial_buffer_size: usize) -> Self {
         let de_interleaving_buffer = RtpMpeg4GenericDeInterleavingBuffer::new(
             capacity,
             param.max_displacement.unwrap_or(1000),

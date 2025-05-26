@@ -86,6 +86,7 @@ impl<W: BitWrite> BitwiseWriteTo<W> for ALSSpecificConfig {
                 .and_then(|v| v.to_f64())
                 .and_then(|v| v.log2().ceil().to_u32())
                 .unwrap();
+            assert!(chan_pos_bits > 0);
 
             chan_pos
                 .iter()

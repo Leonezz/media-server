@@ -1,0 +1,14 @@
+[package]
+name = "server-utils"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+url = "2.5.4"
+stream-center = { path = "../../streamcenter" }
+thiserror = "2.0.7"
+flv-formats = { path = "../../formats/flv" }
+codec-common = { path = "../../codec/common" }
+
+[lints.clippy]
+uninlined_format_args = "allow"

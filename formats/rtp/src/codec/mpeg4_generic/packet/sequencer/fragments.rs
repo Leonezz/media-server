@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
+use utils::traits::buffer::GenericFragmentComposer;
+
 use crate::{
     codec::mpeg4_generic::{access_unit::AccessUnitFragment, errors::RtpMpeg4Error},
     header::RtpHeader,
-    packet::sequencer::GenericFragmentComposer,
 };
 
 use super::RtpMpeg4GenericBufferItem;

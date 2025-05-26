@@ -1,16 +1,22 @@
+use bitstream_io::BitWrite;
 use chroma_format_idc::ChromaFormatIdc;
-use utils::traits::dynamic_sized_packet::DynamicSizedBitsPacket;
+use tokio_util::bytes::{BufMut, Bytes, BytesMut};
+use utils::traits::{dynamic_sized_packet::DynamicSizedBitsPacket, writer::BitwiseWriteTo};
 
 use crate::{
-    exp_golomb::{find_se_bits_count, find_ue_bits_cound},
+    exp_golomb::{find_se_bits_count, find_ue_bits_count},
+    nalu::NalUnit,
+    nalu_header::NaluHeader,
+    rbsp::raw_bytes_to_rbsp,
     scaling_list::SeqScalingMatrix,
     vui::VuiParameters,
 };
 
 pub mod chroma_format_idc;
 pub mod reader;
+#[cfg(test)]
+mod sps_test;
 pub mod writer;
-
 #[derive(Debug, Clone)]
 pub struct ProfileIdcRelated {
     pub chroma_format_idc: ChromaFormatIdc, // ue(v), should be in [0, 3]
@@ -28,12 +34,12 @@ pub struct ProfileIdcRelated {
 
 impl DynamicSizedBitsPacket for ProfileIdcRelated {
     fn get_packet_bits_count(&self) -> usize {
-        let mut result = find_ue_bits_cound(Into::<u8>::into(self.chroma_format_idc)).unwrap();
+        let mut result = find_ue_bits_count(Into::<u8>::into(self.chroma_format_idc)).unwrap();
         if self.separate_colour_plane_flag.is_some() {
             result += 1;
         }
-        result += find_ue_bits_cound(self.bit_depth_luma_minus8).unwrap();
-        result += find_ue_bits_cound(self.bit_depth_chroma_minus8).unwrap();
+        result += find_ue_bits_count(self.bit_depth_luma_minus8).unwrap();
+        result += find_ue_bits_count(self.bit_depth_chroma_minus8).unwrap();
         result += 1; // qpprime_y_zero_transform_bypass_flag
         result += 1; // seq_scaling_matrix_present_flag
         if let Some(matrix) = &self.seq_scaling_matrix {
@@ -71,7 +77,7 @@ impl DynamicSizedBitsPacket for PicOrderCntType1 {
         1 + // delta_pic_order_always_zero_flag
             find_se_bits_count(self.offset_for_non_ref_pic).unwrap() +
             find_se_bits_count(self.offset_for_top_to_bottom_field).unwrap() +
-            find_ue_bits_cound(self.num_ref_frames_in_pic_order_cnt_cycle).unwrap() +
+            find_ue_bits_count(self.num_ref_frames_in_pic_order_cnt_cycle).unwrap() +
             self.offset_for_ref_frame.iter().fold(0, |prev, item| prev + find_se_bits_count(*item).unwrap())
     }
 }
@@ -86,10 +92,10 @@ pub struct FrameCropping {
 
 impl DynamicSizedBitsPacket for FrameCropping {
     fn get_packet_bits_count(&self) -> usize {
-        find_ue_bits_cound(self.frame_crop_left_offset).unwrap()
-            + find_ue_bits_cound(self.frame_crop_right_offset).unwrap()
-            + find_ue_bits_cound(self.frame_crop_top_offset).unwrap()
-            + find_ue_bits_cound(self.frame_crop_bottom_offset).unwrap()
+        find_ue_bits_count(self.frame_crop_left_offset).unwrap()
+            + find_ue_bits_count(self.frame_crop_right_offset).unwrap()
+            + find_ue_bits_count(self.frame_crop_top_offset).unwrap()
+            + find_ue_bits_count(self.frame_crop_bottom_offset).unwrap()
     }
 }
 
@@ -104,8 +110,7 @@ pub struct Sps {
     pub constraint_set3_flag: bool, // u(1)
     pub constraint_set4_flag: bool, // u(1)
     pub constraint_set5_flag: bool, // u(1)
-    #[allow(unused)]
-    reserved_zero_2bits: u8, // u(2), equal to 0
+    pub reserved_zero_2bits: u8,    // u(2), equal to 0
     pub level_idc: u8,              // u(8)
     pub seq_parameter_set_id: u8,   // ue(v), value shoud be in [0, 31]
     /// if( profile_idc == 100 || profile_idc == 110 ||
@@ -145,6 +150,41 @@ pub struct Sps {
     // }
 }
 
+impl Sps {
+    pub fn get_video_height(&self) -> u64 {
+        2_u64
+            .checked_sub(self.frame_mbs_only_flag as u64)
+            .and_then(|v| {
+                v.checked_mul(self.pic_height_in_map_units_minus1.checked_add(1).unwrap())
+            })
+            .and_then(|v| v.checked_mul(16))
+            .and_then(|v| {
+                v.checked_sub(self.frame_cropping.as_ref().map_or(0, |v| {
+                    v.frame_crop_top_offset
+                        .checked_add(v.frame_crop_bottom_offset)
+                        .and_then(|v| v.checked_mul(2))
+                        .unwrap()
+                }))
+            })
+            .unwrap()
+    }
+
+    pub fn get_video_width(&self) -> u64 {
+        self.pic_width_in_mbs_minus1
+            .checked_add(1)
+            .and_then(|v| v.checked_mul(16))
+            .and_then(|v| {
+                v.checked_sub(self.frame_cropping.as_ref().map_or(0, |v| {
+                    v.frame_crop_left_offset
+                        .checked_add(v.frame_crop_right_offset)
+                        .and_then(|v| v.checked_mul(2))
+                        .unwrap()
+                }))
+            })
+            .unwrap()
+    }
+}
+
 impl DynamicSizedBitsPacket for Sps {
     fn get_packet_bits_count(&self) -> usize {
         8  + // profile_idc
@@ -156,24 +196,24 @@ impl DynamicSizedBitsPacket for Sps {
         1 + // constraint_set5_flag
         2 + // reserved_zero_2bits
         8 + // level_idc
-        find_ue_bits_cound(self.seq_parameter_set_id).unwrap() +
+        find_ue_bits_count(self.seq_parameter_set_id).unwrap() +
         self
             .profile_idc_related
             .as_ref()
             .map_or(0, |v| v.get_packet_bits_count()) +
-        find_ue_bits_cound(self.log2_max_frame_num_minus4).unwrap() +
-        find_ue_bits_cound(self.pic_order_cnt_type).unwrap() +
+        find_ue_bits_count(self.log2_max_frame_num_minus4).unwrap() +
+        find_ue_bits_count(self.pic_order_cnt_type).unwrap() +
         self
             .log2_max_pic_order_cnt_lsb_minus4
-            .map_or(0, |v| find_ue_bits_cound(v).unwrap()) +
+            .map_or(0, |v| find_ue_bits_count(v).unwrap()) +
         self
             .pic_order_cnt_type_1
             .as_ref()
             .map_or(0, |v| v.get_packet_bits_count()) +
-        find_ue_bits_cound(self.max_num_ref_frames).unwrap() +
+        find_ue_bits_count(self.max_num_ref_frames).unwrap() +
         1 + // gaps_in_frame_num_value_allowed_flag 
-        find_ue_bits_cound(self.pic_width_in_mbs_minus1).unwrap() +
-        find_ue_bits_cound(self.pic_height_in_map_units_minus1).unwrap() +
+        find_ue_bits_count(self.pic_width_in_mbs_minus1).unwrap() +
+        find_ue_bits_count(self.pic_height_in_map_units_minus1).unwrap() +
         1 + // frame_mbs_only_flag
         self.mb_adaptive_frame_field_flag.map_or(0, |_| 1) +
         1 + // direct_8x8_inference_flag
@@ -187,5 +227,30 @@ impl DynamicSizedBitsPacket for Sps {
             .vui_parameters
             .as_ref()
             .map_or(0, |v| v.get_packet_bits_count())
+    }
+}
+
+impl From<&Sps> for NalUnit {
+    fn from(value: &Sps) -> Self {
+        let mut bytes: BytesMut = BytesMut::zeroed(
+            value
+                .get_packet_bits_count()
+                .checked_add(4)
+                .and_then(|v| v.checked_div(8))
+                .unwrap(),
+        );
+        let mut writer =
+            bitstream_io::BitWriter::endian(bytes.as_mut().writer(), bitstream_io::BigEndian);
+        value.write_to(writer.by_ref()).unwrap();
+        writer.byte_align().unwrap();
+        let bytes = raw_bytes_to_rbsp(&bytes);
+        Self {
+            header: NaluHeader {
+                forbidden_zero_bit: false,
+                nal_ref_idc: 3,
+                nal_unit_type: crate::nalu_type::NALUType::SPS,
+            },
+            body: Bytes::from_owner(bytes),
+        }
     }
 }

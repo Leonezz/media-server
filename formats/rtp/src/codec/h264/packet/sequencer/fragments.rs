@@ -4,13 +4,12 @@ use std::{
 };
 
 use codec_h264::nalu::NalUnit;
-use tokio_util::bytes::BytesMut;
-use utils::traits::reader::ReadFrom;
+use tokio_util::bytes::{BufMut, BytesMut};
+use utils::traits::{buffer::GenericFragmentComposer, reader::ReadFrom};
 
 use crate::{
     codec::h264::{errors::RtpH264Error, fragmented::FragmentedUnit},
     header::RtpHeader,
-    packet::sequencer::GenericFragmentComposer,
 };
 
 use super::RtpH264BufferItem;
@@ -41,9 +40,12 @@ impl GenericFragmentComposer for RtpH264FragmentsBuffer {
         &mut self,
         (rtp_header, packet): Self::In,
     ) -> Result<Option<Self::Out>, Self::Error> {
-        let (fu_header, don, payload) = match packet {
-            FragmentedUnit::FuA(packet) => (packet.fu_header, None, packet.payload),
+        let (indicator, fu_header, don, payload) = match packet {
+            FragmentedUnit::FuA(packet) => {
+                (packet.indicator, packet.fu_header, None, packet.payload)
+            }
             FragmentedUnit::FuB(packet) => (
+                packet.indicator,
                 packet.fu_header,
                 Some(packet.decode_order_number),
                 packet.payload,
@@ -59,14 +61,21 @@ impl GenericFragmentComposer for RtpH264FragmentsBuffer {
                     fragmentation_buffer.don,
                     fu_header,
                 );
-                fragmentation_buffer.fragment = BytesMut::from(payload);
+                fragmentation_buffer.fragment = BytesMut::new();
+                fragmentation_buffer
+                    .fragment
+                    .put_u8((indicator.nal_ref_idc << 5) | (fu_header.nalu_type)); // F and NRI from indicator, and NaluType from fu_header
+                fragmentation_buffer.fragment.extend_from_slice(&payload);
                 fragmentation_buffer.don = don;
             } else {
                 // happy path, insert new fragment item
+                let mut buffer = BytesMut::new();
+                buffer.put_u8((indicator.nal_ref_idc << 5) | (fu_header.nalu_type)); // F and NRI from indicator, and NaluType from fu_header
+                buffer.extend_from_slice(&payload);
                 self.nal_fragments.insert(
                     rtp_header.timestamp,
                     FragmentItem {
-                        fragment: BytesMut::from(payload),
+                        fragment: buffer,
                         don,
                     },
                 );

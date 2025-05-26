@@ -4,10 +4,10 @@ use tokio_util::bytes::Bytes;
 
 use super::errors::{RtpMpeg4Error, RtpMpeg4Result};
 
-pub mod read;
+pub mod reader;
 pub mod stream_type;
-pub mod write;
-#[derive(Debug, Default, Clone, Copy)]
+pub mod writer;
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     #[default]
     Generic,
@@ -51,9 +51,11 @@ impl fmt::Display for Mode {
 }
 
 #[derive(Debug, Default, Clone)]
-pub struct RtpMpeg4OutOfBandParams {
+pub struct RtpMpeg4Fmtp {
     pub profile_level_id: u16,
     pub config: Bytes,
+    pub aac_audio_specific_config:
+        Option<codec_aac::mpeg4_configuration::audio_specific_config::AudioSpecificConfig>,
     pub mode: Mode,
     pub object_type: Option<u8>,
     pub constant_size: Option<u64>, // The sizeLength and the constantSize parameters MUST NOT be simultaneously present.
@@ -70,7 +72,7 @@ pub struct RtpMpeg4OutOfBandParams {
     pub auxiliary_data_size_length: Option<u64>,
 }
 
-impl RtpMpeg4OutOfBandParams {
+impl RtpMpeg4Fmtp {
     pub fn set_mode(&mut self, mode: Mode) {
         self.mode = mode
     }

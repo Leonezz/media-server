@@ -8,6 +8,12 @@ pub enum RtspServerError {
     IoError(#[from] std::io::Error),
     #[error("rtsp message error: {0}")]
     RtspMessageError(#[from] rtsp_formats::errors::RtspMessageError),
+    #[error("parse stream properities failed: {0}")]
+    ParseStreamProperitiesFailed(
+        #[from] server_utils::stream_properities::errors::StreamPropertiesError,
+    ),
+    #[error("stream center error: {0}")]
+    StreamCenterError(#[from] stream_center::errors::StreamCenterError),
     #[error("sdp error: {0}")]
     SdpError(#[from] sdp_formats::errors::SDPError),
     #[error("invalid request: {0}")]
@@ -24,6 +30,8 @@ pub enum RtspServerError {
     InvalidMpeg4GenericSDPParameters(#[from] RtpMpeg4Error),
     #[error("invalid param for rtp unpacker: {0}")]
     InvalidParamForRtpUnpacker(String),
+    #[error("no rtp unpacket is set: {0}")]
+    NoRtpUnpacker(String),
     #[error("Gracefully exit")]
     GracefulExit,
 }

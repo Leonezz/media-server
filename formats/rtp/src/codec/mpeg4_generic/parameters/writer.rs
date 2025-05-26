@@ -1,9 +1,9 @@
 use std::fmt;
 
-use super::RtpMpeg4OutOfBandParams;
+use super::RtpMpeg4Fmtp;
 
-impl From<&RtpMpeg4OutOfBandParams> for String {
-    fn from(value: &RtpMpeg4OutOfBandParams) -> Self {
+impl From<&RtpMpeg4Fmtp> for String {
+    fn from(value: &RtpMpeg4Fmtp) -> Self {
         let mut params = Vec::new();
 
         params.push(format!("profile-level-id={}", value.profile_level_id));
@@ -63,7 +63,7 @@ impl From<&RtpMpeg4OutOfBandParams> for String {
     }
 }
 
-impl fmt::Display for RtpMpeg4OutOfBandParams {
+impl fmt::Display for RtpMpeg4Fmtp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let str: String = self.into();
         write!(f, "{str}")

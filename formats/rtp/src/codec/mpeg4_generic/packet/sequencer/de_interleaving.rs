@@ -1,6 +1,8 @@
 use std::collections::VecDeque;
 
-use crate::{codec::mpeg4_generic::errors::RtpMpeg4Error, packet::sequencer::GenericSequencer};
+use utils::traits::buffer::GenericSequencer;
+
+use crate::codec::mpeg4_generic::errors::RtpMpeg4Error;
 
 use super::RtpMpeg4GenericBufferItem;
 

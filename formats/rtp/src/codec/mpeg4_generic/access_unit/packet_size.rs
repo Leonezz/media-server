@@ -1,7 +1,7 @@
 use tokio_util::either::Either;
 use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
 
-use crate::codec::mpeg4_generic::parameters::RtpMpeg4OutOfBandParams;
+use crate::codec::mpeg4_generic::parameters::RtpMpeg4Fmtp;
 
 use super::{AccessUnit, AccessUnitFragment, AccessUnitSection};
 
@@ -18,7 +18,7 @@ impl DynamicSizedPacket for AccessUnitFragment {
 }
 pub struct AccessUnitSectionBytesCountWrapper<'a>(
     pub &'a AccessUnitSection,
-    pub &'a RtpMpeg4OutOfBandParams,
+    pub &'a RtpMpeg4Fmtp,
 );
 impl<'a> DynamicSizedPacket for AccessUnitSectionBytesCountWrapper<'a> {
     fn get_packet_bytes_count(&self) -> usize {

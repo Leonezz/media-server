@@ -16,6 +16,7 @@ impl<W: BitWrite> BitwiseWriteTo<W> for AuxFormatIdcRelated {
             .to_u32()
             .and_then(|v| v.checked_add(9))
             .unwrap();
+        assert!(bit_depth > 0);
         writer.write_var(bit_depth, self.alpha_opaque_value)?;
         writer.write_var(bit_depth, self.alpha_transparent_value)?;
         Ok(())

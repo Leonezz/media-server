@@ -1,8 +1,8 @@
 use tokio_util::bytes::Bytes;
 
 pub mod packet_size;
-pub mod read;
-pub mod write;
+pub mod reader;
+pub mod writer;
 
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+- .. -+-+-+-+-+-+-+-+-+
 /// | auxiliary-data-size |   auxiliary-data   | . padding bits  |

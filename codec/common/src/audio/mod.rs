@@ -1,5 +1,6 @@
 use crate::FrameType;
-
+pub mod reader;
+pub mod writer;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AudioCodecCommon {
     LinearPCM,
@@ -74,6 +75,29 @@ impl AudioFrameInfo {
                 sound_type,
             },
             timestamp_nano,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum AudioConfig {
+    AAC(codec_aac::mpeg4_configuration::audio_specific_config::AudioSpecificConfig),
+}
+
+impl From<codec_aac::mpeg4_configuration::audio_specific_config::AudioSpecificConfig>
+    for AudioConfig
+{
+    fn from(
+        value: codec_aac::mpeg4_configuration::audio_specific_config::AudioSpecificConfig,
+    ) -> Self {
+        Self::AAC(value)
+    }
+}
+
+impl From<&AudioConfig> for AudioCodecCommon {
+    fn from(value: &AudioConfig) -> Self {
+        match value {
+            AudioConfig::AAC(_) => Self::AAC,
         }
     }
 }

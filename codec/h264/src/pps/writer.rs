@@ -47,6 +47,7 @@ impl<W: BitWrite> BitwiseWriteTo<W> for SliceGroupMapType6 {
     type Error = H264CodecError;
     fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         write_ue(writer, self.slice_group_id.len().to_u64().unwrap())?; // pic_size_in_map_units_minus1
+        assert!(self.bits_cnt > 0);
         self.slice_group_id.iter().try_for_each(|item| {
             writer.write_var(self.bits_cnt, *item)?;
             Ok::<(), Self::Error>(())

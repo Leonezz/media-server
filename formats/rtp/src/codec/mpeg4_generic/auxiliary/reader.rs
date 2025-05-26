@@ -5,16 +5,13 @@ use num::ToPrimitive;
 use tokio_util::bytes::Bytes;
 use utils::traits::reader::ReadRemainingFrom;
 
-use crate::codec::mpeg4_generic::{errors::RtpMpeg4Error, parameters::RtpMpeg4OutOfBandParams};
+use crate::codec::mpeg4_generic::{errors::RtpMpeg4Error, parameters::RtpMpeg4Fmtp};
 
 use super::AuxiliaryData;
 
-impl<R: io::Read> ReadRemainingFrom<&RtpMpeg4OutOfBandParams, R> for AuxiliaryData {
+impl<R: io::Read> ReadRemainingFrom<&RtpMpeg4Fmtp, R> for AuxiliaryData {
     type Error = RtpMpeg4Error;
-    fn read_remaining_from(
-        header: &RtpMpeg4OutOfBandParams,
-        reader: &mut R,
-    ) -> Result<Self, Self::Error> {
+    fn read_remaining_from(header: &RtpMpeg4Fmtp, reader: &mut R) -> Result<Self, Self::Error> {
         let mut reader = BitReader::endian(reader, BigEndian);
         let auxiliary_data_size_length = header.auxiliary_data_size_length.unwrap_or(0);
         if auxiliary_data_size_length == 0 {

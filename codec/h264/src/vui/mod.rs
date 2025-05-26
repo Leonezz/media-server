@@ -3,7 +3,7 @@ use utils::traits::{
     dynamic_sized_packet::DynamicSizedBitsPacket, fixed_packet::FixedBitwisePacket,
 };
 
-use crate::{errors::H264CodecError, exp_golomb::find_ue_bits_cound};
+use crate::{errors::H264CodecError, exp_golomb::find_ue_bits_count};
 
 pub mod hrd_parameters;
 pub mod reader;
@@ -199,8 +199,8 @@ pub struct ChromaLocInfo {
 
 impl DynamicSizedBitsPacket for ChromaLocInfo {
     fn get_packet_bits_count(&self) -> usize {
-        find_ue_bits_cound(self.chroma_sample_loc_type_top_field).unwrap()
-            + find_ue_bits_cound(self.chroma_sample_loc_type_bottom_field).unwrap()
+        find_ue_bits_count(self.chroma_sample_loc_type_top_field).unwrap()
+            + find_ue_bits_count(self.chroma_sample_loc_type_bottom_field).unwrap()
     }
 }
 
@@ -231,12 +231,12 @@ pub struct BitstreamRestriction {
 impl DynamicSizedBitsPacket for BitstreamRestriction {
     fn get_packet_bits_count(&self) -> usize {
         1 + // motion_vectors_over_pic_boundaries_flag
-        find_ue_bits_cound(self.max_bytes_per_pic_denom).unwrap() +
-        find_ue_bits_cound(self.max_bits_per_mb_denom).unwrap() +
-        find_ue_bits_cound(self.log2_max_mv_length_horizontal).unwrap() +
-        find_ue_bits_cound(self.log2_max_mv_length_vertical).unwrap() +
-        find_ue_bits_cound(self.max_num_reorder_frames).unwrap() +
-        find_ue_bits_cound(self.max_dec_frame_buffering).unwrap()
+        find_ue_bits_count(self.max_bytes_per_pic_denom).unwrap() +
+        find_ue_bits_count(self.max_bits_per_mb_denom).unwrap() +
+        find_ue_bits_count(self.log2_max_mv_length_horizontal).unwrap() +
+        find_ue_bits_count(self.log2_max_mv_length_vertical).unwrap() +
+        find_ue_bits_count(self.max_num_reorder_frames).unwrap() +
+        find_ue_bits_count(self.max_dec_frame_buffering).unwrap()
     }
 }
 

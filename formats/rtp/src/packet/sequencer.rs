@@ -1,6 +1,17 @@
 use std::{cmp, collections::VecDeque};
 
-use utils::random;
+use codec_common::{
+    FrameType,
+    audio::{AudioCodecCommon, AudioFrameInfo, SoundInfoCommon},
+    video::VideoFrameInfo,
+};
+use codec_h264::nalu_type::NALUType;
+use num::ToPrimitive;
+use stream_center::gop::MediaFrame;
+use tokio_util::bytes::{BufMut, BytesMut};
+use utils::traits::{
+    buffer::GenericSequencer, dynamic_sized_packet::DynamicSizedPacket, writer::WriteTo,
+};
 
 use crate::{
     codec::{
@@ -29,24 +40,130 @@ pub enum RtpBufferItem {
     Audio(RtpBufferAudioItem),
 }
 
+pub struct RtpBufferItemToMeidiaFrameComposer {
+    sps: Option<RtpBufferItem>,
+    pps: Option<RtpBufferItem>,
+    timestamp_base: Option<u32>,
+    clock_rate: u32,
+}
+
+impl RtpBufferItemToMeidiaFrameComposer {
+    pub fn new(clock_rate: u32, sps: Option<RtpBufferItem>, pps: Option<RtpBufferItem>) -> Self {
+        Self {
+            sps,
+            pps,
+            timestamp_base: None,
+            clock_rate,
+        }
+    }
+}
+
+impl RtpBufferItem {
+    pub fn get_timestamp(&self) -> u32 {
+        match self {
+            Self::Audio(audio) => match audio {
+                RtpBufferAudioItem::AAC(aac) => aac.access_unit.timestamp,
+            },
+            Self::Video(video) => match video {
+                RtpBufferVideoItem::H264(h264) => h264
+                    .rtp_header
+                    .timestamp
+                    .checked_add(h264.timestamp_offset.unwrap_or(0))
+                    .unwrap(),
+            },
+        }
+    }
+    pub fn get_sequence_number(&self) -> u16 {
+        match self {
+            Self::Audio(audio) => match audio {
+                RtpBufferAudioItem::AAC(aac) => aac.rtp_header.sequence_number,
+            },
+            Self::Video(video) => match video {
+                RtpBufferVideoItem::H264(h264) => h264.rtp_header.sequence_number,
+            },
+        }
+    }
+
+    pub fn is_video(&self) -> bool {
+        matches!(self, Self::Video(_))
+    }
+
+    pub fn is_audio(&self) -> bool {
+        matches!(self, Self::Audio(_))
+    }
+
+    pub fn get_packet_type(&self) -> String {
+        match self {
+            Self::Audio(_) => "audio".to_owned(),
+            Self::Video(_) => "video".to_owned(),
+        }
+    }
+
+    pub fn get_video_nal_type(&self) -> Option<NALUType> {
+        match self {
+            Self::Video(video) => match video {
+                RtpBufferVideoItem::H264(h264) => Some(h264.nal_unit.header.nal_unit_type),
+            },
+            _ => None,
+        }
+    }
+
+    pub fn to_media_frame(&self, timestamp_base: u32, clock_rate: u32) -> MediaFrame {
+        let timestamp_nano = self
+            .get_timestamp()
+            .checked_sub(timestamp_base)
+            .and_then(|v| v.to_u64())
+            .and_then(|v| v.checked_mul(1_000_000_000)) // to nano seconds
+            .and_then(|v| v.checked_div(clock_rate.to_u64().unwrap()))
+            .unwrap();
+        match self {
+            RtpBufferItem::Audio(audio) => match audio {
+                RtpBufferAudioItem::AAC(aac) => {
+                    let mut bytes = BytesMut::zeroed(aac.access_unit.get_packet_bytes_count());
+                    aac.access_unit
+                        .write_to(&mut bytes.as_mut().writer())
+                        .unwrap();
+                    MediaFrame::Audio {
+                        frame_info: AudioFrameInfo {
+                            codec_id: AudioCodecCommon::AAC,
+                            frame_type: FrameType::CodedFrames,
+                            sound_info: SoundInfoCommon {
+                                sound_rate: codec_common::audio::SoundRateCommon::KHZ44,
+                                sound_size: codec_common::audio::SoundSizeCommon::Bit8,
+                                sound_type: codec_common::audio::SoundTypeCommon::Stereo,
+                            },
+                            timestamp_nano,
+                        },
+                        payload: bytes.freeze(),
+                    }
+                }
+            },
+            RtpBufferItem::Video(video) => match video {
+                RtpBufferVideoItem::H264(h264) => {
+                    let is_idr = h264.nal_unit.header.nal_unit_type == NALUType::IDRSlice;
+                    MediaFrame::Video {
+                        frame_info: VideoFrameInfo {
+                            codec_id: codec_common::video::VideoCodecCommon::AVC,
+                            frame_type: if is_idr {
+                                FrameType::KeyFrame
+                            } else {
+                                FrameType::CodedFrames
+                            },
+                            timestamp_nano,
+                        },
+                        payload: codec_common::video::VideoFrameUnit::H264 {
+                            nal_units: vec![h264.nal_unit.clone()],
+                        },
+                    }
+                }
+            },
+        }
+    }
+}
+
 pub trait RtpBufferedSequencer {
     fn enqueue(&mut self, packet: RtpTrivialPacket) -> Result<(), RtpError>;
     fn try_dump(&mut self) -> Vec<RtpBufferItem>;
-}
-
-pub trait GenericSequencer {
-    type In;
-    type Out;
-    type Error;
-    fn enqueue(&mut self, packet: Self::In) -> Result<(), Self::Error>;
-    fn try_dump(&mut self) -> Vec<Self::Out>;
-}
-
-pub trait GenericFragmentComposer {
-    type In;
-    type Out;
-    type Error;
-    fn enqueue(&mut self, packet: Self::In) -> Result<Option<Self::Out>, Self::Error>;
 }
 
 /// RtpTrivialSequencer takes rtp packets from outside systems,
@@ -132,13 +249,11 @@ impl GenericSequencer for RtpTrivialSequencer {
         while let Some((min_seq, index)) = self.smallest_sequence_number_item_index() {
             if self.next_sequence_number.number() < min_seq && self.buffer.len() < self.capacity / 4
             {
-                if random::random_u64() % 1000 == 0 {
-                    tracing::debug!(
-                        "interleaved rtp packets detected, waiting. expected seq: {}, min seq: {}",
-                        self.next_sequence_number.number(),
-                        min_seq
-                    );
-                }
+                tracing::debug!(
+                    "interleaved rtp packets detected, waiting. expected seq: {}, min seq: {}",
+                    self.next_sequence_number.number(),
+                    min_seq
+                );
                 break;
             }
             if self.next_sequence_number.number() > min_seq {

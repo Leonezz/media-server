@@ -5,12 +5,21 @@ use std::{
     sync::Arc,
 };
 
+use codec_common::{
+    audio::{AudioCodecCommon, AudioConfig},
+    video::VideoCodecCommon,
+};
+use num::ToPrimitive;
 use tokio::sync::{RwLock, mpsc};
+use tokio_util::bytes::Bytes;
+use utils::traits::buffer::GenericSequencer;
 use uuid::Uuid;
 
 use crate::{
     errors::{StreamCenterError, StreamCenterResult},
     gop::{GopQueue, MediaFrame},
+    make_fake_on_meta_data,
+    mix_queue::MixQueue,
     signal::StreamSignal,
     stream_center::StreamSourceDynamicInfo,
 };
@@ -108,6 +117,7 @@ pub struct SubscribeHandler {
     pub parsed_context: ParsedContext,
     pub data_sender: mpsc::Sender<MediaFrame>,
     pub stat: PlayStat,
+    pub play_protocol: PlayProtocol,
 }
 
 #[derive(Debug)]
@@ -136,6 +146,7 @@ impl From<&HashMap<String, String>> for ParsedContext {
 #[derive(Debug)]
 pub struct StreamSource {
     pub identifier: StreamIdentifier,
+    pub publish_protocol: PublishProtocol,
     pub stream_type: StreamType,
 
     data_receiver: mpsc::Receiver<MediaFrame>,
@@ -145,13 +156,16 @@ pub struct StreamSource {
     status: StreamStatus,
     signal_receiver: mpsc::Receiver<StreamSignal>,
     gop_cache: GopQueue,
+    mix_queue: MixQueue,
 }
 
 impl StreamSource {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         stream_name: &str,
         app: &str,
         stream_type: StreamType,
+        publish_protocol: PublishProtocol,
         data_receiver: mpsc::Receiver<MediaFrame>,
         signal_receiver: mpsc::Receiver<StreamSignal>,
         data_distributer: Arc<RwLock<HashMap<Uuid, SubscribeHandler>>>,
@@ -162,14 +176,16 @@ impl StreamSource {
                 stream_name: stream_name.to_string(),
                 app: app.to_string(),
             },
+            publish_protocol,
             stream_type,
             data_receiver,
             data_distributer,
             stream_dynamic_info,
             // data_consumer: rx,
-            gop_cache: GopQueue::new(600_000, 100_000),
+            gop_cache: GopQueue::new(6_0000, 3600),
             status: StreamStatus::NotStarted,
             signal_receiver,
+            mix_queue: MixQueue::new(100, 100, 10),
         }
     }
 
@@ -181,12 +197,36 @@ impl StreamSource {
         tracing::info!("stream is running, stream id: {:?}", self.identifier);
 
         loop {
-            match self.data_receiver.recv().await {
-                None => {}
-                Some(data) => {
-                    self.on_media_frame(data).await?;
+            match tokio::time::timeout(
+                tokio::time::Duration::from_millis(10),
+                self.data_receiver.recv(),
+            )
+            .await
+            {
+                Err(_) => {}
+                Ok(None) => {}
+                Ok(Some(frame)) => {
+                    if (frame.is_video() || frame.is_audio()) && !frame.is_sequence_header() {
+                        let _ = self.mix_queue.enqueue(frame).inspect_err(|err| {
+                            tracing::error!("enqueue frame to mix queue failed: {:?}", err);
+                        });
+
+                        for frame in self.mix_queue.try_dump() {
+                            if let Err(err) = self.on_media_frame(frame).await {
+                                tracing::error!("on media frame failed: {:?}", err);
+                                return Err(err);
+                            }
+                        }
+                    } else {
+                        // sequence header or script frame
+                        if let Err(err) = self.on_media_frame(frame).await {
+                            tracing::error!("on media frame failed: {:?}", err);
+                            return Err(err);
+                        }
+                    }
                 }
             }
+
             match self.signal_receiver.try_recv() {
                 Err(_) => {}
                 Ok(signal) => match signal {
@@ -220,6 +260,40 @@ impl StreamSource {
                 stat.script_frames_sent += <bool as Into<u64>>::into(!fail);
             }
         };
+
+        if !self.data_distributer.read().await.is_empty() && self.gop_cache.script_frame.is_none() {
+            let audio_codec = self.gop_cache.audio_config.as_ref().map(|(v, _)| match v {
+                AudioConfig::AAC(_) => AudioCodecCommon::AAC,
+            });
+            if let Some((video_codec, video_height, video_width)) =
+                self.gop_cache.video_config.as_ref().map(|v| match v {
+                    codec_common::video::VideoConfig::H264 {
+                        sps,
+                        pps: _,
+                        sps_ext: _,
+                        avc_decoder_configuration_record: _,
+                    } => (
+                        VideoCodecCommon::AVC,
+                        sps.as_ref().map_or(0, |v| v.get_video_height()),
+                        sps.as_ref().map_or(0, |v| v.get_video_width()),
+                    ),
+                })
+                && let Some(audio_codec) = audio_codec
+            {
+                let fake_meta = Some(make_fake_on_meta_data(
+                    audio_codec,
+                    video_codec,
+                    video_height.to_f64().unwrap(),
+                    video_width.to_f64().unwrap(),
+                ));
+                tracing::info!("make fake meta: {:?}", fake_meta);
+                self.gop_cache.script_frame = Some(MediaFrame::Script {
+                    timestamp_nano: 0,
+                    on_meta_data: Box::new(fake_meta),
+                    payload: Bytes::new(),
+                })
+            }
+        }
 
         for (key, handler) in &mut self.data_distributer.write().await.iter_mut() {
             if (!handler.stat.audio_sh_sent && !handler.parsed_context.video_only)
@@ -269,9 +343,11 @@ impl StreamSource {
                 tracing::error!("distribute script frame data to {} failed: {:?}", key, res);
                 handler.stat.script_frame_send_fail_cnt += 1;
             } else {
+                tracing::info!("distribute script frame data to {} succeed", key);
                 handler.stat.script_frames_sent += 1;
             }
         }
+
         if let Some(video_sh) = &self.gop_cache.video_config {
             if !handler.parsed_context.audio_only {
                 let res = handler.data_sender.try_send(MediaFrame::VideoConfig {
@@ -288,12 +364,20 @@ impl StreamSource {
                 } else {
                     handler.stat.video_sh_sent = true;
                     handler.stat.video_frames_sent += 1;
+                    tracing::info!("distribute video sh frame to {} succeed", key);
                 }
             }
+        } else {
+            handler.stat.video_sh_sent = true;
         }
+
         if let Some(audio_sh) = &self.gop_cache.audio_config {
             if !handler.parsed_context.video_only {
-                let res = handler.data_sender.try_send(audio_sh.clone());
+                let res = handler.data_sender.try_send(MediaFrame::AudioConfig {
+                    timestamp_nano: 0,
+                    sound_info: audio_sh.1,
+                    config: Box::new(audio_sh.0.clone()),
+                });
                 if res.is_err() {
                     tracing::error!(
                         "distribute audio sh frame data to {} failed: {:?}",
@@ -304,8 +388,11 @@ impl StreamSource {
                 } else {
                     handler.stat.audio_sh_sent = true;
                     handler.stat.audio_frames_sent += 1;
+                    tracing::info!("distribute audio sh frame to {} succeed", key);
                 }
             }
+        } else {
+            handler.stat.audio_sh_sent = true;
         }
 
         let total_gop_cnt = self.gop_cache.get_gops_cnt();
@@ -340,9 +427,9 @@ impl StreamSource {
             tracing::info!(
                 "dump gop index: {}, frame cnt: {}",
                 index,
-                gop.flv_frames.len()
+                gop.media_frames.len()
             );
-            for frame in &gop.flv_frames {
+            for frame in &gop.media_frames {
                 if handler.parsed_context.audio_only && frame.is_video() {
                     continue;
                 }

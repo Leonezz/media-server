@@ -51,15 +51,18 @@ pub enum VideoConfig {
 
 impl From<AvcDecoderConfigurationRecord> for VideoConfig {
     fn from(value: AvcDecoderConfigurationRecord) -> Self {
+        let sps = value
+            .sequence_parameter_sets
+            .first()
+            .map(|v| v.parameter_set.clone());
+        let pps = value
+            .picture_parameter_sets
+            .first()
+            .map(|v| v.parameter_set.clone());
+
         VideoConfig::H264 {
-            sps: value
-                .sequence_parameter_sets
-                .first()
-                .map(|v| v.parameter_set.clone()),
-            pps: value
-                .picture_parameter_sets
-                .first()
-                .map(|v| v.parameter_set.clone()),
+            sps,
+            pps,
             sps_ext: value
                 .sps_ext_related
                 .as_ref()
@@ -89,7 +92,7 @@ pub enum VideoFrameUnit {
 }
 
 impl VideoFrameUnit {
-    pub fn nal_units_cnt(&self) -> usize {
+    pub fn units_cnt(&self) -> usize {
         match self {
             Self::H264 { nal_units } => nal_units.len(),
         }
@@ -101,7 +104,7 @@ impl VideoFrameUnit {
                 .iter()
                 .fold(0, |prev, item| prev + item.get_packet_bytes_count()),
         }
-        .checked_add(self.nal_units_cnt().checked_mul(delimiter_size).unwrap())
+        .checked_add(self.units_cnt().checked_mul(delimiter_size).unwrap())
         .unwrap()
     }
 }

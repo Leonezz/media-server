@@ -1,7 +1,11 @@
+use std::io;
+
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum H264SDPError {
+    #[error("io error: {0}")]
+    Io(#[from] io::Error),
     #[error("invalid format: {0}")]
     InvalidFormat(String),
     #[error("invalid profile_level_id: {0}")]
@@ -50,6 +54,8 @@ pub enum H264SDPError {
     InvalidSpropParameterSets(String),
     #[error("invalid sprop-level-parameter-sets: {0}")]
     InvalidSpropLevelParameterSets(String),
+    #[error("convert from h264 fmtp parameter to avc decoder configuration record failed: {0}")]
+    FmptToAvcDecoderConfigurationRecordError(String),
 }
 
 pub type H264SDPResult<T> = Result<T, H264SDPError>;

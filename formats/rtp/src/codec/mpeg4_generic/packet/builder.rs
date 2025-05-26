@@ -15,7 +15,7 @@ use crate::{
         access_unit::{AccessUnit, AccessUnitFragment, AccessUnitSection},
         au_header::{AuHeader, AuHeaderSection, packet_size::AuHeaderBitsCountWrapper},
         errors::{RtpMpeg4Error, RtpMpeg4Result},
-        parameters::RtpMpeg4OutOfBandParams,
+        parameters::RtpMpeg4Fmtp,
     },
     header::RtpHeader,
 };
@@ -24,7 +24,7 @@ use super::RtpMpeg4GenericPacket;
 
 #[derive(Debug)]
 pub struct RtpMpeg4GenericPacketBuilder {
-    params: RtpMpeg4OutOfBandParams,
+    params: RtpMpeg4Fmtp,
     au_index: u64,
     rtp_header: RtpHeader,
     access_units: Vec<Bytes>,
@@ -33,7 +33,7 @@ pub struct RtpMpeg4GenericPacketBuilder {
 const DEFAULT_MTU: u64 = 1400;
 
 impl RtpMpeg4GenericPacketBuilder {
-    pub fn new(params: RtpMpeg4OutOfBandParams, mtu: Option<u64>) -> Self {
+    pub fn new(params: RtpMpeg4Fmtp, mtu: Option<u64>) -> Self {
         Self {
             params,
             au_index: 0,
@@ -42,7 +42,7 @@ impl RtpMpeg4GenericPacketBuilder {
             mtu: mtu.unwrap_or(DEFAULT_MTU),
         }
     }
-    pub fn params(mut self, params: RtpMpeg4OutOfBandParams) -> Self {
+    pub fn params(mut self, params: RtpMpeg4Fmtp) -> Self {
         self.params = params;
         self
     }

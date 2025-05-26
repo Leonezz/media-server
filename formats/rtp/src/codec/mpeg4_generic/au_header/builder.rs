@@ -1,6 +1,6 @@
 use crate::codec::mpeg4_generic::{
     errors::{RtpMpeg4Error, RtpMpeg4Result},
-    parameters::RtpMpeg4OutOfBandParams,
+    parameters::RtpMpeg4Fmtp,
 };
 
 use super::AuHeader;
@@ -52,7 +52,7 @@ impl AuHeaderBuilder {
 
     pub fn build(
         &self,
-        params: &RtpMpeg4OutOfBandParams,
+        params: &RtpMpeg4Fmtp,
         is_first_au: bool,
         is_fragmented: bool,
     ) -> RtpMpeg4Result<AuHeader> {

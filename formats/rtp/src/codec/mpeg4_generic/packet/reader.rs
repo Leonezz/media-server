@@ -5,19 +5,19 @@ use utils::traits::reader::ReadRemainingFrom;
 use crate::{
     codec::mpeg4_generic::{
         access_unit::AccessUnitSection, au_header::AuHeaderSection, auxiliary::AuxiliaryData,
-        errors::RtpMpeg4Error, parameters::RtpMpeg4OutOfBandParams,
+        errors::RtpMpeg4Error, parameters::RtpMpeg4Fmtp,
     },
     header::RtpHeader,
 };
 
 use super::RtpMpeg4GenericPacket;
 
-impl<R: io::Read> ReadRemainingFrom<(&RtpMpeg4OutOfBandParams, &RtpHeader), R>
+impl<R: io::Read> ReadRemainingFrom<(&RtpMpeg4Fmtp, &RtpHeader), R>
     for RtpMpeg4GenericPacket
 {
     type Error = RtpMpeg4Error;
     fn read_remaining_from(
-        header: (&RtpMpeg4OutOfBandParams, &RtpHeader),
+        header: (&RtpMpeg4Fmtp, &RtpHeader),
         reader: &mut R,
     ) -> Result<Self, Self::Error> {
         let (param, rtp_header) = header;

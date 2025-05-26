@@ -8,15 +8,15 @@ use tokio_util::{
 use utils::traits::reader::ReadRemainingFrom;
 
 use crate::codec::mpeg4_generic::{
-    au_header::AuHeader, errors::RtpMpeg4Error, parameters::RtpMpeg4OutOfBandParams,
+    au_header::AuHeader, errors::RtpMpeg4Error, parameters::RtpMpeg4Fmtp,
 };
 
 use super::{AccessUnit, AccessUnitFragment, AccessUnitSection};
 
-impl<R: io::Read> ReadRemainingFrom<(&AuHeader, u32, &RtpMpeg4OutOfBandParams), R> for AccessUnit {
+impl<R: io::Read> ReadRemainingFrom<(&AuHeader, u32, &RtpMpeg4Fmtp), R> for AccessUnit {
     type Error = RtpMpeg4Error;
     fn read_remaining_from(
-        header: (&AuHeader, u32, &RtpMpeg4OutOfBandParams),
+        header: (&AuHeader, u32, &RtpMpeg4Fmtp),
         reader: &mut R,
     ) -> Result<Self, Self::Error> {
         let (au_header, timestamp, param) = header;
@@ -48,16 +48,15 @@ impl<R: io::Read> ReadRemainingFrom<(&AuHeader, u32, &RtpMpeg4OutOfBandParams), 
                             .au_index_delta
                             .unwrap_or(0)
                             .to_u32()
-                            .expect("integer overflow u32"),
-                    )
-                })
-                .and_then(|v| {
-                    v.checked_mul(
-                        param
-                            .constant_duration
-                            .unwrap_or(0)
-                            .to_u32()
-                            .expect("integer overflow u32"),
+                            .unwrap()
+                            .checked_mul(
+                                param
+                                    .constant_duration
+                                    .unwrap_or(0)
+                                    .to_u32()
+                                    .expect("integer overflow u32"),
+                            )
+                            .unwrap(),
                     )
                 })
                 .expect("timestamp overflow"),
@@ -91,13 +90,12 @@ impl<R: AsRef<[u8]>> ReadRemainingFrom<(u32, &AuHeader), io::Cursor<R>> for Acce
     }
 }
 
-impl<R: AsRef<[u8]>>
-    ReadRemainingFrom<(&Vec<AuHeader>, u32, bool, &RtpMpeg4OutOfBandParams), io::Cursor<R>>
+impl<R: AsRef<[u8]>> ReadRemainingFrom<(&Vec<AuHeader>, u32, bool, &RtpMpeg4Fmtp), io::Cursor<R>>
     for AccessUnitSection
 {
     type Error = RtpMpeg4Error;
     fn read_remaining_from(
-        header: (&Vec<AuHeader>, u32, bool, &RtpMpeg4OutOfBandParams),
+        header: (&Vec<AuHeader>, u32, bool, &RtpMpeg4Fmtp),
         reader: &mut io::Cursor<R>,
     ) -> Result<Self, Self::Error> {
         let (au_headers, mut timestamp, is_fragment, params) = header;

@@ -2,24 +2,22 @@ use std::{collections::HashMap, io};
 
 use byteorder::{BigEndian, WriteBytesExt};
 
-use codec_common::{FrameType, video::VideoConfig};
+use codec_common::video::VideoConfig;
 use flv_formats::{header::FLVHeader, tag::flv_tag_header::FLVTagHeader};
 use num::ToPrimitive;
 use stream_center::{
     events::{StreamCenterEvent, SubscribeResponse},
     gop::MediaFrame,
-    stream_source::{StreamIdentifier, StreamType},
+    stream_center::StreamCenter,
+    stream_source::{PlayProtocol, StreamIdentifier, StreamType},
 };
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use tokio_util::bytes::BytesMut;
 use utils::traits::fixed_packet::FixedPacket;
 use utils::traits::writer::WriteTo;
 use uuid::Uuid;
 
-use crate::{
-    routes::params::{AUDIO_ONLY_KEY, VIDEO_ONLY_KEY},
-    sessions::httpflv::errors::HttpFlvSessionError,
-};
+use crate::routes::params::{AUDIO_ONLY_KEY, VIDEO_ONLY_KEY};
 
 use super::errors::HttpFlvSessionResult;
 
@@ -104,22 +102,17 @@ impl HttpFlvSession {
             match response.media_receiver.recv().await {
                 None => {}
                 Some(frame) => {
-                    match &frame {
-                        MediaFrame::VideoConfig { .. } => {
-                            has_video_sequence_header = true;
-                        }
-                        MediaFrame::Audio {
-                            frame_info,
-                            payload: _,
-                        } => {
-                            if frame_info.frame_type == FrameType::SequenceStart {
-                                has_audio_sequence_header = true;
-                            }
-                        }
-                        _ => {}
-                    };
+                    if !has_audio_sequence_header {
+                        has_audio_sequence_header = frame.is_audio() && frame.is_sequence_header();
+                    }
+                    if !has_video_sequence_header {
+                        has_video_sequence_header = frame.is_video() && frame.is_sequence_header();
+                    }
 
-                    if !has_audio_sequence_header && !has_video_sequence_header {
+                    if !has_audio_sequence_header
+                        && !has_video_sequence_header
+                        && !frame.is_script()
+                    {
                         // we hold until sequence header
                         continue;
                     }
@@ -180,100 +173,29 @@ impl HttpFlvSession {
         if self.play_id.is_none() {
             return Ok(());
         }
-        let (tx, rx) = oneshot::channel();
-        let event = StreamCenterEvent::Unsubscribe {
-            stream_id: StreamIdentifier {
+        StreamCenter::unsubscribe(
+            &self.stream_center_event_sender,
+            self.play_id.unwrap(),
+            &StreamIdentifier {
                 stream_name: self.stream_properties.stream_name.clone(),
                 app: self.stream_properties.app.clone(),
             },
-            uuid: self.play_id.expect("this cannot be none"),
-            result_sender: tx,
-        };
-
-        let res = self.stream_center_event_sender.send(event);
-        if res.is_err() {
-            tracing::error!(
-                "unsubscribe from stream center failed, stream: {:?}",
-                self.stream_properties
-            );
-            return Err(HttpFlvSessionError::StreamEventSendFailed(Some(
-                res.expect_err("this must be error").0,
-            )));
-        }
-
-        match rx.await {
-            Err(_err) => {
-                tracing::error!(
-                    "channel closed while trying receive unsubscribe result, stream: {:?}",
-                    self.stream_properties
-                );
-                Err(HttpFlvSessionError::StreamEventSendFailed(None))
-            }
-            Ok(Err(err)) => {
-                tracing::error!(
-                    "unsubscribe from stream center failed, {:?}, stream: {:?}",
-                    err,
-                    self.stream_properties
-                );
-                Err(err.into())
-            }
-            Ok(Ok(())) => {
-                tracing::info!(
-                    "unsubscribe from stream center succeed, stream: {:?}, uuid: {:?}",
-                    self.stream_properties,
-                    self.play_id
-                );
-                Ok(())
-            }
-        }
+        )
+        .await
+        .map_err(|err| err.into())
     }
 
     pub async fn subscribe_from_stream_center(&self) -> HttpFlvSessionResult<SubscribeResponse> {
-        let (tx, rx) = oneshot::channel();
-        let event = StreamCenterEvent::Subscribe {
-            stream_id: StreamIdentifier {
+        StreamCenter::subscribe(
+            &self.stream_center_event_sender,
+            &StreamIdentifier {
                 stream_name: self.stream_properties.stream_name.clone(),
                 app: self.stream_properties.app.clone(),
             },
-            context: self.stream_properties.stream_context.clone(),
-            result_sender: tx,
-        };
-        let res = self.stream_center_event_sender.send(event);
-
-        if res.is_err() {
-            tracing::error!(
-                "subscribe from stream center failed, stream: {:?}",
-                self.stream_properties,
-            );
-            return Err(HttpFlvSessionError::StreamEventSendFailed(Some(
-                res.expect_err("this must be an error").0,
-            )));
-        }
-
-        match rx.await {
-            Err(_err) => {
-                tracing::error!(
-                    "channel closed while trying receive subscribe result, stream: {:?}",
-                    self.stream_properties,
-                );
-                Err(HttpFlvSessionError::StreamEventSendFailed(None))
-            }
-            Ok(Err(err)) => {
-                tracing::error!(
-                    "subscribe from stream center failed, {:?}, stream: {:?}",
-                    err,
-                    self.stream_properties
-                );
-                Err(err.into())
-            }
-            Ok(Ok(res)) => {
-                tracing::info!(
-                    "subscribe from stream center success, stream: {:?}, uuid: {}",
-                    self.stream_properties,
-                    res.subscribe_id
-                );
-                Ok(res)
-            }
-        }
+            PlayProtocol::HTTPFLV,
+            &self.stream_properties.stream_context,
+        )
+        .await
+        .map_err(|err| err.into())
     }
 }

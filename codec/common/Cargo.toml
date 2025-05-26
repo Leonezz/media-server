@@ -10,7 +10,9 @@ tokio-util = { version = "0.7.13", features = ["full"] }
 tracing = "0.1.41"
 utils = { path = "../../utils" }
 codec-h264 = { path = "../../codec/h264" }
+codec-aac = { path = "../../codec/aac" }
 num = "0.4.3"
+bitstream-io = "4.0.0"
 
 [lints.clippy]
 uninlined_format_args = "allow"

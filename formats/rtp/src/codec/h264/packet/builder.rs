@@ -9,6 +9,7 @@ use utils::traits::reader::ReadRemainingFrom;
 use utils::traits::{dynamic_sized_packet::DynamicSizedPacket, writer::WriteTo};
 
 use crate::codec::h264::errors::{RtpH264Error, RtpH264Result};
+use crate::codec::h264::fragmented::FuIndicator;
 use crate::codec::h264::paramters::packetization_mode::PacketizationMode;
 use crate::{
     codec::h264::{
@@ -228,9 +229,11 @@ impl RtpH264PacketBuilder {
 
             let is_end = !cursor.has_remaining();
             result.push(RtpH264NalUnit::Fragmented(FragmentedUnit::FuA(FUAPacket {
-                indicator: <PayloadStructureType as Into<u8>>::into(
-                    PayloadStructureType::FragmentationUnit(FragmentationUnitPacketType::FUA),
-                ) | (nalu_header.nal_ref_idc << 5),
+                indicator: FuIndicator {
+                    forbidden_zero_bit: false,
+                    nal_ref_idc: nalu_header.nal_ref_idc,
+                    fu_type: FragmentationUnitPacketType::FUA,
+                },
                 fu_header: FUHeader {
                     start_bit: start_fragment,
                     end_bit: is_end,

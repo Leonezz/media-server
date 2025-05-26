@@ -8,8 +8,8 @@ use tokio_util::{
 use super::au_header::AuHeader;
 
 pub mod packet_size;
-pub mod read;
-pub mod write;
+pub mod reader;
+pub mod writer;
 
 pub struct AccessUnit {
     pub header: AuHeader,

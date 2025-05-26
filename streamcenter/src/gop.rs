@@ -1,14 +1,13 @@
 use std::{
     collections::{HashMap, VecDeque},
-    io::{self, Read},
+    io,
 };
 
-use bitstream_io::BigEndian;
+use bitstream_io::{BitRead, BitWrite};
 use codec_aac::mpeg4_configuration::audio_specific_config::AudioSpecificConfig;
-use codec_bitstream::reader::BitstreamReader;
 use codec_common::{
     FrameType,
-    audio::AudioFrameInfo,
+    audio::{AudioCodecCommon, AudioConfig, AudioFrameInfo, SoundInfoCommon},
     video::{VideoCodecCommon, VideoConfig, VideoFrameInfo, VideoFrameUnit},
 };
 use codec_h264::avc_decoder_configuration_record::AvcDecoderConfigurationRecord;
@@ -24,10 +23,13 @@ use flv_formats::tag::{
     video_tag_header_info::VideoTagHeaderWithoutMultiTrack,
 };
 use num::ToPrimitive;
-use tokio_util::bytes::{Buf, BufMut, Bytes, BytesMut};
+use tokio_util::bytes::{Buf, Bytes, BytesMut};
 use utils::traits::reader::ReadFrom;
 use utils::traits::writer::{BitwiseWriteTo, WriteTo};
-use utils::traits::{dynamic_sized_packet::DynamicSizedPacket, reader::BitwiseReadFrom};
+use utils::traits::{
+    dynamic_sized_packet::{DynamicSizedBitsPacket, DynamicSizedPacket},
+    reader::BitwiseReadFrom,
+};
 
 use crate::errors::{StreamCenterError, StreamCenterResult};
 
@@ -40,6 +42,11 @@ pub enum MediaFrame {
     Video {
         frame_info: VideoFrameInfo,
         payload: VideoFrameUnit,
+    },
+    AudioConfig {
+        timestamp_nano: u64,
+        sound_info: SoundInfoCommon,
+        config: Box<AudioConfig>,
     },
     Audio {
         // NOTE - this tag_header is also included in the frame payload
@@ -63,7 +70,7 @@ impl MediaFrame {
             MediaFrame::Video {
                 frame_info: _,
                 payload: _,
-            }
+            } | MediaFrame::VideoConfig { .. }
         )
     }
 
@@ -74,7 +81,7 @@ impl MediaFrame {
             MediaFrame::Audio {
                 frame_info: _,
                 payload: _,
-            }
+            } | MediaFrame::AudioConfig { .. }
         )
     }
 
@@ -90,19 +97,66 @@ impl MediaFrame {
         )
     }
 
+    pub fn get_timestamp_ns(&self) -> u64 {
+        match self {
+            Self::Audio {
+                frame_info,
+                payload: _,
+            } => frame_info.timestamp_nano,
+            Self::AudioConfig {
+                timestamp_nano,
+                sound_info: _,
+                config: _,
+            } => *timestamp_nano,
+            Self::Script {
+                timestamp_nano,
+                on_meta_data: _,
+                payload: _,
+            } => *timestamp_nano,
+            Self::Video {
+                frame_info,
+                payload: _,
+            } => frame_info.timestamp_nano,
+            Self::VideoConfig {
+                timestamp_nano,
+                config: _,
+            } => *timestamp_nano,
+        }
+    }
+
+    pub fn get_timestamp_ns_mut(&mut self) -> &mut u64 {
+        match self {
+            Self::Audio {
+                frame_info,
+                payload: _,
+            } => &mut frame_info.timestamp_nano,
+            Self::AudioConfig {
+                timestamp_nano,
+                sound_info: _,
+                config: _,
+            } => timestamp_nano,
+            Self::Script {
+                timestamp_nano,
+                on_meta_data: _,
+                payload: _,
+            } => timestamp_nano,
+            Self::Video {
+                frame_info,
+                payload: _,
+            } => &mut frame_info.timestamp_nano,
+            Self::VideoConfig {
+                timestamp_nano,
+                config: _,
+            } => timestamp_nano,
+        }
+    }
+
     #[inline]
     pub fn is_sequence_header(&self) -> bool {
-        match self {
-            MediaFrame::Audio {
-                frame_info,
-                payload: _,
-            } => frame_info.frame_type == FrameType::SequenceStart,
-            MediaFrame::Video {
-                frame_info,
-                payload: _,
-            } => frame_info.frame_type == FrameType::SequenceStart,
-            _ => false,
-        }
+        matches!(
+            self,
+            MediaFrame::AudioConfig { .. } | MediaFrame::VideoConfig { .. }
+        )
     }
 
     #[inline]
@@ -114,6 +168,33 @@ impl MediaFrame {
             } => frame_info.frame_type == FrameType::KeyFrame,
             _ => false,
         }
+    }
+
+    pub fn video_codec_id(&self) -> Option<VideoCodecCommon> {
+        match self {
+            Self::Video {
+                frame_info,
+                payload: _,
+            } => Some(frame_info.codec_id),
+            _ => None,
+        }
+    }
+
+    pub fn audio_codec_id(&self) -> Option<AudioCodecCommon> {
+        match self {
+            Self::Audio {
+                frame_info,
+                payload: _,
+            } => Some(frame_info.codec_id),
+            _ => None,
+        }
+    }
+
+    pub fn same_codec_video(&self, other: &Self) -> bool {
+        if !self.is_video() || !other.is_video() {
+            return false;
+        }
+        self.video_codec_id() == other.video_codec_id()
     }
 
     pub fn to_flv_tag(&self, nalu_size_length: u8) -> StreamCenterResult<flv_formats::tag::FLVTag> {
@@ -153,30 +234,36 @@ impl MediaFrame {
             Self::Script {
                 timestamp_nano,
                 on_meta_data,
-                payload,
-            } => Ok(flv_formats::tag::FLVTag {
-                tag_header: flv_formats::tag::flv_tag_header::FLVTagHeader {
-                    tag_type: FLVTagType::Script,
-                    data_size: payload.len().to_u32().unwrap(),
-                    timestamp: timestamp_nano
-                        .checked_div(1_000_000)
-                        .and_then(|v| v.to_u32())
-                        .unwrap(),
-                    filter_enabled: false,
-                },
-                body_with_filter: flv_formats::tag::flv_tag_body::FLVTagBodyWithFilter {
-                    filter: None,
-                    body: flv_formats::tag::flv_tag_body::FLVTagBody::Script {
-                        value: vec![
-                            amf_formats::amf0::string("@setDataFrame"),
-                            amf_formats::amf0::string("@onMetaData"),
-                            amf_formats::amf0::Value::ECMAArray(
-                                on_meta_data.clone().map_or(vec![], |ref v| v.into()),
-                            ),
-                        ],
+                payload: _,
+            } => {
+                let value = vec![
+                    amf_formats::amf0::string("@setDataFrame"),
+                    amf_formats::amf0::string("@onMetaData"),
+                    amf_formats::amf0::Value::ECMAArray(
+                        on_meta_data.clone().map_or(vec![], |ref v| v.into()),
+                    ),
+                ];
+                let length = value.iter().fold(0, |prev, item| {
+                    let mut bytes = Vec::new();
+                    item.write_to(&mut bytes).unwrap();
+                    prev + bytes.len()
+                });
+                Ok(flv_formats::tag::FLVTag {
+                    tag_header: flv_formats::tag::flv_tag_header::FLVTagHeader {
+                        tag_type: FLVTagType::Script,
+                        data_size: length.to_u32().unwrap(),
+                        timestamp: timestamp_nano
+                            .checked_div(1_000_000)
+                            .and_then(|v| v.to_u32())
+                            .unwrap(),
+                        filter_enabled: false,
                     },
-                },
-            }),
+                    body_with_filter: flv_formats::tag::flv_tag_body::FLVTagBodyWithFilter {
+                        filter: None,
+                        body: flv_formats::tag::flv_tag_body::FLVTagBody::Script { value },
+                    },
+                })
+            }
             Self::Video {
                 frame_info,
                 payload,
@@ -270,6 +357,59 @@ impl MediaFrame {
                     }
                 }
             }
+            Self::AudioConfig {
+                timestamp_nano,
+                sound_info,
+                config,
+            } => {
+                let frame_info = AudioFrameInfo {
+                    codec_id: config.as_ref().into(),
+                    frame_type: FrameType::SequenceStart,
+                    timestamp_nano: *timestamp_nano,
+                    sound_info: *sound_info,
+                };
+                let legacy_header: LegacyAudioTagHeader = (&frame_info).try_into()?;
+                match config.as_ref() {
+                    AudioConfig::AAC(config) => {
+                        let mut bytes = BytesMut::zeroed(
+                            config
+                                .get_packet_bits_count()
+                                .checked_add(4)
+                                .and_then(|v| v.checked_div(8))
+                                .unwrap(),
+                        );
+                        let mut writer = bitstream_io::BitWriter::endian(
+                            bytes.as_mut(),
+                            bitstream_io::BigEndian,
+                        );
+                        config.write_to(&mut writer)?;
+                        writer.byte_align()?;
+                        Ok(flv_formats::tag::FLVTag {
+                            tag_header: flv_formats::tag::flv_tag_header::FLVTagHeader {
+                                tag_type: FLVTagType::Audio,
+                                data_size: legacy_header
+                                    .get_packet_bytes_count()
+                                    .checked_add(bytes.len())
+                                    .and_then(|v| v.to_u32())
+                                    .unwrap(),
+                                timestamp: timestamp_nano
+                                    .checked_div(1_000_000)
+                                    .and_then(|v| v.to_u32())
+                                    .unwrap(),
+                                filter_enabled: false,
+                            },
+                            body_with_filter:
+                                flv_formats::tag::flv_tag_body::FLVTagBodyWithFilter {
+                                    filter: None,
+                                    body: flv_formats::tag::flv_tag_body::FLVTagBody::Audio {
+                                        header: flv_formats::tag::audio_tag_header::AudioTagHeader::Legacy(legacy_header),
+                                        body: bytes.freeze(),
+                                    },
+                                },
+                        })
+                    }
+                }
+            }
         }
     }
 
@@ -277,40 +417,58 @@ impl MediaFrame {
         match tag.body_with_filter.body {
             FLVTagBody::Audio { header, body } => {
                 let tag_header_info: AudioTagHeaderWithoutMultiTrack = (&header).try_into()?;
+                let frame_info = AudioFrameInfo::new(
+                    tag_header_info.codec_id,
+                    tag_header_info.packet_type.try_into()?,
+                    tag_header_info
+                        .legacy_info
+                        .unwrap_or_default()
+                        .sound_rate
+                        .into(),
+                    tag_header_info
+                        .legacy_info
+                        .unwrap_or_default()
+                        .sound_size
+                        .into(),
+                    tag_header_info
+                        .legacy_info
+                        .unwrap_or_default()
+                        .sound_type
+                        .into(),
+                    tag.tag_header
+                        .timestamp
+                        .to_u64()
+                        .and_then(|v| v.checked_mul(1_000_000))
+                        .and_then(|v| {
+                            v.checked_add(
+                                tag_header_info
+                                    .timestamp_nano
+                                    .unwrap_or(0)
+                                    .to_u64()
+                                    .unwrap(),
+                            )
+                        })
+                        .unwrap(),
+                );
+                if frame_info.frame_type == FrameType::SequenceStart {
+                    let audio_config = match frame_info.codec_id {
+                        codec_common::audio::AudioCodecCommon::AAC => {
+                            let mut reader = codec_bitstream::reader::BitstreamReader::new(&body);
+                            AudioConfig::AAC(AudioSpecificConfig::read_from(reader.by_ref())?)
+                        }
+                        _ => {
+                            todo!()
+                        }
+                    };
+                    tracing::debug!("got audio config: {:?}", audio_config);
+                    return Ok(Self::AudioConfig {
+                        timestamp_nano: 0,
+                        sound_info: frame_info.sound_info,
+                        config: Box::new(audio_config),
+                    });
+                }
                 Ok(Self::Audio {
-                    frame_info: AudioFrameInfo::new(
-                        tag_header_info.codec_id,
-                        tag_header_info.packet_type.try_into()?,
-                        tag_header_info
-                            .legacy_info
-                            .unwrap_or_default()
-                            .sound_rate
-                            .into(),
-                        tag_header_info
-                            .legacy_info
-                            .unwrap_or_default()
-                            .sound_size
-                            .into(),
-                        tag_header_info
-                            .legacy_info
-                            .unwrap_or_default()
-                            .sound_type
-                            .into(),
-                        tag.tag_header
-                            .timestamp
-                            .to_u64()
-                            .and_then(|v| v.checked_mul(1_000_000))
-                            .and_then(|v| {
-                                v.checked_add(
-                                    tag_header_info
-                                        .timestamp_nano
-                                        .unwrap_or(0)
-                                        .to_u64()
-                                        .unwrap(),
-                                )
-                            })
-                            .unwrap(),
-                    ),
+                    frame_info,
                     payload: body,
                 })
             }
@@ -348,16 +506,13 @@ impl MediaFrame {
                             VideoCodecCommon::AVC => {
                                 let config =
                                     AvcDecoderConfigurationRecord::read_from(&mut body.reader())?;
-                                tracing::debug!(
-                                    "got avc_decoder_configuration_record: {:?}",
-                                    config
-                                );
                                 VideoConfig::from(config)
                             }
                             _ => {
                                 todo!()
                             }
                         };
+                        tracing::debug!("got video config: {:#?}", video_config);
                         Ok(Self::VideoConfig {
                             timestamp_nano: tag
                                 .tag_header
@@ -429,7 +584,7 @@ impl MediaFrame {
 
 #[derive(Debug)]
 pub struct Gop {
-    pub flv_frames: Vec<MediaFrame>,
+    pub media_frames: VecDeque<MediaFrame>,
     video_tag_cnt: usize,
     audio_tag_cnt: usize,
     meta_tag_cnt: usize,
@@ -440,13 +595,37 @@ pub struct Gop {
 impl Gop {
     pub fn new() -> Self {
         Self {
-            flv_frames: Vec::new(),
+            media_frames: VecDeque::new(),
             video_tag_cnt: 0,
             audio_tag_cnt: 0,
             meta_tag_cnt: 0,
             first_video_pts_nano: 0,
             last_video_pts_nano: 0,
         }
+    }
+
+    #[inline]
+    pub fn pop_front(&mut self) -> Option<MediaFrame> {
+        let dropped = self.media_frames.pop_front();
+        if let Some(frame) = dropped.as_ref() {
+            if frame.is_audio() {
+                self.audio_tag_cnt -= 1;
+            } else if frame.is_video() {
+                self.video_tag_cnt -= 1;
+            }
+        }
+        self.first_video_pts_nano = self
+            .media_frames
+            .front()
+            .map(|v| v.get_timestamp_ns())
+            .unwrap_or(0);
+        self.last_video_pts_nano = self
+            .media_frames
+            .back()
+            .map(|v| v.get_timestamp_ns())
+            .unwrap_or(0);
+
+        dropped
     }
 
     #[inline]
@@ -465,13 +644,21 @@ impl Gop {
     }
 
     #[inline]
-    pub fn get_first_video_pts(&self) -> u64 {
+    pub fn get_first_video_timestamp_nano(&self) -> u64 {
         self.first_video_pts_nano
     }
 
     #[inline]
-    pub fn get_last_video_pts(&self) -> u64 {
+    pub fn get_last_video_timestamp_nano(&self) -> u64 {
         self.last_video_pts_nano
+    }
+
+    #[inline]
+    pub fn get_last_video_frame_mut(&mut self) -> Option<&mut MediaFrame> {
+        self.media_frames
+            .iter_mut()
+            .rev()
+            .find(|frame| frame.is_video())
     }
 
     pub fn append_media_frame(&mut self, frame: MediaFrame) {
@@ -479,13 +666,15 @@ impl Gop {
             MediaFrame::VideoConfig {
                 timestamp_nano: _,
                 config: _,
-            } => {}
+            } => {
+                self.video_tag_cnt += 1;
+            }
             MediaFrame::Video {
                 frame_info,
                 payload: _,
             } => {
                 self.video_tag_cnt += 1;
-                if self.flv_frames.is_empty() {
+                if self.media_frames.is_empty() {
                     self.first_video_pts_nano = frame_info.timestamp_nano;
                 }
                 self.last_video_pts_nano = frame_info.timestamp_nano;
@@ -494,6 +683,9 @@ impl Gop {
                 frame_info: _,
                 payload: _,
             } => self.audio_tag_cnt += 1,
+            MediaFrame::AudioConfig { .. } => {
+                self.audio_tag_cnt += 1;
+            }
             MediaFrame::Script {
                 timestamp_nano: _,
                 payload: _,
@@ -501,7 +693,7 @@ impl Gop {
             } => self.meta_tag_cnt += 1,
         }
 
-        self.flv_frames.push(frame);
+        self.media_frames.push_back(frame);
     }
 }
 
@@ -514,7 +706,7 @@ impl Default for Gop {
 #[derive(Debug)]
 pub struct GopQueue {
     pub video_config: Option<VideoConfig>,
-    pub audio_config: Option<MediaFrame>,
+    pub audio_config: Option<(AudioConfig, SoundInfoCommon)>,
     pub script_frame: Option<MediaFrame>,
     pub gops: VecDeque<Gop>,
     total_frame_cnt: u64,
@@ -588,34 +780,30 @@ impl GopQueue {
         self.accumulate_gops(|gop| gop.get_meta_frame_cnt())
     }
 
-    pub fn append_frame(&mut self, frame: MediaFrame) -> StreamCenterResult<()> {
+    pub fn append_frame(&mut self, mut frame: MediaFrame) -> StreamCenterResult<()> {
         let mut is_sequence_header = false;
         let mut is_video = false;
-        match &frame {
+        match &mut frame {
             MediaFrame::Audio {
-                frame_info,
-                payload,
-            } => {
-                if frame_info.frame_type == FrameType::SequenceStart {
-                    tracing::info!("audio header: {:?}", frame_info);
-                    let mut reader = BitstreamReader::new(payload);
-                    let audio_config = AudioSpecificConfig::read_from(&mut reader)?;
-                    tracing::info!("got aac specific config: \n{:#?}", audio_config);
-                    let mut bytes = BytesMut::new();
-                    let mut writer =
-                        bitstream_io::BitWriter::endian(bytes.as_mut().writer(), BigEndian);
-                    audio_config.write_to(&mut writer)?;
-                    assert!(payload.eq(&bytes.freeze()));
-                    self.audio_config = Some(frame.clone());
-                    is_sequence_header = true;
-                }
-            }
+                frame_info: _,
+                payload: _,
+            } => {}
             MediaFrame::VideoConfig {
                 timestamp_nano: _,
                 config,
             } => {
                 self.video_config = Some(*config.clone());
                 is_sequence_header = true;
+                tracing::info!("got video sh");
+            }
+            MediaFrame::AudioConfig {
+                timestamp_nano: _,
+                sound_info,
+                config,
+            } => {
+                self.audio_config = Some((*config.clone(), *sound_info));
+                is_sequence_header = true;
+                tracing::info!("got audio sh");
             }
             MediaFrame::Video {
                 frame_info,
@@ -629,9 +817,13 @@ impl GopQueue {
             MediaFrame::Script {
                 timestamp_nano: pts,
                 on_meta_data,
-                payload: _,
+                payload,
             } => {
-                self.script_frame = Some(frame.clone());
+                self.script_frame = Some(MediaFrame::Script {
+                    timestamp_nano: *pts,
+                    on_meta_data: on_meta_data.clone(),
+                    payload: payload.clone(),
+                });
                 tracing::info!("meta, pts: {}, data: {:?}", pts, on_meta_data);
             }
         }
@@ -649,22 +841,32 @@ impl GopQueue {
             .gops
             .front()
             .expect("this cannot be empty")
-            .get_first_video_pts();
+            .get_first_video_timestamp_nano();
         let last_pts = self
             .gops
             .back()
             .expect("this cannot be empty")
-            .get_last_video_pts();
+            .get_last_video_timestamp_nano();
 
-        if ((last_pts > first_pts && (last_pts - first_pts) >= self.max_duration_ms)
-            || self.total_frame_cnt >= self.max_frame_cnt)
-            && self.gops.len() > 1
+        if (last_pts > first_pts && (last_pts - first_pts) >= self.max_duration_ms)
+            || self.total_frame_cnt >= self.max_frame_cnt
         {
-            let dropped = self.gops.pop_front();
-            if let Some(gop) = dropped {
-                self.dropped_gops_cnt += 1;
-                self.dropped_video_cnt += gop.get_video_frame_cnt() as u64;
-                self.dropped_audio_cnt += gop.get_audio_frame_cnt() as u64;
+            if self.gops.len() > 1 {
+                let dropped = self.gops.pop_front();
+                if let Some(gop) = dropped {
+                    self.dropped_gops_cnt += 1;
+                    self.dropped_video_cnt += gop.get_video_frame_cnt() as u64;
+                    self.dropped_audio_cnt += gop.get_audio_frame_cnt() as u64;
+                }
+            } else if self.gops.len() == 1 {
+                let dropped = self.gops[0].pop_front();
+                if let Some(dropped) = dropped {
+                    if dropped.is_video() {
+                        self.dropped_video_cnt += 1;
+                    } else if dropped.is_audio() {
+                        self.dropped_audio_cnt += 1;
+                    }
+                }
             }
         }
 

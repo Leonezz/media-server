@@ -1,6 +1,8 @@
 use std::{fmt, str::FromStr};
 
-use crate::errors::SDPError;
+use crate::{errors::SDPError, session::SDPMediaDescription};
+
+use super::SDPAttribute;
 
 #[derive(Debug, Clone)]
 pub struct RtpMap {
@@ -8,6 +10,26 @@ pub struct RtpMap {
     pub encoding_name: String,
     pub clock_rate: u64,
     pub encoding_params: Option<u64>,
+}
+
+impl TryFrom<&SDPMediaDescription> for RtpMap {
+    type Error = SDPError;
+    fn try_from(value: &SDPMediaDescription) -> Result<Self, Self::Error> {
+        let rtpmap = value.attributes.iter().find_map(|attr| {
+            if let SDPAttribute::RtpMap(rtpmap) = attr {
+                Some(rtpmap)
+            } else {
+                None
+            }
+        });
+        if rtpmap.is_none() {
+            tracing::warn!("media rtpmap attribute not found");
+            return Err(SDPError::SyntaxError(
+                "media rtpmap attribute not found".to_owned(),
+            ));
+        }
+        Ok(rtpmap.unwrap().clone())
+    }
 }
 
 impl FromStr for RtpMap {

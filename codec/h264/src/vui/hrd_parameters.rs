@@ -1,6 +1,6 @@
 use utils::traits::dynamic_sized_packet::DynamicSizedBitsPacket;
 
-use crate::exp_golomb::find_ue_bits_cound;
+use crate::exp_golomb::find_ue_bits_count;
 
 #[derive(Debug, Clone)]
 pub struct SchedSel {
@@ -11,8 +11,8 @@ pub struct SchedSel {
 
 impl DynamicSizedBitsPacket for SchedSel {
     fn get_packet_bits_count(&self) -> usize {
-        find_ue_bits_cound(self.bit_rate_value_minus1).unwrap() +
-        find_ue_bits_cound(self.cpb_size_value_minus1).unwrap() +
+        find_ue_bits_count(self.bit_rate_value_minus1).unwrap() +
+        find_ue_bits_count(self.cpb_size_value_minus1).unwrap() +
         1 // cbr_flag
     }
 }
@@ -34,7 +34,7 @@ pub struct HrdParameters {
 
 impl DynamicSizedBitsPacket for HrdParameters {
     fn get_packet_bits_count(&self) -> usize {
-        find_ue_bits_cound(self.cpb_cnt_minus1).unwrap() + 
+        find_ue_bits_count(self.cpb_cnt_minus1).unwrap() + 
         4 + // bit_rate_scale
         4 + // cpb_size_scale
         self.sched_sels.iter().fold(0, |prev, item| prev + item.get_packet_bits_count()) +

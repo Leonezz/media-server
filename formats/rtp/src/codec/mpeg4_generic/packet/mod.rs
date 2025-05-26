@@ -1,8 +1,8 @@
 pub mod builder;
 pub mod packet_size;
-pub mod read;
+pub mod reader;
 pub mod sequencer;
-pub mod write;
+pub mod writer;
 
 use builder::RtpMpeg4GenericPacketBuilder;
 use tokio_util::bytes::Buf;
@@ -12,7 +12,7 @@ use crate::{header::RtpHeader, packet::RtpTrivialPacket};
 
 use super::{
     access_unit::AccessUnitSection, au_header::AuHeaderSection, auxiliary::AuxiliaryData,
-    errors::RtpMpeg4Error, parameters::RtpMpeg4OutOfBandParams,
+    errors::RtpMpeg4Error, parameters::RtpMpeg4Fmtp,
 };
 
 #[derive(Debug)]
@@ -25,16 +25,16 @@ pub struct RtpMpeg4GenericPacket {
 
 impl RtpMpeg4GenericPacket {
     pub fn builder(
-        param: RtpMpeg4OutOfBandParams,
+        param: RtpMpeg4Fmtp,
         mtu: Option<u64>,
     ) -> RtpMpeg4GenericPacketBuilder {
         RtpMpeg4GenericPacketBuilder::new(param, mtu)
     }
 }
 
-impl TryFrom<(RtpTrivialPacket, &RtpMpeg4OutOfBandParams)> for RtpMpeg4GenericPacket {
+impl TryFrom<(RtpTrivialPacket, &RtpMpeg4Fmtp)> for RtpMpeg4GenericPacket {
     type Error = RtpMpeg4Error;
-    fn try_from(value: (RtpTrivialPacket, &RtpMpeg4OutOfBandParams)) -> Result<Self, Self::Error> {
+    fn try_from(value: (RtpTrivialPacket, &RtpMpeg4Fmtp)) -> Result<Self, Self::Error> {
         let (rtp_trivial_packet, params) = value;
         Self::read_remaining_from(
             (params, &rtp_trivial_packet.header),

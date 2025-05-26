@@ -60,6 +60,7 @@ pub fn read_data_with_length<L: Unsigned + ToPrimitive + Copy, R: BitRead, T: Bi
 }
 
 pub fn write_data_with_length<L: Unsigned + ToPrimitive + Copy, W: BitWrite, T: BitwiseWriteTo<W, Error = AACCodecError>>(data: &DataWithLength<L, T>, length: L, writer: &mut W) -> Result<(), AACCodecError> {
+    assert!(length.to_usize().unwrap() > 0_usize);
     writer.write_var(length.to_u32().unwrap(), data.length.to_u64().unwrap())?;
     data.data.iter().try_for_each(|item| item.write_to(writer))?;
     Ok(())

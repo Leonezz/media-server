@@ -1,8 +1,13 @@
+use bitstream_io::BitWrite;
 use num::ToPrimitive;
-use utils::traits::dynamic_sized_packet::DynamicSizedBitsPacket;
+use tokio_util::bytes::{BufMut, Bytes, BytesMut};
+use utils::traits::{dynamic_sized_packet::DynamicSizedBitsPacket, writer::BitwiseWriteTo};
 
 use crate::{
-    exp_golomb::{find_se_bits_count, find_ue_bits_cound},
+    exp_golomb::{find_se_bits_count, find_ue_bits_count},
+    nalu::NalUnit,
+    nalu_header::NaluHeader,
+    rbsp::raw_bytes_to_rbsp,
     scaling_list::SeqScalingMatrix,
 };
 
@@ -18,7 +23,7 @@ impl DynamicSizedBitsPacket for SliceGroupMapType0 {
     fn get_packet_bits_count(&self) -> usize {
         self.run_length_minus1
             .iter()
-            .fold(0, |prev, item| prev + find_ue_bits_cound(*item).unwrap())
+            .fold(0, |prev, item| prev + find_ue_bits_count(*item).unwrap())
     }
 }
 
@@ -30,7 +35,7 @@ pub struct SliceGroupMaptype2Item {
 
 impl DynamicSizedBitsPacket for SliceGroupMaptype2Item {
     fn get_packet_bits_count(&self) -> usize {
-        find_ue_bits_cound(self.top_left).unwrap() + find_ue_bits_cound(self.bottom_right).unwrap()
+        find_ue_bits_count(self.top_left).unwrap() + find_ue_bits_count(self.bottom_right).unwrap()
     }
 }
 
@@ -58,7 +63,7 @@ pub struct SliceGroupMapType345 {
 impl DynamicSizedBitsPacket for SliceGroupMapType345 {
     fn get_packet_bits_count(&self) -> usize {
         1 + // slice_group_change_direction_flag
-        find_ue_bits_cound(self.slice_group_change_rate_minus1).unwrap()
+        find_ue_bits_count(self.slice_group_change_rate_minus1).unwrap()
     }
 }
 
@@ -72,7 +77,7 @@ pub struct SliceGroupMapType6 {
 
 impl DynamicSizedBitsPacket for SliceGroupMapType6 {
     fn get_packet_bits_count(&self) -> usize {
-        find_ue_bits_cound(self.pic_size_in_map_units_minus1).unwrap()
+        find_ue_bits_count(self.pic_size_in_map_units_minus1).unwrap()
             + self
                 .slice_group_id
                 .len()
@@ -108,7 +113,7 @@ pub struct NumSliceGroupsMinus1Positive {
 
 impl DynamicSizedBitsPacket for NumSliceGroupsMinus1Positive {
     fn get_packet_bits_count(&self) -> usize {
-        find_ue_bits_cound(self.slice_group_map_type).unwrap()
+        find_ue_bits_count(self.slice_group_map_type).unwrap()
             + self.slice_group_map_type_related.get_packet_bits_count()
     }
 }
@@ -171,14 +176,14 @@ pub struct Pps {
 
 impl DynamicSizedBitsPacket for Pps {
     fn get_packet_bits_count(&self) -> usize {
-        find_ue_bits_cound(self.pic_parameter_set_id).unwrap() +
-        find_ue_bits_cound(self.seq_parameter_set_id).unwrap() +
+        find_ue_bits_count(self.pic_parameter_set_id).unwrap() +
+        find_ue_bits_count(self.seq_parameter_set_id).unwrap() +
         1 + // entropy_coding_mode_flag
         1 + // bottom_field_pic_order_in_frame_present_flag
-        find_ue_bits_cound(self.num_slice_groups_minus1).unwrap() +
+        find_ue_bits_count(self.num_slice_groups_minus1).unwrap() +
         self.num_slice_groups_minus1_positive.as_ref().map_or(0, |v| v.get_packet_bits_count()) +
-        find_ue_bits_cound(self.num_ref_idx_10_default_active_minus1).unwrap() +
-        find_ue_bits_cound(self.num_ref_idx_11_default_active_minus1).unwrap() +
+        find_ue_bits_count(self.num_ref_idx_10_default_active_minus1).unwrap() +
+        find_ue_bits_count(self.num_ref_idx_11_default_active_minus1).unwrap() +
         1 + // weighted_pred_flag
         2 + // weighted_bipred_idc
         find_se_bits_count(self.pic_init_qp_minus26).unwrap() +
@@ -188,5 +193,29 @@ impl DynamicSizedBitsPacket for Pps {
         1 + // constrained_intra_pred_flag
         1 + // redudant_pic_cnt_present_flag
         self.more_data.as_ref().map_or(0, |v| v.get_packet_bits_count())
+    }
+}
+
+impl From<&Pps> for NalUnit {
+    fn from(value: &Pps) -> Self {
+        let mut bytes = Vec::with_capacity(
+            value
+                .get_packet_bits_count()
+                .checked_add(4)
+                .and_then(|v| v.checked_div(8))
+                .unwrap(),
+        );
+        let mut writer = bitstream_io::BitWriter::endian(&mut bytes, bitstream_io::BigEndian);
+        value.write_to(writer.by_ref()).unwrap();
+        writer.byte_align().unwrap();
+        let bytes = raw_bytes_to_rbsp(&bytes);
+        Self {
+            header: NaluHeader {
+                forbidden_zero_bit: false,
+                nal_ref_idc: 3,
+                nal_unit_type: crate::nalu_type::NALUType::PPS,
+            },
+            body: Bytes::from_owner(bytes),
+        }
     }
 }

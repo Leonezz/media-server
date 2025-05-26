@@ -72,6 +72,41 @@ impl FixedPacket for FUHeader {
     }
 }
 
+/// FU indicator
+/// +---------------+
+/// |0|1|2|3|4|5|6|7|
+/// +-+-+-+-+-+-+-+-+
+/// |F|NRI|   Type  |
+/// +---------------+
+#[derive(Debug, Clone, Copy)]
+pub struct FuIndicator {
+    pub forbidden_zero_bit: bool,
+    pub nal_ref_idc: u8,                      // 2 bits
+    pub fu_type: FragmentationUnitPacketType, // 5 bits
+}
+
+impl TryFrom<u8> for FuIndicator {
+    type Error = RtpH264Error;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        let forbidden_zero_bit = ((value >> 7) & 0b1) == 0b1;
+        assert!(!forbidden_zero_bit);
+        let nal_ref_idc = (value >> 5) & 0b11;
+        let fu_type = value & 0b1_1111;
+        Ok(Self {
+            forbidden_zero_bit,
+            nal_ref_idc,
+            fu_type: fu_type.try_into()?,
+        })
+    }
+}
+
+impl From<FuIndicator> for u8 {
+    fn from(value: FuIndicator) -> Self {
+        assert!(!value.forbidden_zero_bit);
+        (value.nal_ref_idc << 5) | (Into::<u8>::into(value.fu_type) & 0b1_1111)
+    }
+}
+
 // FU-A
 ///  0                   1                   2                   3
 ///  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
@@ -84,16 +119,16 @@ impl FixedPacket for FUHeader {
 /// |                               +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 /// |                               :...OPTIONAL RTP padding        |
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FUAPacket {
-    pub indicator: u8,
+    pub indicator: FuIndicator,
     pub fu_header: FUHeader,
     pub payload: Bytes,
 }
 
-impl<R: io::Read> ReadRemainingFrom<u8, R> for FUAPacket {
+impl<R: io::Read> ReadRemainingFrom<FuIndicator, R> for FUAPacket {
     type Error = RtpH264Error;
-    fn read_remaining_from(indicator: u8, reader: &mut R) -> Result<Self, Self::Error> {
+    fn read_remaining_from(indicator: FuIndicator, reader: &mut R) -> Result<Self, Self::Error> {
         let fu_header: FUHeader = reader.read_u8()?.into();
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes)?;
@@ -108,7 +143,7 @@ impl<R: io::Read> ReadRemainingFrom<u8, R> for FUAPacket {
 impl<W: io::Write> WriteTo<W> for FUAPacket {
     type Error = RtpH264Error;
     fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
-        writer.write_u8(self.indicator)?;
+        writer.write_u8(self.indicator.into())?;
         writer.write_u8(self.fu_header.into())?;
         writer.write_all(&self.payload)?;
         Ok(())
@@ -137,15 +172,15 @@ impl DynamicSizedPacket for FUAPacket {
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 #[derive(Debug)]
 pub struct FUBPacket {
-    pub indicator: u8,
+    pub indicator: FuIndicator,
     pub fu_header: FUHeader,
     pub decode_order_number: u16,
     pub payload: Bytes,
 }
 
-impl<R: io::Read> ReadRemainingFrom<u8, R> for FUBPacket {
+impl<R: io::Read> ReadRemainingFrom<FuIndicator, R> for FUBPacket {
     type Error = RtpH264Error;
-    fn read_remaining_from(indicator: u8, reader: &mut R) -> Result<Self, Self::Error> {
+    fn read_remaining_from(indicator: FuIndicator, reader: &mut R) -> Result<Self, Self::Error> {
         let fu_header: FUHeader = reader.read_u8()?.into();
         let decode_order_number = reader.read_u16::<BigEndian>()?;
         let mut bytes = Vec::new();
@@ -162,7 +197,7 @@ impl<R: io::Read> ReadRemainingFrom<u8, R> for FUBPacket {
 impl<W: io::Write> WriteTo<W> for FUBPacket {
     type Error = RtpH264Error;
     fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
-        writer.write_u8(self.indicator)?;
+        writer.write_u8(self.indicator.into())?;
         writer.write_u8(self.fu_header.into())?;
         writer.write_u16::<BigEndian>(self.decode_order_number)?;
         writer.write_all(&self.payload)?;
@@ -185,21 +220,16 @@ pub enum FragmentedUnit {
     FuB(FUBPacket),
 }
 
-impl<R: io::Read> ReadRemainingFrom<FragmentationUnitPacketType, R> for FragmentedUnit {
+impl<R: io::Read> ReadRemainingFrom<FuIndicator, R> for FragmentedUnit {
     type Error = RtpH264Error;
-    fn read_remaining_from(
-        header: FragmentationUnitPacketType,
-        reader: &mut R,
-    ) -> Result<Self, Self::Error> {
-        match header {
-            FragmentationUnitPacketType::FUA => Ok(Self::FuA(FUAPacket::read_remaining_from(
-                header.into(),
-                reader,
-            )?)),
-            FragmentationUnitPacketType::FUB => Ok(Self::FuB(FUBPacket::read_remaining_from(
-                header.into(),
-                reader,
-            )?)),
+    fn read_remaining_from(header: FuIndicator, reader: &mut R) -> Result<Self, Self::Error> {
+        match header.fu_type {
+            FragmentationUnitPacketType::FUA => {
+                Ok(Self::FuA(FUAPacket::read_remaining_from(header, reader)?))
+            }
+            FragmentationUnitPacketType::FUB => {
+                Ok(Self::FuB(FUBPacket::read_remaining_from(header, reader)?))
+            }
         }
     }
 }
