@@ -42,22 +42,22 @@ impl RtpMpeg4GenericPacketBuilder {
             mtu: mtu.unwrap_or(DEFAULT_MTU),
         }
     }
-    pub fn params(mut self, params: RtpMpeg4Fmtp) -> Self {
+    pub fn params(&mut self, params: RtpMpeg4Fmtp) -> &mut Self {
         self.params = params;
         self
     }
 
-    pub fn rtp_header(mut self, rtp_header: RtpHeader) -> Self {
+    pub fn rtp_header(&mut self, rtp_header: RtpHeader) -> &mut Self {
         self.rtp_header = rtp_header;
         self
     }
 
-    pub fn access_unit(mut self, access_unit: Bytes) -> Self {
+    pub fn access_unit(&mut self, access_unit: Bytes) -> &mut Self {
         self.access_units.push(access_unit);
         self
     }
 
-    pub fn mtu(mut self, mtu: u64) -> Self {
+    pub fn mtu(&mut self, mtu: u64) -> &mut Self {
         self.mtu = mtu;
         self
     }
@@ -81,7 +81,7 @@ impl RtpMpeg4GenericPacketBuilder {
         let mut reader = io::Cursor::new(au);
         let mut au_header_builder = AuHeader::builder();
 
-        au_header_builder = au_header_builder
+        au_header_builder
             .au_index(Some(*au_index))
             .cts_delta(None)
             .dts_delta(None)
@@ -105,7 +105,7 @@ impl RtpMpeg4GenericPacketBuilder {
                 reader.remaining(),
             );
 
-            au_header_builder = au_header_builder
+            au_header_builder
                 .au_size(Some(frag_au_size as u64))
                 .rap_flag(Some(result.is_empty()))
                 .au_index(if result.is_empty() {

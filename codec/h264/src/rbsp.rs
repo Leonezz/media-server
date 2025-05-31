@@ -2,7 +2,6 @@ use std::io;
 
 use bitstream_io::BitRead;
 use codec_bitstream::reader::BitstreamReader;
-use tokio_util::bytes::BytesMut;
 
 use crate::errors::H264CodecError;
 
@@ -31,31 +30,54 @@ impl<'a> RbspReadExt for BitstreamReader<'a> {
     }
 }
 
-/// for every 0 0 1 in rbsp, it should be transformed to 0 0 3 1
+/// for every 0 0 in rbsp, it should be transformed to 0 0 3
 pub fn count_rbsp_bytes(value: &[u8]) -> usize {
     if value.len() < 3 {
         return value.len();
     }
-    let mut extra = 0;
+    let mut extra: usize = 0;
     for i in 2..value.len() {
-        if value[i - 2..=i] == [0, 0, 1] {
+        if value[i - 2..i] == [0, 0] && value[i] < 4 {
             extra += 1;
         }
     }
-    extra + value.len() + 1 // 1 for trailing bits
+    extra.checked_add(value.len()).unwrap()
 }
 
-pub fn raw_bytes_to_rbsp(value: &[u8]) -> Vec<u8> {
+pub fn rbsp_to_sodb(value: &[u8]) -> Vec<u8> {
     if value.len() < 3 {
         return Vec::from(value);
     }
     let mut result = Vec::with_capacity(value.len());
     result.extend_from_slice(&value[0..2]);
     for i in 2..value.len() {
-        if value[i - 2..=i] == [0, 0, 1] {
+        if value[i] < 4 && value[i - 2..i] == [0, 0] {
             result.push(0x03);
         }
         result.push(value[i]);
     }
     result
+}
+
+pub fn need_escape(value: &[u8]) -> bool {
+    value.windows(3).any(|v| v[2] < 4 && v[0..2] == [0, 0])
+}
+
+pub fn rbsp_extract(rbsp: &[u8]) -> Vec<u8> {
+    if rbsp.len() < 4 {
+        return Vec::from(rbsp);
+    }
+    let mut result = Vec::with_capacity(rbsp.len());
+    result.extend_from_slice(&rbsp[0..3]);
+    for i in 3..rbsp.len() {
+        if rbsp[i - 3..i] == [0, 0, 3] && rbsp[i] < 4 {
+            result.pop();
+        }
+        result.push(rbsp[i]);
+    }
+    result
+}
+
+pub fn need_extract(rbsp: &[u8]) -> bool {
+    rbsp.windows(4).any(|v| v[3] < 4 && v[0..3] == [0, 0, 3])
 }

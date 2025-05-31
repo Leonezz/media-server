@@ -3,7 +3,7 @@ use crate::errors::H264CodecError;
 /// @see: Recommendation  ITU-T H.264 (V15) (08/2024)   – Coding of moving video
 /// Table 7-1 – NAL unit type codes, syntax element categories, and NAL unit type classes
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NALUType {
     NonIDRSlice = 1,
     DataPartitionASlice = 2,

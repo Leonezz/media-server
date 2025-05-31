@@ -15,37 +15,37 @@ impl AuHeaderBuilder {
         Default::default()
     }
 
-    pub fn au_size(mut self, size: Option<u64>) -> Self {
+    pub fn au_size(&mut self, size: Option<u64>) -> &mut Self {
         self.header.au_size = size;
         self
     }
 
-    pub fn au_index(mut self, index: Option<u64>) -> Self {
+    pub fn au_index(&mut self, index: Option<u64>) -> &mut Self {
         self.header.au_index = index;
         self
     }
 
-    pub fn au_index_delta(mut self, index_delta: Option<u64>) -> Self {
+    pub fn au_index_delta(&mut self, index_delta: Option<u64>) -> &mut Self {
         self.header.au_index_delta = index_delta;
         self
     }
 
-    pub fn cts_delta(mut self, cts_delta: Option<u64>) -> Self {
+    pub fn cts_delta(&mut self, cts_delta: Option<u64>) -> &mut Self {
         self.header.cts_delta = cts_delta;
         self
     }
 
-    pub fn dts_delta(mut self, dts_delta: Option<u64>) -> Self {
+    pub fn dts_delta(&mut self, dts_delta: Option<u64>) -> &mut Self {
         self.header.dts_delta = dts_delta;
         self
     }
 
-    pub fn rap_flag(mut self, rap_flag: Option<bool>) -> Self {
+    pub fn rap_flag(&mut self, rap_flag: Option<bool>) -> &mut Self {
         self.header.rap_flag = rap_flag;
         self
     }
 
-    pub fn stream_state(mut self, stream_state: Option<u64>) -> Self {
+    pub fn stream_state(&mut self, stream_state: Option<u64>) -> &mut Self {
         self.header.stream_state = stream_state;
         self
     }

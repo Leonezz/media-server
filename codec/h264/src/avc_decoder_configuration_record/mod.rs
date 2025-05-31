@@ -1,8 +1,7 @@
 use num::ToPrimitive;
-use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
+use utils::traits::dynamic_sized_packet::{DynamicSizedBitsPacket, DynamicSizedPacket};
 
 use crate::{
-    nalu::NalUnit,
     pps::Pps,
     sps::{Sps, chroma_format_idc::ChromaFormatIdc},
     sps_ext::SpsExt,
@@ -14,7 +13,7 @@ pub mod writer;
 #[derive(Debug, Clone)]
 pub struct ParameterSetInAvcDecoderConfigurationRecord<T> {
     pub sequence_parameter_set_length: u16, // u(16)
-    pub nalu: NalUnit,
+    // pub nalu: NalUnit,
     pub parameter_set: T,
 }
 
@@ -78,12 +77,26 @@ impl DynamicSizedPacket for AvcDecoderConfigurationRecord {
         self.sequence_parameter_sets
             .iter()
             .fold(0, 
-                |prev, item| prev + 2 + item.sequence_parameter_set_length.to_usize().unwrap()) +
+                |prev, item|
+                prev +
+                2 +
+                item.parameter_set
+                    .get_packet_bits_count()
+                    .checked_add(8)
+                    .and_then(|v| v.checked_div(8))
+                    .and_then(|v| v.to_usize()).unwrap()) +
         1 + // num_of_picture_parameter_sets
         self.picture_parameter_sets
             .iter()
             .fold(0,
-                 |prev, item| prev + 2 + item.sequence_parameter_set_length.to_usize().unwrap()) +
+                 |prev, item|
+                 prev +
+                 2 +
+                 item.parameter_set
+                    .get_packet_bits_count()
+                    .checked_add(8)
+                    .and_then(|v| v.checked_div(8))
+                    .and_then(|v| v.to_usize()).unwrap()) +
         self.sps_ext_related.as_ref().map_or(0, |v| v.get_packet_bytes_count())
     }
 }

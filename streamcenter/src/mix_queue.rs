@@ -66,6 +66,8 @@ impl GenericSequencer for MixQueue {
         if self.video.len() + self.audio.len() < self.initial_buffering_frame_count {
             return vec![];
         }
+        // after initial buffering
+        self.initial_buffering_frame_count = 0;
 
         let (mut min_video_timestamp, mut min_audio_timestamp) = (u64::MAX, u64::MAX);
         for frame in &self.video {

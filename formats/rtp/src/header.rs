@@ -237,12 +237,12 @@ pub struct RtpHeaderBuilder {
 }
 
 impl RtpHeaderBuilder {
-    pub fn version(mut self, version: u8) -> Self {
+    pub fn version(&mut self, version: u8) -> &mut Self {
         self.header.version = version;
         self
     }
 
-    pub fn csrc(mut self, csrc: u32) -> RtpResult<Self> {
+    pub fn csrc(&mut self, csrc: u32) -> RtpResult<&mut Self> {
         if self.header.csrc_list.len() > 30 {
             return Err(RtpError::TooManyCSRC);
         }
@@ -251,41 +251,41 @@ impl RtpHeaderBuilder {
         Ok(self)
     }
 
-    pub fn marker(mut self, marker: bool) -> Self {
+    pub fn marker(&mut self, marker: bool) -> &mut Self {
         self.header.marker = marker;
         self
     }
 
-    pub fn payload_type(mut self, payload_type: u8) -> Self {
+    pub fn payload_type(&mut self, payload_type: u8) -> &mut Self {
         self.header.payload_type = payload_type;
         self
     }
 
-    pub fn sequence_number(mut self, number: u16) -> Self {
+    pub fn sequence_number(&mut self, number: u16) -> &mut Self {
         self.header.sequence_number = number;
         self
     }
 
-    pub fn timestamp(mut self, timestamp: u32) -> Self {
+    pub fn timestamp(&mut self, timestamp: u32) -> &mut Self {
         self.header.timestamp = timestamp;
         self
     }
 
-    pub fn timestamp_now(self) -> Self {
+    pub fn timestamp_now(&mut self) -> &mut Self {
         self.timestamp(get_timestamp_ms().unwrap_or(0) as u32)
     }
 
-    pub fn ssrc(mut self, ssrc: u32) -> Self {
+    pub fn ssrc(&mut self, ssrc: u32) -> &mut Self {
         self.header.ssrc = ssrc;
         self
     }
 
-    pub fn extension(mut self, extension: RtpHeaderExtension) -> Self {
+    pub fn extension(&mut self, extension: RtpHeaderExtension) -> &mut Self {
         self.header.header_extension = Some(extension);
         self
     }
 
-    pub fn build(self) -> RtpHeader {
-        self.header
+    pub fn build(&self) -> RtpHeader {
+        self.header.clone()
     }
 }

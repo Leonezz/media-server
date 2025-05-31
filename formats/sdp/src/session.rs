@@ -113,21 +113,21 @@ impl fmt::Display for SDPOrigin {
 
 /// 5.3. Session Name ("s=")
 /// s=<session name>
-type SDPSessionName = String;
+pub type SDPSessionName = String;
 
 /// 5.4. Session Information ("i=")
 /// i=<session information>
-type SDPSessionInformation = String;
+pub type SDPSessionInformation = String;
 
 /// 5.5. URI ("u=")
 /// u=<uri>
-type SDPUri = Url;
+pub type SDPUri = Url;
 
 /// 5.6. Email Address and Phone Number ("e=" and "p=")
 /// e=<email-address>
 /// p=<phone-number>
-type SDPEmail = String;
-type SDPPhoneNumber = String;
+pub type SDPEmail = String;
+pub type SDPPhoneNumber = String;
 
 /// 5.7. Connection Information ("c=")
 /// c=<nettype> <addrtype> <connection-address>
@@ -483,7 +483,7 @@ impl fmt::Display for SDPMediaDescription {
 }
 
 #[derive(Debug, Default)]
-pub struct SessionDescription {
+pub struct Sdp {
     pub version: SDPVersion,
     pub origin: SDPOrigin,
     pub session_name: SDPSessionName,
@@ -500,13 +500,13 @@ pub struct SessionDescription {
     pub media_description: Vec<SDPMediaDescription>,
 }
 
-impl SessionDescription {
+impl Sdp {
     pub fn reader() -> SessionDescriptionReader {
         SessionDescriptionReader::new()
     }
 }
 
-impl<R: io::BufRead> ReadFrom<R> for SessionDescription {
+impl<R: io::BufRead> ReadFrom<R> for Sdp {
     type Error = SDPError;
     fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let mut text = String::new();
@@ -515,7 +515,7 @@ impl<R: io::BufRead> ReadFrom<R> for SessionDescription {
     }
 }
 
-impl fmt::Display for SessionDescription {
+impl fmt::Display for Sdp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "v={}{}", self.version, CRLF)?;
         write!(f, "{}", self.origin)?;

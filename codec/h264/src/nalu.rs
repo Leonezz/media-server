@@ -3,7 +3,7 @@ use std::fmt;
 use tokio_util::bytes::Bytes;
 use utils::traits::{dynamic_sized_packet::DynamicSizedPacket, fixed_packet::FixedPacket};
 
-use crate::nalu_header::NaluHeader;
+use crate::{nalu_header::NaluHeader, rbsp::count_rbsp_bytes};
 
 #[derive(Clone)]
 pub struct NalUnit {
@@ -25,6 +25,6 @@ impl fmt::Debug for NalUnit {
 
 impl DynamicSizedPacket for NalUnit {
     fn get_packet_bytes_count(&self) -> usize {
-        NaluHeader::bytes_count() + self.body.len()
+        NaluHeader::bytes_count() + count_rbsp_bytes(&self.body)
     }
 }

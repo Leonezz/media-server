@@ -1,6 +1,11 @@
 use std::io;
 
-use crate::{errors::H264CodecError, nalu::NalUnit, nalu_header::NaluHeader};
+use crate::{
+    errors::H264CodecError,
+    nalu::NalUnit,
+    nalu_header::NaluHeader,
+    rbsp::{need_extract, rbsp_extract},
+};
 use byteorder::ReadBytesExt;
 use tokio_util::bytes::Bytes;
 use utils::traits::reader::{ReadExactFrom, ReadFrom, ReadRemainingFrom};
@@ -11,9 +16,12 @@ impl<R: io::Read> ReadRemainingFrom<NaluHeader, R> for NalUnit {
     fn read_remaining_from(header: NaluHeader, reader: &mut R) -> Result<Self, Self::Error> {
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes)?;
+        if need_extract(&bytes) {
+            bytes = rbsp_extract(&bytes);
+        }
         Ok(Self {
             header,
-            body: Bytes::from(bytes),
+            body: Bytes::from_owner(bytes),
         })
     }
 }
@@ -28,9 +36,12 @@ impl<R: io::Read> ReadRemainingFrom<(NaluHeader, usize), R> for NalUnit {
         let (header, body_size) = header;
         let mut bytes = vec![0; body_size];
         reader.read_exact(&mut bytes)?;
+        if need_extract(&bytes) {
+            bytes = rbsp_extract(&bytes);
+        }
         Ok(Self {
             header,
-            body: Bytes::from(bytes),
+            body: Bytes::from_owner(bytes),
         })
     }
 }
@@ -44,9 +55,12 @@ impl<R: io::Read> ReadFrom<R> for NalUnit {
         let header: NaluHeader = first_byte.try_into()?;
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes)?;
+        if need_extract(&bytes) {
+            bytes = rbsp_extract(&bytes);
+        }
         Ok(Self {
             header,
-            body: Bytes::from(bytes),
+            body: Bytes::from_owner(bytes),
         })
     }
 }

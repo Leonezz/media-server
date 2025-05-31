@@ -132,12 +132,12 @@ impl TryFrom<&RtpH264Fmtp> for AvcDecoderConfigurationRecord {
             num_of_sequence_parameter_sets: sps.len().to_u8().unwrap(),
             sequence_parameter_sets: sps.into_iter().map(| p| {
                 let nalu: NalUnit = p.into();
-                ParameterSetInAvcDecoderConfigurationRecord { sequence_parameter_set_length: nalu.get_packet_bytes_count().to_u16().unwrap(), nalu, parameter_set: p.clone() }
+                ParameterSetInAvcDecoderConfigurationRecord { sequence_parameter_set_length: nalu.get_packet_bytes_count().to_u16().unwrap(), parameter_set: p.clone() }
             }).collect(),
             num_of_picture_parameter_sets: pps.len().to_u8().unwrap(),
             picture_parameter_sets: pps.into_iter().map(|p| {
                 let nalu: NalUnit = p.into();
-                ParameterSetInAvcDecoderConfigurationRecord { sequence_parameter_set_length: nalu.get_packet_bytes_count().to_u16().unwrap(), nalu, parameter_set: p.clone() }
+                ParameterSetInAvcDecoderConfigurationRecord { sequence_parameter_set_length: nalu.get_packet_bytes_count().to_u16().unwrap(), parameter_set: p.clone() }
             }).collect(),
             sps_ext_related: None,
         })
@@ -445,7 +445,7 @@ impl FromStr for RtpH264Fmtp {
                         let nalu = NalUnit::read_from(&mut bytes.as_slice()).map_err(|err| H264SDPError::InvalidSpropLevelParameterSets(
                             format!("sprop-parameter-sets value parse as nalu failed: {}, err={}", item, err)
                         ))?;
-                        let mut reader = BitstreamReader::new(&nalu.body[..]);
+                        let mut reader = BitstreamReader::new(&nalu.body);
                         match nalu.header.nal_unit_type {
                             NALUType::SPS => {
                                 result.sprop_parameter_sets.as_mut().unwrap().sps = Some(Sps::read_from(&mut reader).map_err(|err| {

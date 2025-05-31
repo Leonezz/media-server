@@ -1,3 +1,4 @@
+use bitstream_io::BitRead;
 use byteorder::{BigEndian, ReadBytesExt};
 use codec_bitstream::reader::BitstreamReader;
 use num::ToPrimitive;
@@ -7,6 +8,7 @@ use utils::traits::reader::{BitwiseReadFrom, BitwiseReadReaminingFrom, ReadFrom}
 use crate::{
     errors::H264CodecError,
     nalu::NalUnit,
+    nalu_type::NALUType,
     pps::Pps,
     sps::{Sps, chroma_format_idc::ChromaFormatIdc},
     sps_ext::SpsExt,
@@ -41,7 +43,7 @@ impl<R: io::Read> ReadFrom<R> for SpsExtRelated {
             let sps_ext = SpsExt::read_from(&mut bit_reader)?;
             sequence_parameter_set_ext.push(ParameterSetInAvcDecoderConfigurationRecord {
                 sequence_parameter_set_length,
-                nalu,
+                // nalu,
                 parameter_set: sps_ext,
             });
         }
@@ -78,9 +80,11 @@ impl<R: io::Read> ReadFrom<R> for AvcDecoderConfigurationRecord {
             ));
         }
         let reserved_6_bits_1 = (byte >> 2) & 0b111111;
+        assert_eq!(reserved_6_bits_1, 0b111111);
         let byte2 = reader.read_u8()?;
         let num_of_sequence_parameter_sets = byte2 & 0b11111;
         let reserved_3_bits_1 = (byte2 >> 5) & 0b111;
+        assert_eq!(reserved_3_bits_1, 0b111);
         let mut sequence_parameter_sets =
             Vec::with_capacity(num_of_sequence_parameter_sets.to_usize().unwrap());
         for _ in 0..num_of_sequence_parameter_sets {
@@ -88,12 +92,14 @@ impl<R: io::Read> ReadFrom<R> for AvcDecoderConfigurationRecord {
             let mut bytes = vec![0; sequence_parameter_set_length.to_usize().unwrap()];
             reader.read_exact(&mut bytes)?;
             let nalu = NalUnit::read_from(&mut bytes.as_slice())?;
+            assert_eq!(nalu.header.nal_unit_type, NALUType::SPS);
             let mut bit_reader =
                 bitstream_io::BitReader::endian(&nalu.body[..], bitstream_io::BigEndian);
             let sps = Sps::read_from(&mut bit_reader)?;
+            assert!(bit_reader.read_bit()?);
             sequence_parameter_sets.push(ParameterSetInAvcDecoderConfigurationRecord {
                 sequence_parameter_set_length,
-                nalu,
+                // nalu,
                 parameter_set: sps,
             });
         }
@@ -105,11 +111,23 @@ impl<R: io::Read> ReadFrom<R> for AvcDecoderConfigurationRecord {
             let mut bytes = vec![0; picture_parameter_set_length.to_usize().unwrap()];
             reader.read_exact(&mut bytes)?;
             let nalu = NalUnit::read_from(&mut bytes.as_slice())?;
+            assert_eq!(nalu.header.nal_unit_type, NALUType::PPS);
             let mut bit_reader = BitstreamReader::new(&nalu.body[..]);
-            let pps = Pps::read_remaining_from(ChromaFormatIdc::Chroma420, &mut bit_reader)?; // TODO
+            let pps = Pps::read_remaining_from(
+                sequence_parameter_sets
+                    .first()
+                    .map_or(ChromaFormatIdc::Chroma420, |v| {
+                        v.parameter_set
+                            .profile_idc_related
+                            .as_ref()
+                            .map_or(ChromaFormatIdc::Chroma420, |v| v.chroma_format_idc)
+                    }),
+                &mut bit_reader,
+            )?; // TODO
+            assert!(bit_reader.read_bit()?);
             picture_parameter_sets.push(ParameterSetInAvcDecoderConfigurationRecord {
                 sequence_parameter_set_length: picture_parameter_set_length,
-                nalu,
+                // nalu,
                 parameter_set: pps,
             });
         }

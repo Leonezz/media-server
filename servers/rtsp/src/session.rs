@@ -14,7 +14,7 @@ use rtsp_formats::{
 };
 use sdp_formats::{
     attributes::SDPAttribute,
-    session::{SDPMediaDescription, SDPMediaType, SessionDescription},
+    session::{SDPMediaDescription, SDPMediaType, Sdp},
 };
 use server_utils::{
     runtime_handle::{PublishHandle, SessionRuntime},
@@ -54,7 +54,7 @@ pub struct RtspSession {
     stream_center_event_sender: UnboundedSender<stream_center::events::StreamCenterEvent>,
     io: UnifiyStreamed<RtspMessageFramed>,
     peer_addr: SocketAddr,
-    sdp: Option<SessionDescription>,
+    sdp: Option<Sdp>,
     range: Option<String>,
     session_id: Option<Uuid>,
     timeout_ms: u64,
@@ -165,6 +165,16 @@ impl RtspSession {
                                 self.send_response(
                                     &request,
                                     rtsp_server_simple_response(RtspStatus::NotFound),
+                                )
+                                .await?
+                            }
+                            Err(RtspServerError::StreamCenterError(
+                                StreamCenterError::DuplicateStream(err),
+                            )) => {
+                                tracing::error!("stream already published: {:?}", err);
+                                self.send_response(
+                                    &request,
+                                    rtsp_server_simple_response(RtspStatus::BadRequest),
                                 )
                                 .await?
                             }
@@ -616,7 +626,7 @@ impl RtspRequestHandler for RtspSession {
             ));
         }
 
-        let body = request.body().map(|v| v.parse::<SessionDescription>());
+        let body = request.body().map(|v| v.parse::<Sdp>());
 
         if let Some(Ok(sdp)) = body {
             tracing::debug!("received SDP: {:?}", &sdp);

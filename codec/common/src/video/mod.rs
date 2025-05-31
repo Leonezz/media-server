@@ -1,7 +1,9 @@
 pub mod reader;
 pub mod writer;
 
-use codec_h264::avc_decoder_configuration_record::AvcDecoderConfigurationRecord;
+use codec_h264::{
+    avc_decoder_configuration_record::AvcDecoderConfigurationRecord, nalu_type::NALUType,
+};
 use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
 
 use crate::FrameType;
@@ -106,5 +108,13 @@ impl VideoFrameUnit {
         }
         .checked_add(self.units_cnt().checked_mul(delimiter_size).unwrap())
         .unwrap()
+    }
+
+    pub fn has_idr(&self) -> bool {
+        match self {
+            Self::H264 { nal_units } => nal_units
+                .iter()
+                .any(|v| matches!(v.header.nal_unit_type, NALUType::IDRSlice)),
+        }
     }
 }

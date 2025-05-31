@@ -13,7 +13,7 @@ use crate::{
     errors::{SDPError, SDPResult},
     session::{
         SDPBandWidthInformation, SDPConnectionInformation, SDPEncryptionKeys, SDPMediaDescription,
-        SDPRepeatTime, SDPTimeInformation, SDPTimeZoneAdjustment, SessionDescription,
+        SDPRepeatTime, SDPTimeInformation, SDPTimeZoneAdjustment, Sdp,
     },
 };
 
@@ -238,7 +238,7 @@ enum SessionDescriptionReadState {
     Finished,
 }
 pub struct SessionDescriptionReader {
-    session_description: SessionDescription,
+    session_description: Sdp,
     read_state: SessionDescriptionReadState,
 }
 impl SessionDescriptionReader {
@@ -248,7 +248,7 @@ impl SessionDescriptionReader {
             read_state: Default::default(),
         }
     }
-    pub fn read_from(mut self, text: &str) -> SDPResult<SessionDescription> {
+    pub fn read_from(mut self, text: &str) -> SDPResult<Sdp> {
         if text.is_empty() {
             return Err(SDPError::InvalidPayload(format!(
                 "payload is empty: {}",
@@ -1010,7 +1010,7 @@ impl Default for SessionDescriptionReader {
     }
 }
 
-impl FromStr for SessionDescription {
+impl FromStr for Sdp {
     type Err = SDPError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::reader().read_from(s)

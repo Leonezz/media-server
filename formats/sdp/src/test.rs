@@ -10,7 +10,7 @@ mod tests {
         session::{
             SDPAddress, SDPBandWidthInformation, SDPConnectionInformation, SDPEncryptionKeys,
             SDPMediaDescription, SDPMediaLine, SDPOrigin, SDPRangedPort, SDPRepeatTime,
-            SDPTimeInformation, SDPTimeZoneAdjustment, SessionDescription,
+            SDPTimeInformation, SDPTimeZoneAdjustment, Sdp,
         },
     };
 
@@ -50,7 +50,7 @@ mod tests {
 
     #[test]
     fn test_marshal() -> SDPResult<()> {
-        let sd = SessionDescription {
+        let sd = Sdp {
             version: 0,
             origin: SDPOrigin {
                 user_name: "jdoe".to_string(),

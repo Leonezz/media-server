@@ -37,10 +37,20 @@ impl<'a, W: io::Write> WriteTo<W> for VideoFrameUnitAvccWriter<'a> {
         match frame_unit {
             VideoFrameUnit::H264 { nal_units } => nal_units.iter().try_for_each(|unit| {
                 let nalu_size = unit.get_packet_bytes_count();
+                assert!(nalu_size > 0);
                 match nalu_size_length {
-                    1 => writer.write_u8(nalu_size.to_u8().unwrap())?,
-                    2 => writer.write_u16::<BigEndian>(nalu_size.to_u16().unwrap())?,
-                    4 => writer.write_u32::<BigEndian>(nalu_size.to_u32().unwrap())?,
+                    1 => {
+                        assert!(nalu_size <= u8::MAX.to_usize().unwrap());
+                        writer.write_u8(nalu_size.to_u8().unwrap())?
+                    }
+                    2 => {
+                        assert!(nalu_size <= u16::MAX.to_usize().unwrap());
+                        writer.write_u16::<BigEndian>(nalu_size.to_u16().unwrap())?
+                    }
+                    4 => {
+                        assert!(nalu_size <= u32::MAX.to_usize().unwrap());
+                        writer.write_u32::<BigEndian>(nalu_size.to_u32().unwrap())?
+                    }
                     _ => unreachable!(),
                 }
                 unit.write_to(writer)?;

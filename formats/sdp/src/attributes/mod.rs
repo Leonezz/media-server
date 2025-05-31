@@ -56,6 +56,16 @@ pub enum SDPAttribute {
     Fmtp(FormatParameters),
 }
 
+#[derive(Debug, Clone)]
+pub enum SessionAttribute {
+
+}
+
+#[derive(Debug, Clone)]
+pub enum MediaAttribute {
+    
+}
+
 impl FromStr for SDPAttribute {
     type Err = SDPError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {

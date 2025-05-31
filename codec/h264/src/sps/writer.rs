@@ -96,10 +96,10 @@ impl<W: BitWrite> BitwiseWriteTo<W> for Sps {
         write_ue(writer, self.pic_width_in_mbs_minus1)?;
         write_ue(writer, self.pic_height_in_map_units_minus1)?;
         if let Some(mb_adaptive_frame_field_flag) = self.mb_adaptive_frame_field_flag {
-            writer.write_bit(true)?; // frame_mbs_only_flag
+            writer.write_bit(false)?; // frame_mbs_only_flag
             writer.write_bit(mb_adaptive_frame_field_flag)?;
         } else {
-            writer.write_bit(false)?; // frame_mbs_only_flag
+            writer.write_bit(true)?; // frame_mbs_only_flag
         }
         writer.write_bit(self.direct_8x8_inference_flag)?;
         if let Some(frame_cropping) = &self.frame_cropping {

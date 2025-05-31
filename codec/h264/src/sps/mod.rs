@@ -1,13 +1,13 @@
 use bitstream_io::BitWrite;
 use chroma_format_idc::ChromaFormatIdc;
-use tokio_util::bytes::{BufMut, Bytes, BytesMut};
+use tokio_util::bytes::Bytes;
 use utils::traits::{dynamic_sized_packet::DynamicSizedBitsPacket, writer::BitwiseWriteTo};
 
 use crate::{
     exp_golomb::{find_se_bits_count, find_ue_bits_count},
     nalu::NalUnit,
     nalu_header::NaluHeader,
-    rbsp::raw_bytes_to_rbsp,
+    rbsp::rbsp_to_sodb,
     scaling_list::SeqScalingMatrix,
     vui::VuiParameters,
 };
@@ -140,7 +140,7 @@ pub struct Sps {
     pub direct_8x8_inference_flag: bool,   // u(1)
     #[allow(unused)]
     frame_cropping_flag: bool,  // u(1)
-    /// if frame_cropping_flag {
+    /// if !frame_cropping_flag {
     pub frame_cropping: Option<FrameCropping>,
     /// }
     #[allow(unused)]
@@ -232,18 +232,18 @@ impl DynamicSizedBitsPacket for Sps {
 
 impl From<&Sps> for NalUnit {
     fn from(value: &Sps) -> Self {
-        let mut bytes: BytesMut = BytesMut::zeroed(
+        let mut bytes = Vec::with_capacity(
             value
                 .get_packet_bits_count()
-                .checked_add(4)
+                .checked_add(8)
                 .and_then(|v| v.checked_div(8))
                 .unwrap(),
         );
-        let mut writer =
-            bitstream_io::BitWriter::endian(bytes.as_mut().writer(), bitstream_io::BigEndian);
+        let mut writer = bitstream_io::BitWriter::endian(&mut bytes, bitstream_io::BigEndian);
         value.write_to(writer.by_ref()).unwrap();
+        writer.write_bit(true).unwrap();
         writer.byte_align().unwrap();
-        let bytes = raw_bytes_to_rbsp(&bytes);
+        let bytes = rbsp_to_sodb(&bytes);
         Self {
             header: NaluHeader {
                 forbidden_zero_bit: false,

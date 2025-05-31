@@ -5,6 +5,7 @@ mod test {
 
     use crate::{
         nalu::NalUnit,
+        rbsp::rbsp_extract,
         sps::{FrameCropping, ProfileIdcRelated, Sps},
     };
 
@@ -52,10 +53,10 @@ mod test {
             vui_parameters: None,
         };
         let nalu: NalUnit = (&sps).into();
-        let sps_bytes = nalu.body;
-        let mut reader =
-            bitstream_io::BitReader::endian(sps_bytes.as_ref(), bitstream_io::BigEndian);
+        let bytes = rbsp_extract(&nalu.body[..]);
+        let mut reader = bitstream_io::BitReader::endian(&bytes[..], bitstream_io::BigEndian);
         let sps_parsed = Sps::read_from(reader.by_ref()).unwrap();
+        assert!(reader.read_bit().unwrap());
         assert_eq!(sps_parsed.seq_parameter_set_id, 0);
     }
 }

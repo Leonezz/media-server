@@ -156,7 +156,7 @@ impl<R: BitRead> BitwiseReadFrom<R> for Sps {
         let pic_width_in_mbs_minus1 = read_ue(reader)?;
         let pic_height_in_map_units_minus1 = read_ue(reader)?;
         let frame_mbs_only_flag = reader.read_bit()?;
-        let mb_adaptive_frame_field_flag = if frame_mbs_only_flag {
+        let mb_adaptive_frame_field_flag = if !frame_mbs_only_flag {
             Some(reader.read_bit()?)
         } else {
             None

@@ -12,6 +12,7 @@ use codec_common::{
 use num::ToPrimitive;
 use tokio::sync::{RwLock, mpsc};
 use tokio_util::bytes::Bytes;
+use tracing::trace_span;
 use utils::traits::buffer::GenericSequencer;
 use uuid::Uuid;
 
@@ -142,10 +143,10 @@ impl StreamSource {
             data_distributer,
             stream_dynamic_info,
             // data_consumer: rx,
-            gop_cache: GopQueue::new(6_0000, 3600),
+            gop_cache: GopQueue::new(6_0000, 8000),
             status: StreamStatus::NotStarted,
             signal_receiver,
-            mix_queue: MixQueue::new(100, 100, 10),
+            mix_queue: MixQueue::new(100, 100, 3),
         }
     }
 
@@ -167,16 +168,16 @@ impl StreamSource {
                 Ok(None) => {}
                 Ok(Some(frame)) => {
                     if (frame.is_video() || frame.is_audio()) && !frame.is_sequence_header() {
-                        let _ = self.mix_queue.enqueue(frame).inspect_err(|err| {
-                            tracing::error!("enqueue frame to mix queue failed: {:?}", err);
-                        });
+                        // let _ = self.mix_queue.enqueue(frame).inspect_err(|err| {
+                        //     tracing::error!("enqueue frame to mix queue failed: {:?}", err);
+                        // });
 
-                        for frame in self.mix_queue.try_dump() {
-                            if let Err(err) = self.on_media_frame(frame).await {
-                                tracing::error!("on media frame failed: {:?}", err);
-                                return Err(err);
-                            }
+                        // for frame in self.mix_queue.try_dump() {
+                        if let Err(err) = self.on_media_frame(frame).await {
+                            tracing::error!("on media frame failed: {:?}", err);
+                            return Err(err);
                         }
+                        // }
                     } else {
                         // sequence header or script frame
                         if let Err(err) = self.on_media_frame(frame).await {
@@ -301,6 +302,14 @@ impl StreamSource {
     where
         F: Fn(&mut PlayStat, &MediaFrame, bool),
     {
+        let span = trace_span!(
+            "new comsumer dump gop cache",
+            play_id = ?key,
+            gops_cnt=self.gop_cache.gops.len(),
+            video_cnt=self.gop_cache.get_video_frame_cnt(),
+            audio_cnt=self.gop_cache.get_audio_frame_cut()
+        );
+        let _enter = span.enter();
         // we trust the gop stats after 3 gops (but why?)
         if self.gop_cache.gops.len() > 2 {
             self.stream_dynamic_info.write().await.has_audio =
@@ -386,21 +395,18 @@ impl StreamSource {
             total_gop_cnt,
         );
 
-        tracing::info!(
-            "dump {} gops for play id: {}, total gop cnt: {}",
-            gop_consumer_cnt,
-            key,
-            self.gop_cache.get_gops_cnt()
-        );
+        tracing::info!("dump {} gops", gop_consumer_cnt);
 
         for index in (total_gop_cnt - gop_consumer_cnt)..total_gop_cnt {
             let gop = self.gop_cache.gops.get(index).expect("this cannot be none");
 
-            tracing::info!(
-                "dump gop index: {}, frame cnt: {}",
-                index,
-                gop.media_frames.len()
+            let span = tracing::trace_span!(
+                "dump gop",
+                gop_index = index,
+                frame_cnt = gop.media_frames.len()
             );
+            let _enter = span.enter();
+            tracing::info!("start dump");
             for frame in &gop.media_frames {
                 if handler.parsed_context.audio_only && frame.is_video() {
                     continue;
@@ -408,6 +414,7 @@ impl StreamSource {
                 if handler.parsed_context.video_only && frame.is_audio() {
                     continue;
                 }
+                tracing::trace!("dump frame: {:?}", frame);
                 let res = handler.data_sender.try_send(frame.clone());
                 if let Err(err) = &res {
                     tracing::error!(

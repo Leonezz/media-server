@@ -24,6 +24,7 @@ use flv_formats::tag::{
 };
 use num::ToPrimitive;
 use tokio_util::bytes::{Buf, Bytes, BytesMut};
+use tracing::debug_span;
 use utils::traits::reader::ReadFrom;
 use utils::traits::writer::{BitwiseWriteTo, WriteTo};
 use utils::traits::{
@@ -199,11 +200,15 @@ impl MediaFrame {
 
     pub fn to_flv_tag(&self, nalu_size_length: u8) -> StreamCenterResult<flv_formats::tag::FLVTag> {
         assert!(nalu_size_length == 1 || nalu_size_length == 2 || nalu_size_length == 4);
+        let span = debug_span!("media frame to flv tag", nalu_size_length);
+        let _enter = span.enter();
         match self {
             Self::Audio {
                 frame_info,
                 payload,
             } => {
+                let span = debug_span!("audio", ?frame_info);
+                let _enter = span.enter();
                 let legacy_header: LegacyAudioTagHeader = frame_info.try_into()?;
                 Ok(flv_formats::tag::FLVTag {
                     tag_header: flv_formats::tag::flv_tag_header::FLVTagHeader {
@@ -268,10 +273,12 @@ impl MediaFrame {
                 frame_info,
                 payload,
             } => {
+                let span = debug_span!("video", ?frame_info);
+                let _enter = span.enter();
                 let legacy_header: LegacyVideoTagHeader = frame_info.try_into()?;
                 let mut bytes =
-                    BytesMut::zeroed(payload.bytes_cnt(nalu_size_length.to_usize().unwrap()));
-                let mut writer = io::Cursor::new(bytes.as_mut());
+                    Vec::with_capacity(payload.bytes_cnt(nalu_size_length.to_usize().unwrap()));
+                let mut writer = io::Cursor::new(&mut bytes);
                 codec_common::video::writer::VideoFrameUnitAvccWriter(payload, nalu_size_length)
                     .write_to(&mut writer)
                     .map_err(|err| {
@@ -280,29 +287,30 @@ impl MediaFrame {
                             err
                         ))
                     })?;
+                let tag_header = flv_formats::tag::flv_tag_header::FLVTagHeader {
+                    tag_type: FLVTagType::Video,
+                    data_size: legacy_header
+                        .get_packet_bytes_count()
+                        .checked_add(bytes.len())
+                        .and_then(|v| v.to_u32())
+                        .unwrap(),
+                    timestamp: frame_info
+                        .timestamp_nano
+                        .checked_div(1_000_000)
+                        .and_then(|v| v.to_u32())
+                        .unwrap(),
+                    filter_enabled: false,
+                };
 
                 Ok(flv_formats::tag::FLVTag {
-                    tag_header: flv_formats::tag::flv_tag_header::FLVTagHeader {
-                        tag_type: FLVTagType::Video,
-                        data_size: legacy_header
-                            .get_packet_bytes_count()
-                            .checked_add(bytes.len())
-                            .and_then(|v| v.to_u32())
-                            .unwrap(),
-                        timestamp: frame_info
-                            .timestamp_nano
-                            .checked_div(1_000_000)
-                            .and_then(|v| v.to_u32())
-                            .unwrap(),
-                        filter_enabled: false,
-                    },
+                    tag_header,
                     body_with_filter: flv_formats::tag::flv_tag_body::FLVTagBodyWithFilter {
                         filter: None,
                         body: flv_formats::tag::flv_tag_body::FLVTagBody::Video {
                             header: flv_formats::tag::video_tag_header::VideoTagHeader::Legacy(
                                 legacy_header,
                             ),
-                            body: bytes.freeze(),
+                            body: Bytes::from_owner(bytes),
                         },
                     },
                 })
@@ -316,6 +324,8 @@ impl MediaFrame {
                     frame_type: FrameType::SequenceStart,
                     timestamp_nano: *timestamp_nano,
                 };
+                let span = debug_span!("video_config", ?frame_info);
+                let _enter = span.enter();
                 let legacy_header: LegacyVideoTagHeader = (&frame_info).try_into()?;
                 match config.as_ref() {
                     VideoConfig::H264 {
@@ -325,29 +335,31 @@ impl MediaFrame {
                         avc_decoder_configuration_record,
                     } => {
                         if let Some(record) = avc_decoder_configuration_record {
-                            let mut bytes = BytesMut::zeroed(record.get_packet_bytes_count());
-                            let mut writer = io::Cursor::new(bytes.as_mut());
+                            let mut bytes = Vec::with_capacity(record.get_packet_bytes_count());
+                            let mut writer = io::Cursor::new(&mut bytes);
                             record.write_to(&mut writer)?;
+                            let tag_header = flv_formats::tag::flv_tag_header::FLVTagHeader {
+                                tag_type: FLVTagType::Video,
+                                data_size: legacy_header
+                                    .get_packet_bytes_count()
+                                    .checked_add(bytes.len())
+                                    .and_then(|v| v.to_u32())
+                                    .unwrap(),
+                                timestamp: timestamp_nano
+                                    .checked_div(1_000_000)
+                                    .and_then(|v| v.to_u32())
+                                    .unwrap(),
+                                filter_enabled: false,
+                            };
+                            tracing::debug!("video sequence header tag header: {:?}", tag_header);
                             Ok(flv_formats::tag::FLVTag {
-                                tag_header: flv_formats::tag::flv_tag_header::FLVTagHeader {
-                                    tag_type: FLVTagType::Video,
-                                    data_size: legacy_header
-                                        .get_packet_bytes_count()
-                                        .checked_add(bytes.len())
-                                        .and_then(|v| v.to_u32())
-                                        .unwrap(),
-                                    timestamp: timestamp_nano
-                                        .checked_div(1_000_000)
-                                        .and_then(|v| v.to_u32())
-                                        .unwrap(),
-                                    filter_enabled: false,
-                                },
+                                tag_header,
                                 body_with_filter:
                                     flv_formats::tag::flv_tag_body::FLVTagBodyWithFilter {
                                         filter: None,
                                         body: flv_formats::tag::flv_tag_body::FLVTagBody::Video {
                                             header: flv_formats::tag::video_tag_header::VideoTagHeader::Legacy(legacy_header),
-                                            body: bytes.freeze(),
+                                            body: Bytes::from_owner(bytes),
                                         },
                                     },
                             })
@@ -368,20 +380,20 @@ impl MediaFrame {
                     timestamp_nano: *timestamp_nano,
                     sound_info: *sound_info,
                 };
+                let span = debug_span!("audio_config", ?frame_info);
+                let _enter = span.enter();
                 let legacy_header: LegacyAudioTagHeader = (&frame_info).try_into()?;
                 match config.as_ref() {
                     AudioConfig::AAC(config) => {
-                        let mut bytes = BytesMut::zeroed(
+                        let mut bytes = Vec::with_capacity(
                             config
                                 .get_packet_bits_count()
                                 .checked_add(4)
                                 .and_then(|v| v.checked_div(8))
                                 .unwrap(),
                         );
-                        let mut writer = bitstream_io::BitWriter::endian(
-                            bytes.as_mut(),
-                            bitstream_io::BigEndian,
-                        );
+                        let mut writer =
+                            bitstream_io::BitWriter::endian(&mut bytes, bitstream_io::BigEndian);
                         config.write_to(&mut writer)?;
                         writer.byte_align()?;
                         Ok(flv_formats::tag::FLVTag {
@@ -403,7 +415,7 @@ impl MediaFrame {
                                     filter: None,
                                     body: flv_formats::tag::flv_tag_body::FLVTagBody::Audio {
                                         header: flv_formats::tag::audio_tag_header::AudioTagHeader::Legacy(legacy_header),
-                                        body: bytes.freeze(),
+                                        body: Bytes::from_owner(bytes),
                                     },
                                 },
                         })
@@ -414,9 +426,23 @@ impl MediaFrame {
     }
 
     pub fn from_flv_tag(tag: FLVTag, nalu_size_length: u8) -> StreamCenterResult<Self> {
+        let span = tracing::debug_span!(
+            "flv tag to media frame",
+            packet_type=?tag.tag_header.tag_type,
+            data_size=tag.tag_header.data_size,
+            timestamp=tag.tag_header.timestamp,
+        );
+        let _enter = span.enter();
         match tag.body_with_filter.body {
             FLVTagBody::Audio { header, body } => {
                 let tag_header_info: AudioTagHeaderWithoutMultiTrack = (&header).try_into()?;
+                let span = tracing::debug_span!(
+                    "audio",
+                    packet_type=?tag_header_info.packet_type,
+                    codec=?tag_header_info.codec_id,
+                    timestamp_nano=tag_header_info.timestamp_nano.unwrap_or(0),
+                );
+                let _ = span.enter();
                 let frame_info = AudioFrameInfo::new(
                     tag_header_info.codec_id,
                     tag_header_info.packet_type.try_into()?,
@@ -499,6 +525,15 @@ impl MediaFrame {
             }
             FLVTagBody::Video { header, body } => {
                 let tag_header_info: VideoTagHeaderWithoutMultiTrack = (&header).try_into()?;
+                let span = tracing::debug_span!(
+                    "video",
+                    packet_type=?tag_header_info.packet_type,
+                    codec=?tag_header_info.codec_id,
+                    frame_type=?tag_header_info.frame_type,
+                    cts=tag_header_info.composition_time.unwrap_or(0),
+                    timestamp_nano=tag_header_info.timestamp_nano.unwrap_or(0),
+                );
+                let _enter = span.enter();
                 match tag_header_info.packet_type {
                     VideoPacketType::SequenceStart => {
                         // avc decoder configuration record
@@ -538,16 +573,20 @@ impl MediaFrame {
                                 tag_header_info.codec_id, err
                             ))
                         })?;
+                        let frame_type =
+                            if tag_header_info.packet_type == VideoPacketType::SequenceEnd {
+                                FrameType::SequenceEnd
+                            } else if tag_header_info.frame_type == FrameTypeFLV::KeyFrame
+                                || nalus.has_idr()
+                            {
+                                FrameType::KeyFrame
+                            } else {
+                                FrameType::CodedFrames
+                            };
                         Ok(Self::Video {
                             frame_info: VideoFrameInfo::new(
                                 tag_header_info.codec_id,
-                                if tag_header_info.packet_type == VideoPacketType::SequenceEnd {
-                                    FrameType::SequenceEnd
-                                } else if tag_header_info.frame_type == FrameTypeFLV::KeyFrame {
-                                    FrameType::KeyFrame
-                                } else {
-                                    FrameType::CodedFrames
-                                },
+                                frame_type,
                                 tag.tag_header
                                     .timestamp
                                     .to_u64()
@@ -781,6 +820,43 @@ impl GopQueue {
     }
 
     pub fn append_frame(&mut self, mut frame: MediaFrame) -> StreamCenterResult<()> {
+        let span = tracing::trace_span!("gop cache append frame");
+        let _enter = span.enter();
+
+        let first_pts = self
+            .gops
+            .front()
+            .map_or(0, |v| v.get_first_video_timestamp_nano());
+        let last_pts = self
+            .gops
+            .back()
+            .map_or(0, |v| v.get_last_video_timestamp_nano());
+
+        if (last_pts > first_pts
+            && (last_pts - first_pts) >= self.max_duration_ms.checked_mul(1_000_000).unwrap())
+            || self.total_frame_cnt >= self.max_frame_cnt
+        {
+            let span = tracing::trace_span!(
+                "dopping gop",
+                last_pts,
+                first_pts,
+                self.max_duration_ms,
+                self.total_frame_cnt,
+                self.max_frame_cnt
+            );
+            let _enter = span.enter();
+            let dropped = self.gops.pop_front();
+            tracing::debug!(
+                "dopping a whole gop, frame_cnt={}",
+                dropped.as_ref().map_or(0, |v| v.get_meta_frame_cnt())
+            );
+            if let Some(gop) = dropped {
+                self.dropped_gops_cnt += 1;
+                self.dropped_video_cnt += gop.get_video_frame_cnt() as u64;
+                self.dropped_audio_cnt += gop.get_audio_frame_cnt() as u64;
+            }
+        }
+
         let mut is_sequence_header = false;
         let mut is_video = false;
         match &mut frame {
@@ -803,7 +879,6 @@ impl GopQueue {
             } => {
                 self.audio_config = Some((*config.clone(), *sound_info));
                 is_sequence_header = true;
-                tracing::info!("got audio sh");
             }
             MediaFrame::Video {
                 frame_info,
@@ -824,8 +899,14 @@ impl GopQueue {
                     on_meta_data: on_meta_data.clone(),
                     payload: payload.clone(),
                 });
+                is_sequence_header = true;
                 tracing::info!("meta, pts: {}, data: {:?}", pts, on_meta_data);
             }
+        }
+
+        if is_sequence_header {
+            tracing::trace!("skip sequence header");
+            return Ok(());
         }
 
         if self.gops.is_empty() && is_video {
@@ -837,46 +918,11 @@ impl GopQueue {
             self.gops.push_back(Gop::new());
         }
 
-        let first_pts = self
-            .gops
-            .front()
+        self.gops
+            .back_mut()
             .expect("this cannot be empty")
-            .get_first_video_timestamp_nano();
-        let last_pts = self
-            .gops
-            .back()
-            .expect("this cannot be empty")
-            .get_last_video_timestamp_nano();
-
-        if (last_pts > first_pts && (last_pts - first_pts) >= self.max_duration_ms)
-            || self.total_frame_cnt >= self.max_frame_cnt
-        {
-            if self.gops.len() > 1 {
-                let dropped = self.gops.pop_front();
-                if let Some(gop) = dropped {
-                    self.dropped_gops_cnt += 1;
-                    self.dropped_video_cnt += gop.get_video_frame_cnt() as u64;
-                    self.dropped_audio_cnt += gop.get_audio_frame_cnt() as u64;
-                }
-            } else if self.gops.len() == 1 {
-                let dropped = self.gops[0].pop_front();
-                if let Some(dropped) = dropped {
-                    if dropped.is_video() {
-                        self.dropped_video_cnt += 1;
-                    } else if dropped.is_audio() {
-                        self.dropped_audio_cnt += 1;
-                    }
-                }
-            }
-        }
-
-        if !is_sequence_header {
-            self.gops
-                .back_mut()
-                .expect("this cannot be empty")
-                .append_media_frame(frame);
-            self.total_frame_cnt += 1;
-        }
+            .append_media_frame(frame);
+        self.total_frame_cnt += 1;
 
         Ok(())
     }
