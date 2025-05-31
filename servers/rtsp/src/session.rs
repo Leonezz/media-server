@@ -16,17 +16,17 @@ use sdp_formats::{
     attributes::SDPAttribute,
     session::{SDPMediaDescription, SDPMediaType, SessionDescription},
 };
-use server_utils::stream_properities::StreamProperties;
+use server_utils::{
+    runtime_handle::{PublishHandle, SessionRuntime},
+    stream_properities::StreamProperties,
+};
 use std::{collections::HashMap, net::SocketAddr, pin::Pin, str::FromStr, sync::Arc};
 use stream_center::{
-    gop::MediaFrame,
+    errors::StreamCenterError,
     stream_center::StreamCenter,
-    stream_source::{PublishProtocol, StreamIdentifier, StreamType},
+    stream_source::{PublishProtocol, StreamIdentifier},
 };
-use tokio::sync::{
-    RwLock,
-    mpsc::{Sender, UnboundedSender},
-};
+use tokio::sync::{RwLock, mpsc::UnboundedSender};
 use tracing::Instrument;
 use unified_io::{UnifiedIO, UnifiyStreamed};
 use url::Url;
@@ -57,10 +57,11 @@ pub struct RtspSession {
     sdp: Option<SessionDescription>,
     range: Option<String>,
     session_id: Option<Uuid>,
+    timeout_ms: u64,
     media_sessions: Arc<RwLock<HashMap<String, RtspMediaSessionHandler>>>,
     stream_properities: StreamProperties,
+    runtime_handle: SessionRuntime,
     middlewares: Vec<Box<dyn RtspMiddleware + Send>>,
-    media_frame_sender: Option<Sender<MediaFrame>>,
 }
 
 impl RtspMiddleware for RtspSession {
@@ -94,10 +95,11 @@ impl RtspSession {
             sdp: None,
             range: None,
             session_id: None,
+            timeout_ms: 60_000,
             media_sessions: Arc::new(RwLock::new(HashMap::new())),
             middlewares: Vec::new(),
             stream_properities: Default::default(),
-            media_frame_sender: None,
+            runtime_handle: SessionRuntime::Unknown,
         }
     }
 
@@ -139,9 +141,42 @@ impl RtspSession {
                             cseq = request.headers().cseq(),
                         );
                         let request = request_span.in_scope(|| self.pre_request(request))?;
-                        self.handle_request(request)
-                            .instrument(request_span)
-                            .await?;
+                        let response = self.handle_request(&request).instrument(request_span).await;
+                        match response {
+                            Ok(response) => {
+                                tracing::info!("response: {}", response);
+                                self.send_response(&request, response).await?
+                            }
+                            Err(RtspServerError::ParseStreamProperitiesFailed(err)) => {
+                                tracing::error!(
+                                    "error while parsing request url to stream properities: {}",
+                                    err
+                                );
+                                self.send_response(
+                                    &request,
+                                    rtsp_server_simple_response(RtspStatus::BadRequest),
+                                )
+                                .await?
+                            }
+                            Err(RtspServerError::StreamCenterError(
+                                StreamCenterError::StreamNotFound(s),
+                            )) => {
+                                tracing::error!("stream requested not found: {:?}", s);
+                                self.send_response(
+                                    &request,
+                                    rtsp_server_simple_response(RtspStatus::NotFound),
+                                )
+                                .await?
+                            }
+                            Err(err) => {
+                                tracing::error!("error while processing request: {}", err);
+                                self.send_response(
+                                    &request,
+                                    rtsp_server_simple_response(RtspStatus::InternalServerError),
+                                )
+                                .await?
+                            }
+                        }
                     }
                     RtspMessage::Response(response) => {
                         self.on_rtsp_response(response).await?;
@@ -182,10 +217,63 @@ impl RtspSession {
 
         Ok(())
     }
+
+    async fn publish_stream(
+        &mut self,
+        request: &RtspRequest,
+    ) -> RtspServerResult<Option<RtspResponse>> {
+        let stream_properities: StreamProperties = request.uri().try_into()?;
+        // TODO - maybe unpublish and re-publish
+        if self.runtime_handle.is_play() {
+            tracing::error!("trying to publish to session that is already established for playing");
+            return Ok(Some(rtsp_server_simple_response(RtspStatus::BadRequest)));
+        }
+
+        if self.runtime_handle.is_publish()
+            && (self.stream_properities.stream_name != stream_properities.stream_name
+                || self.stream_properities.app.as_str() != stream_properities.app)
+        {
+            tracing::error!(
+                "trying to publish a different stream to already published session, old stream={:?}, new stream={:?}",
+                self.stream_properities,
+                stream_properities
+            );
+            return Ok(Some(rtsp_server_simple_response(RtspStatus::BadRequest)));
+        }
+        self.stream_properities = stream_properities;
+        if self.runtime_handle.is_publish() {
+            tracing::info!(
+                "stream {:?} already published, skip",
+                self.stream_properities
+            );
+            return Ok(None);
+        }
+        let media_sender = StreamCenter::publish(
+            &self.stream_center_event_sender,
+            PublishProtocol::RTSP,
+            &StreamIdentifier {
+                stream_name: self.stream_properities.stream_name.clone(),
+                app: self.stream_properities.app.clone(),
+            },
+            &self.stream_properities.stream_context,
+        )
+        .await;
+        if media_sender.is_err() {
+            let err = media_sender.unwrap_err();
+            tracing::error!("rtsp stream publish to stream center failed: {}", err);
+            return Err(err.into());
+        }
+        self.runtime_handle = SessionRuntime::Publish(Arc::new(RwLock::new(PublishHandle {
+            stream_data_producer: media_sender.unwrap(),
+            no_data_since: None,
+        })));
+        tracing::info!("rtsp stream publish to stream center succeed");
+        Ok(None)
+    }
 }
 
 trait RtspRequestHandler {
-    async fn handle_request(&mut self, request: RtspRequest) -> RtspServerResult<()> {
+    async fn handle_request(&mut self, request: &RtspRequest) -> RtspServerResult<RtspResponse> {
         // Handle the request here
         match request.method() {
             RtspMethod::Options => self.handle_options(request).await,
@@ -202,73 +290,95 @@ trait RtspRequestHandler {
             RtspMethod::Record => self.handle_record(request).await,
         }
     }
-    async fn handle_options(&mut self, request: RtspRequest) -> RtspServerResult<()>;
-    async fn handle_describe(&mut self, request: RtspRequest) -> RtspServerResult<()>;
-    async fn handle_setup(&mut self, request: RtspRequest) -> RtspServerResult<()>;
-    async fn handle_play(&mut self, request: RtspRequest) -> RtspServerResult<()>;
-    async fn handle_pause(&mut self, request: RtspRequest) -> RtspServerResult<()>;
-    async fn handle_teardown(&mut self, request: RtspRequest) -> RtspServerResult<()>;
-    async fn handle_get_parameter(&mut self, request: RtspRequest) -> RtspServerResult<()>;
-    async fn handle_set_parameter(&mut self, request: RtspRequest) -> RtspServerResult<()>;
-    async fn handle_play_notify(&mut self, request: RtspRequest) -> RtspServerResult<()>;
-    async fn handle_redirect(&mut self, request: RtspRequest) -> RtspServerResult<()>;
-    async fn handle_announce(&mut self, request: RtspRequest) -> RtspServerResult<()>;
-    async fn handle_record(&mut self, request: RtspRequest) -> RtspServerResult<()>;
+    async fn handle_options(&mut self, request: &RtspRequest) -> RtspServerResult<RtspResponse>;
+    async fn handle_describe(&mut self, request: &RtspRequest) -> RtspServerResult<RtspResponse>;
+    async fn handle_setup(&mut self, request: &RtspRequest) -> RtspServerResult<RtspResponse>;
+    async fn handle_play(&mut self, request: &RtspRequest) -> RtspServerResult<RtspResponse>;
+    async fn handle_pause(&mut self, request: &RtspRequest) -> RtspServerResult<RtspResponse>;
+    async fn handle_teardown(&mut self, request: &RtspRequest) -> RtspServerResult<RtspResponse>;
+    async fn handle_get_parameter(
+        &mut self,
+        request: &RtspRequest,
+    ) -> RtspServerResult<RtspResponse>;
+    async fn handle_set_parameter(
+        &mut self,
+        request: &RtspRequest,
+    ) -> RtspServerResult<RtspResponse>;
+    async fn handle_play_notify(&mut self, request: &RtspRequest)
+    -> RtspServerResult<RtspResponse>;
+    async fn handle_redirect(&mut self, request: &RtspRequest) -> RtspServerResult<RtspResponse>;
+    async fn handle_announce(&mut self, request: &RtspRequest) -> RtspServerResult<RtspResponse>;
+    async fn handle_record(&mut self, request: &RtspRequest) -> RtspServerResult<RtspResponse>;
 }
 
 impl RtspRequestHandler for RtspSession {
-    async fn handle_options(&mut self, request: RtspRequest) -> RtspServerResult<()> {
+    async fn handle_options(&mut self, _request: &RtspRequest) -> RtspServerResult<RtspResponse> {
         let response = RtspResponse::builder()
             .status(RtspStatus::OK)
             .header(RtspHeader::Public, RTSP_METHODS.join(","))
             .build()?;
-        tracing::debug!("sending OPTIONS response: {:?}", response);
-        self.send_response(&request, response).await?;
-        Ok(())
+        Ok(response)
     }
 
-    async fn handle_describe(&mut self, _request: RtspRequest) -> RtspServerResult<()> {
+    async fn handle_describe(&mut self, request: &RtspRequest) -> RtspServerResult<RtspResponse> {
         // Handle DESCRIBE request
-        Ok(())
+        let stream_properities: StreamProperties = request.uri().try_into()?;
+        let stream_id = StreamIdentifier {
+            stream_name: stream_properities.stream_name,
+            app: stream_properities.app,
+        };
+        let media_description =
+            StreamCenter::describe(&self.stream_center_event_sender, &stream_id).await?;
+        tracing::info!("media description: {:#?}", media_description);
+        todo!()
     }
 
-    async fn handle_setup(&mut self, request: RtspRequest) -> RtspServerResult<()> {
+    async fn handle_setup(&mut self, request: &RtspRequest) -> RtspServerResult<RtspResponse> {
         let transport = request.headers().transport();
         if transport.is_none() {
             tracing::error!("transport header not found");
-            self.send_response(
-                &request,
-                rtsp_server_simple_response(RtspStatus::BadRequest),
-            )
-            .await?;
-            return Ok(());
+            return Ok(rtsp_server_simple_response(
+                RtspStatus::UnsupportedTransport,
+            ));
         }
         let transport = transport.unwrap();
         tracing::debug!("got SETUP request with transport: {:?}", &transport);
 
         if self.sdp.is_none() {
             tracing::error!("sdp is not set by now, unable to handle SETUP request");
-            self.send_response(
-                &request,
-                rtsp_server_simple_response(RtspStatus::BadRequest),
-            )
-            .await?;
-            return Ok(());
+            return Ok(rtsp_server_simple_response(RtspStatus::NotAcceptable));
         }
 
-        if self.media_frame_sender.is_none() {
+        let session_id = request
+            .headers()
+            .get_unique(RtspHeader::Session)
+            .map(|v| Uuid::from_str(v).unwrap_or(Uuid::now_v7()))
+            .unwrap_or(Uuid::now_v7());
+        if let Some(old_session_id) = self.session_id
+            && old_session_id != session_id
+        {
+            tracing::warn!(
+                "session id mismatch: old: {}, new: {}",
+                old_session_id,
+                session_id
+            );
+            return Ok(rtsp_server_simple_response(RtspStatus::SessionNotFound));
+        }
+        self.session_id.replace(session_id);
+
+        if let Some(response) = self.publish_stream(request).await? {
+            return Ok(response);
+        }
+
+        if !self.runtime_handle.is_publish() {
             tracing::error!(
                 "media frame sender not set, which means stream not published to stream center, unable to distribute data"
             );
-            self.send_response(&request, rtsp_server_simple_response(RtspStatus::NotFound))
-                .await?;
-            return Ok(());
+            return Ok(rtsp_server_simple_response(RtspStatus::NotFound));
         }
-
         let sdp = self.sdp.as_ref().unwrap();
         let mut server_transport = transport.clone();
         let mut response_builder = RtspResponse::builder();
-
         for media in &sdp.media_description {
             let control = media.attributes.iter().find_map(|attr| {
                 if let SDPAttribute::Trivial(attr) = attr
@@ -289,34 +399,8 @@ impl RtspRequestHandler for RtspSession {
                 continue;
             }
 
-            let session_id = request
-                .headers()
-                .get_unique(RtspHeader::Session)
-                .map(|v| Uuid::from_str(v).unwrap_or(Uuid::now_v7()))
-                .unwrap_or(Uuid::now_v7());
-
-            if let Some(old_session_id) = self.session_id
-                && old_session_id != session_id
-            {
-                tracing::warn!(
-                    "session id mismatch: old: {}, new: {}",
-                    old_session_id,
-                    session_id
-                );
-                self.send_response(
-                    &request,
-                    rtsp_server_simple_response(RtspStatus::SessionNotFound),
-                )
-                .await?;
-                return Ok(());
-            }
-
-            self.session_id.replace(session_id);
-
-            tracing::info!("session created, session id: {}", session_id);
-
             if let Some(session) = self.media_sessions.read().await.get(control_str.as_str()) {
-                tracing::debug!("media session already exists: {:?}", session);
+                tracing::warn!("media session already exists: {:?}", session);
             }
 
             let (rtsp_command_tx, rtsp_command_rx) =
@@ -330,116 +414,110 @@ impl RtspRequestHandler for RtspSession {
                 media,
                 transport,
             );
-            if let Ok(mut media_session) = RtspMediaSession::new(
+            let media_session = RtspMediaSession::new(
                 self.peer_addr,
                 request.uri().clone(),
                 session_id,
                 media.clone(),
                 transport.clone(),
                 rtsp_command_rx,
-                self.media_frame_sender.as_ref().unwrap().clone(),
+                self.runtime_handle
+                    .get_publish_handle()
+                    .unwrap()
+                    .clone()
+                    .read()
+                    .await
+                    .stream_data_producer
+                    .clone(),
             )
-            .await
-            {
-                tracing::info!(
-                    "media session created for session id: {}, control: {}",
-                    session_id,
-                    control_str
-                );
-
-                server_transport
-                    .server_port
-                    .replace((media_session.local_rtp_port, media_session.local_rtcp_port));
-                response_builder =
-                    response_builder.header(RtspHeader::Transport, format!("{}", server_transport));
-
-                media_session.transport = server_transport.clone();
-                let media_session_handler = tokio::task::spawn(async move {
-                    if let Err(err) = media_session.run().await {
-                        tracing::error!("media session error: {:?}", err);
-                    } else {
-                        tracing::info!("media session exited gracefully");
-                    }
-                });
-                self.media_sessions.write().await.insert(
-                    control_str,
-                    RtspMediaSessionHandler {
-                        peer_addr: self.peer_addr,
-                        uri: request.uri().clone(),
-                        session_id,
-                        media_description: media.clone(),
-                        transport: transport.clone(),
-                        rtsp_command_tx,
-                        media_session_thread: media_session_handler,
-                    },
-                );
-            } else {
-                tracing::warn!("failed to create media session");
-                self.send_response(
-                    &request,
-                    rtsp_server_simple_response(RtspStatus::InternalServerError),
-                )
-                .await?;
-                return Ok(());
+            .await;
+            if let Err(err) = media_session {
+                if let RtspServerError::InvalidTransport(err) = err {
+                    tracing::error!("transport: {} is invalid", err);
+                    return Ok(rtsp_server_simple_response(
+                        RtspStatus::UnsupportedTransport,
+                    ));
+                } else {
+                    tracing::error!("error while create new media session: {}", err);
+                    return Err(err);
+                }
             }
+            let mut media_session = media_session.unwrap();
+            tracing::info!(
+                "media session created for session id: {}, control: {}",
+                session_id,
+                control_str
+            );
+
+            server_transport
+                .server_port
+                .replace((media_session.local_rtp_port, media_session.local_rtcp_port));
+            response_builder =
+                response_builder.header(RtspHeader::Transport, format!("{}", server_transport));
+
+            media_session.transport = server_transport.clone();
+            let media_session_handler = tokio::task::spawn(async move {
+                if let Err(err) = media_session.run().await {
+                    tracing::error!("media session error: {:?}", err);
+                } else {
+                    tracing::info!("media session exited gracefully");
+                }
+            });
+            self.media_sessions.write().await.insert(
+                control_str,
+                RtspMediaSessionHandler {
+                    peer_addr: self.peer_addr,
+                    uri: request.uri().clone(),
+                    session_id,
+                    media_description: media.clone(),
+                    transport: transport.clone(),
+                    rtsp_command_tx,
+                    media_session_thread: media_session_handler,
+                },
+            );
 
             match media.media_line.media_type {
                 SDPMediaType::Video => {}
                 SDPMediaType::Audio => {}
                 _ => {
                     tracing::warn!("unsupported media type: {:?}", media.media_line.media_type);
-                    self.send_response(
-                        &request,
-                        rtsp_server_simple_response(RtspStatus::NotImplemented),
-                    )
-                    .await?;
-                    return Ok(());
+                    return Ok(rtsp_server_simple_response(RtspStatus::BadRequest));
                 }
             }
         }
         if self.session_id.is_none() {
             tracing::warn!("session id is not set");
-            self.send_response(
-                &request,
-                rtsp_server_simple_response(RtspStatus::BadRequest),
-            )
-            .await?;
-            return Ok(());
+            return Ok(rtsp_server_simple_response(RtspStatus::BadRequest));
         }
 
         let response = response_builder
-            .header(RtspHeader::Session, self.session_id.unwrap().to_string())
+            .header(RtspHeader::Session, format!("{};timeout={}", self.session_id.unwrap(), self.timeout_ms.checked_div(1000).unwrap()))
+            .header(RtspHeader::AcceptRanges, "npt")
+            .header(RtspHeader::Session, self.session_id.unwrap())
+            .header(RtspHeader::MediaProperties, "Random Access: No-Seeking, Content Modifications: TimeProgressing, Retention: Time-Duration=0.0")
             .status(RtspStatus::OK)
             .build()?;
-        self.send_response(&request, response).await?;
-        Ok(())
+        Ok(response)
     }
 
-    async fn handle_play(&mut self, _request: RtspRequest) -> RtspServerResult<()> {
+    async fn handle_play(&mut self, _request: &RtspRequest) -> RtspServerResult<RtspResponse> {
         // Handle PLAY request
-        Ok(())
+        todo!()
     }
 
-    async fn handle_pause(&mut self, _request: RtspRequest) -> RtspServerResult<()> {
+    async fn handle_pause(&mut self, _request: &RtspRequest) -> RtspServerResult<RtspResponse> {
         // Handle PAUSE request
-        Ok(())
+        todo!()
     }
 
-    async fn handle_teardown(&mut self, request: RtspRequest) -> RtspServerResult<()> {
+    async fn handle_teardown(&mut self, request: &RtspRequest) -> RtspServerResult<RtspResponse> {
         let session_id = request.headers().get_unique(RtspHeader::Session);
         if session_id.is_none() {
-            self.send_response(
-                &request,
-                rtsp_server_simple_response(RtspStatus::BadRequest),
-            )
-            .await?;
-            return Ok(());
+            return Ok(rtsp_server_simple_response(RtspStatus::BadRequest));
         }
         let session_id = session_id.unwrap();
         if self.session_id.is_none() || self.session_id.unwrap().to_string().ne(session_id) {
-            self.send_response(&request, rtsp_server_simple_response(RtspStatus::NotFound))
-                .await?;
-            return Ok(());
+            return Ok(rtsp_server_simple_response(RtspStatus::NotFound));
         }
 
         let span = tracing::debug_span!("teardown", session_id = session_id);
@@ -479,32 +557,39 @@ impl RtspRequestHandler for RtspSession {
         self.sdp = None;
         self.range = None;
 
-        self.send_response(&request, rtsp_server_simple_response(RtspStatus::OK))
-            .await?;
-        Ok(())
+        Ok(rtsp_server_simple_response(RtspStatus::OK))
     }
 
-    async fn handle_get_parameter(&mut self, _request: RtspRequest) -> RtspServerResult<()> {
+    async fn handle_get_parameter(
+        &mut self,
+        _request: &RtspRequest,
+    ) -> RtspServerResult<RtspResponse> {
         // Handle GET_PARAMETER request
-        Ok(())
+        todo!()
     }
 
-    async fn handle_set_parameter(&mut self, _request: RtspRequest) -> RtspServerResult<()> {
+    async fn handle_set_parameter(
+        &mut self,
+        _request: &RtspRequest,
+    ) -> RtspServerResult<RtspResponse> {
         // Handle SET_PARAMETER request
-        Ok(())
+        todo!()
     }
 
-    async fn handle_play_notify(&mut self, _request: RtspRequest) -> RtspServerResult<()> {
+    async fn handle_play_notify(
+        &mut self,
+        _request: &RtspRequest,
+    ) -> RtspServerResult<RtspResponse> {
         // Handle PLAY_NOTIFY request
-        Ok(())
+        todo!()
     }
 
-    async fn handle_redirect(&mut self, _request: RtspRequest) -> RtspServerResult<()> {
+    async fn handle_redirect(&mut self, _request: &RtspRequest) -> RtspServerResult<RtspResponse> {
         // Handle REDIRECT request
-        Ok(())
+        todo!()
     }
 
-    async fn handle_announce(&mut self, request: RtspRequest) -> RtspServerResult<()> {
+    async fn handle_announce(&mut self, request: &RtspRequest) -> RtspServerResult<RtspResponse> {
         let parse_result = request.uri().try_into();
         match parse_result {
             Ok(result) => {
@@ -515,11 +600,6 @@ impl RtspRequestHandler for RtspSession {
                     "parse stream properities from setup request failed: {}",
                     err
                 );
-                self.send_response(
-                    &request,
-                    rtsp_server_simple_response(RtspStatus::BadRequest),
-                )
-                .await?;
                 return Err(err.into());
             }
         }
@@ -531,13 +611,9 @@ impl RtspRequestHandler for RtspSession {
                 "announce content type is not application/sdp, got: {}",
                 content_type.unwrap_or(&"None".to_owned())
             );
-            self.send_response(
-                &request,
-                rtsp_server_simple_response(RtspStatus::UnsupportedMediaType),
-            )
-            .await?;
-
-            return Ok(());
+            return Ok(rtsp_server_simple_response(
+                RtspStatus::UnsupportedMediaType,
+            ));
         }
 
         let body = request.body().map(|v| v.parse::<SessionDescription>());
@@ -547,47 +623,10 @@ impl RtspRequestHandler for RtspSession {
             self.sdp.replace(sdp);
         }
 
-        // TODO - maybe unpublish and re-publish
-        if self.media_frame_sender.is_some() {
-            tracing::error!("trying to publish to stream center while already published");
-            self.send_response(
-                &request,
-                rtsp_server_simple_response(RtspStatus::BadRequest),
-            )
-            .await?;
-            return Ok(());
-        }
-
-        let media_sender = StreamCenter::publish(
-            &self.stream_center_event_sender,
-            StreamType::Live,
-            PublishProtocol::RTSP,
-            &StreamIdentifier {
-                stream_name: self.stream_properities.stream_name.clone(),
-                app: self.stream_properities.app.clone(),
-            },
-            &self.stream_properities.stream_context,
-        )
-        .await;
-        if media_sender.is_err() {
-            let err = media_sender.unwrap_err();
-            tracing::error!("rtsp stream publish to stream center failed: {}", err);
-            self.send_response(
-                &request,
-                rtsp_server_simple_response(RtspStatus::InternalServerError),
-            )
-            .await?;
-            return Err(err.into());
-        }
-        self.media_frame_sender = Some(media_sender.unwrap());
-        tracing::info!("rtsp stream publish to stream center succeed");
-
-        let response = rtsp_server_simple_response(RtspStatus::OK);
-        self.send_response(&request, response).await?;
-        Ok(())
+        Ok(rtsp_server_simple_response(RtspStatus::OK))
     }
 
-    async fn handle_record(&mut self, request: RtspRequest) -> RtspServerResult<()> {
+    async fn handle_record(&mut self, request: &RtspRequest) -> RtspServerResult<RtspResponse> {
         if let Some(range) = request.headers().get_unique(RtspHeader::Range) {
             self.range.replace(range.to_owned());
         }
@@ -599,7 +638,6 @@ impl RtspRequestHandler for RtspSession {
         if let Some(range) = &self.range {
             response = response.header(RtspHeader::Range, range);
         }
-        self.send_response(&request, response.build()?).await?;
-        Ok(())
+        Ok(response.build()?)
     }
 }

@@ -1,15 +1,16 @@
-use std::{collections::HashMap, io};
+use std::io;
 
 use byteorder::{BigEndian, WriteBytesExt};
 
 use codec_common::video::VideoConfig;
 use flv_formats::{header::FLVHeader, tag::flv_tag_header::FLVTagHeader};
 use num::ToPrimitive;
+use server_utils::stream_properities::StreamProperties;
 use stream_center::{
     events::{StreamCenterEvent, SubscribeResponse},
     gop::MediaFrame,
     stream_center::StreamCenter,
-    stream_source::{PlayProtocol, StreamIdentifier, StreamType},
+    stream_source::{PlayProtocol, StreamIdentifier},
 };
 use tokio::sync::mpsc;
 use tokio_util::bytes::BytesMut;
@@ -26,14 +27,6 @@ pub struct HttpFlvSessionConfig {
     pub chunk_size: u32,
     pub write_timeout_ms: u64,
     pub read_timeout_ms: u64,
-}
-
-#[derive(Debug, Default)]
-pub struct StreamProperties {
-    pub stream_name: String,
-    pub app: String,
-    pub stream_type: StreamType,
-    pub stream_context: HashMap<String, String>,
 }
 
 #[derive(Debug)]
@@ -72,7 +65,6 @@ impl HttpFlvSession {
         &mut self,
         mut response: SubscribeResponse,
     ) -> HttpFlvSessionResult<()> {
-        self.stream_properties.stream_type = response.stream_type;
         self.play_id = Some(response.subscribe_id);
         self.has_video = self
             .stream_properties

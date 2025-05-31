@@ -40,24 +40,6 @@ pub enum RtpBufferItem {
     Audio(RtpBufferAudioItem),
 }
 
-pub struct RtpBufferItemToMeidiaFrameComposer {
-    sps: Option<RtpBufferItem>,
-    pps: Option<RtpBufferItem>,
-    timestamp_base: Option<u32>,
-    clock_rate: u32,
-}
-
-impl RtpBufferItemToMeidiaFrameComposer {
-    pub fn new(clock_rate: u32, sps: Option<RtpBufferItem>, pps: Option<RtpBufferItem>) -> Self {
-        Self {
-            sps,
-            pps,
-            timestamp_base: None,
-            clock_rate,
-        }
-    }
-}
-
 impl RtpBufferItem {
     pub fn get_timestamp(&self) -> u32 {
         match self {

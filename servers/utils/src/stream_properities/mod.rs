@@ -1,15 +1,25 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Debug};
 
 use errors::StreamPropertiesError;
 use url::Url;
 
 pub mod errors;
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct StreamProperties {
     pub stream_name: String,
     pub app: String,
     pub stream_context: HashMap<String, String>,
+}
+
+impl Debug for StreamProperties {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "app={}, stream_name={}, stream_context={:?}",
+            self.app, self.stream_name, self.stream_context
+        )
+    }
 }
 
 impl TryFrom<&Url> for StreamProperties {

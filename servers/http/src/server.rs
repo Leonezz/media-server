@@ -36,7 +36,7 @@ impl HttpServer {
         tracing::info!("http server is running, config: {:?}", self.context.config);
         let figment = Figment::from(Config {
             log_level: rocket::config::LogLevel::Off,
-            ident: Ident::try_new("zhuwenq").unwrap(),
+            ident: Ident::try_new("yam_server/http").unwrap(),
             ip_header: Some("X-Real-IP".into()),
             keep_alive: 5,
             ..Default::default()

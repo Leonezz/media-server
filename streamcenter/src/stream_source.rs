@@ -1,8 +1,8 @@
 use std::{
     cmp::{max, min},
     collections::HashMap,
-    fmt::Display,
     sync::Arc,
+    time::SystemTime,
 };
 
 use codec_common::{
@@ -16,7 +16,7 @@ use utils::traits::buffer::GenericSequencer;
 use uuid::Uuid;
 
 use crate::{
-    errors::{StreamCenterError, StreamCenterResult},
+    errors::StreamCenterResult,
     gop::{GopQueue, MediaFrame},
     make_fake_on_meta_data,
     mix_queue::MixQueue,
@@ -29,14 +29,6 @@ enum StreamStatus {
     NotStarted,
     Running,
     Stopped,
-}
-
-#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, Default)]
-pub enum StreamType {
-    #[default]
-    Live,
-    Record,
-    Append,
 }
 
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
@@ -52,52 +44,20 @@ pub enum PlayProtocol {
     RTSP,
 }
 
-impl Display for StreamType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Live => f.write_str("live"),
-            Self::Record => f.write_str("record"),
-            Self::Append => f.write_str("append"),
-        }
-    }
-}
-
-impl From<StreamType> for String {
-    fn from(value: StreamType) -> Self {
-        match value {
-            StreamType::Live => "live".to_owned(),
-            StreamType::Append => "append".to_owned(),
-            StreamType::Record => "record".to_owned(),
-        }
-    }
-}
-
-impl TryFrom<String> for StreamType {
-    type Error = StreamCenterError;
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        match value.to_lowercase().as_str() {
-            "live" => Ok(StreamType::Live),
-            "recorded" => Ok(StreamType::Record),
-            "append" => Ok(StreamType::Append),
-            _ => Err(StreamCenterError::InvalidStreamType(value)),
-        }
-    }
-}
-
 #[derive(Debug, Hash, Clone, PartialEq, Eq)]
 pub struct StreamIdentifier {
     pub stream_name: String,
     pub app: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ConsumeGopCache {
     None,
     All,
     GopCount(u64),
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct PlayStat {
     video_sh_sent: bool,
     audio_sh_sent: bool,
@@ -113,6 +73,7 @@ pub struct PlayStat {
 
 #[derive(Debug)]
 pub struct SubscribeHandler {
+    pub id: Uuid,
     pub context: HashMap<String, String>,
     pub parsed_context: ParsedContext,
     pub data_sender: mpsc::Sender<MediaFrame>,
@@ -120,7 +81,7 @@ pub struct SubscribeHandler {
     pub play_protocol: PlayProtocol,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ParsedContext {
     // videoOnly
     pub video_only: bool,
@@ -145,9 +106,9 @@ impl From<&HashMap<String, String>> for ParsedContext {
 
 #[derive(Debug)]
 pub struct StreamSource {
-    pub identifier: StreamIdentifier,
-    pub publish_protocol: PublishProtocol,
-    pub stream_type: StreamType,
+    pub(crate) identifier: StreamIdentifier,
+    pub(crate) publish_protocol: PublishProtocol,
+    pub(crate) publish_start_time: SystemTime,
 
     data_receiver: mpsc::Receiver<MediaFrame>,
     data_distributer: Arc<RwLock<HashMap<Uuid, SubscribeHandler>>>,
@@ -164,7 +125,6 @@ impl StreamSource {
     pub fn new(
         stream_name: &str,
         app: &str,
-        stream_type: StreamType,
         publish_protocol: PublishProtocol,
         data_receiver: mpsc::Receiver<MediaFrame>,
         signal_receiver: mpsc::Receiver<StreamSignal>,
@@ -177,7 +137,7 @@ impl StreamSource {
                 app: app.to_string(),
             },
             publish_protocol,
-            stream_type,
+            publish_start_time: SystemTime::now(),
             data_receiver,
             data_distributer,
             stream_dynamic_info,
@@ -240,6 +200,18 @@ impl StreamSource {
     }
 
     async fn on_media_frame(&mut self, frame: MediaFrame) -> StreamCenterResult<()> {
+        match &frame {
+            MediaFrame::AudioConfig {
+                timestamp_nano: _,
+                sound_info: _,
+                config,
+            } => self.stream_dynamic_info.write().await.audio_config = Some(*config.clone()),
+            MediaFrame::VideoConfig {
+                timestamp_nano: _,
+                config,
+            } => self.stream_dynamic_info.write().await.video_config = Some(*config.clone()),
+            _ => {}
+        }
         if let Err(err) = self.gop_cache.append_frame(frame.clone()) {
             tracing::error!("append frame to gop cache failed: {:?}", err);
         }

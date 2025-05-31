@@ -6,10 +6,7 @@ use std::{
     time::SystemTime,
 };
 
-use ::stream_center::{
-    events::StreamCenterEvent,
-    stream_source::{StreamIdentifier, StreamType},
-};
+use ::stream_center::{events::StreamCenterEvent, stream_source::StreamIdentifier};
 use codec_common::video::VideoConfig;
 use flv_formats::tag::{
     FLVTag,
@@ -31,7 +28,10 @@ use rtmp_formats::{
     protocol_control::SetPeerBandWidthLimitType,
     user_control::UserControlEvent,
 };
-use server_utils::stream_properities::StreamProperties;
+use server_utils::{
+    runtime_handle::{PlayHandle, PublishHandle, SessionRuntime},
+    stream_properities::StreamProperties,
+};
 use stream_center::{
     events::SubscribeResponse,
     gop::MediaFrame,
@@ -64,50 +64,11 @@ use super::{
     errors::RtmpServerResult,
 };
 
-#[derive(Debug, Default, Clone)]
-pub struct SessionStat {
-    video_frame_cnt: u64,
-    audio_frame_cnt: u64,
-    script_frame_cnt: u64,
-    aggregate_frame_cnt: u64,
-
-    failed_video_frame_cnt: u64,
-    failed_audio_frame_cnt: u64,
-    failed_meta_frame_cnt: u64,
-    failed_aggregate_frame_cnt: u64,
-}
-
-#[derive(Debug)]
-struct PlayHandle {
-    stream_data_consumer: mpsc::Receiver<MediaFrame>,
-    stream_type: StreamType,
-    play_id: Uuid,
-    receive_audio: bool,
-    receive_video: bool,
-    buffer_length: Option<u32>,
-    stat: SessionStat,
-}
-
-#[derive(Debug, Clone)]
-struct PublishHandle {
-    stream_data_producer: mpsc::Sender<MediaFrame>,
-    no_data_since: Option<SystemTime>,
-    stat: SessionStat,
-}
-
-#[derive(Debug)]
-enum SessionRuntime {
-    Play(Arc<RwLock<PlayHandle>>),
-    Publish(Arc<RwLock<PublishHandle>>),
-    Unknown,
-}
-
 #[derive(Debug)]
 pub struct RtmpSession {
     chunk_stream: RtmpChunkStream,
     runtime_handle: SessionRuntime,
     stream_properties: StreamProperties,
-    stream_type: StreamType,
     video_nalu_size_length: Option<u8>,
     connect_info: ConnectCommandRequestObject,
     total_wrote_bytes: usize,
@@ -130,7 +91,6 @@ impl RtmpSession {
                 config.write_timeout_ms,
             ),
             stream_properties: StreamProperties::default(),
-            stream_type: Default::default(),
             video_nalu_size_length: None,
             connect_info: Default::default(),
             runtime_handle: SessionRuntime::Unknown,
@@ -232,23 +192,17 @@ impl RtmpSession {
             SessionRuntime::Play(handle) => {
                 let handle = handle.read().await;
                 tracing::info!(
-                    "play stats: stream_type: {}, play_id: {}, receive_audio: {}, receive_video: {}, buffer_length: {:?}, stat: {:?}, total_bytes written: {}",
-                    handle.stream_type,
+                    "play stats: play_id: {}, receive_audio: {}, receive_video: {}, buffer_length: {:?}, total_bytes written: {}",
                     handle.play_id,
                     handle.receive_audio,
                     handle.receive_video,
                     handle.buffer_length,
-                    handle.stat,
                     self.total_wrote_bytes
                 )
             }
             SessionRuntime::Publish(handle) => {
                 let handle = handle.read().await;
-                tracing::info!(
-                    "publish stats: no_data_since: {:?}, stat: {:?}",
-                    handle.no_data_since,
-                    handle.stat
-                );
+                tracing::info!("publish stats: no_data_since: {:?}", handle.no_data_since,);
             }
             _ => {}
         }
@@ -396,11 +350,6 @@ impl RtmpSession {
                         backtrace: Backtrace::capture(),
                     }
                 });
-            if res.is_err() {
-                handle.stat.failed_audio_frame_cnt += 1;
-            } else {
-                handle.stat.audio_frame_cnt += 1;
-            }
             res?;
         }
         Ok(())
@@ -430,11 +379,6 @@ impl RtmpSession {
                         backtrace: Backtrace::capture(),
                     }
                 });
-            if res.is_err() {
-                handle.stat.failed_video_frame_cnt += 1;
-            } else {
-                handle.stat.video_frame_cnt += 1;
-            }
             res?;
         }
 
@@ -466,11 +410,6 @@ impl RtmpSession {
                         backtrace: Backtrace::capture(),
                     }
                 });
-            if res.is_err() {
-                handle.stat.failed_meta_frame_cnt += 1;
-            } else {
-                handle.stat.script_frame_cnt += 1;
-            }
             res?;
         }
 
@@ -498,12 +437,6 @@ impl RtmpSession {
                 .map_err(|_err| RtmpServerError::ChannelSendFailed {
                     backtrace: Backtrace::capture(),
                 });
-
-            if res.is_err() {
-                handle.stat.failed_aggregate_frame_cnt += 1;
-            } else {
-                handle.stat.aggregate_frame_cnt += 1;
-            }
             res?;
         }
 
@@ -755,8 +688,7 @@ impl RtmpSession {
     }
 
     async fn process_publish_command(&mut self, request: PublishCommand) -> RtmpServerResult<()> {
-        let stream_type: StreamType = request.publishing_type.try_into()?;
-        self.publish_to_stream_center(&request.publishing_name, stream_type)
+        self.publish_to_stream_center(&request.publishing_name)
             .await?;
 
         self.chunk_stream.chunk_writer().write_on_status_response(
@@ -768,7 +700,11 @@ impl RtmpSession {
         )?;
         self.chunk_stream.flush_chunk().await?;
 
-        tracing::info!("process publish command success");
+        tracing::info!(
+            "process publish command success, stream_type={}, stream_name={}",
+            request.publishing_type,
+            request.publishing_name,
+        );
         Ok(())
     }
 
@@ -828,11 +764,7 @@ impl RtmpSession {
         Ok(())
     }
 
-    async fn publish_to_stream_center(
-        &mut self,
-        stream_name: &str,
-        stream_type: StreamType,
-    ) -> RtmpServerResult<()> {
+    async fn publish_to_stream_center(&mut self, stream_name: &str) -> RtmpServerResult<()> {
         if let SessionRuntime::Publish(_) = self.runtime_handle {
             return Ok(());
         }
@@ -846,7 +778,6 @@ impl RtmpSession {
         self.stream_properties.stream_name = stream_name.to_string();
         let media_sender = StreamCenter::publish(
             &self.stream_center_event_sender,
-            stream_type,
             PublishProtocol::RTMP,
             &StreamIdentifier {
                 stream_name: stream_name.to_owned(),
@@ -858,7 +789,6 @@ impl RtmpSession {
         self.runtime_handle = SessionRuntime::Publish(Arc::new(RwLock::new(PublishHandle {
             stream_data_producer: media_sender,
             no_data_since: None,
-            stat: Default::default(),
         })));
         Ok(())
     }
@@ -891,8 +821,7 @@ impl RtmpSession {
                             // we do not care the unpublish result
                             Ok(())
                         } else {
-                            self.publish_to_stream_center(stream_name, StreamType::default())
-                                .await
+                            self.publish_to_stream_center(stream_name).await
                         };
 
                         self.chunk_stream.chunk_writer().write_call_response(
@@ -990,12 +919,6 @@ impl RtmpSession {
             .chunk_writer()
             .write_set_chunk_size(self.config.chunk_size)?;
         self.chunk_stream.flush_chunk().await?;
-        if self.stream_type == StreamType::Record {
-            self.chunk_stream
-                .chunk_writer()
-                .write_stream_ids_recorded(header.message_stream_id)?; // I bet the stream_id is useless
-            self.chunk_stream.flush_chunk().await?;
-        }
 
         self.chunk_stream
             .chunk_writer()
@@ -1015,12 +938,10 @@ impl RtmpSession {
             Ok(response) => {
                 self.runtime_handle = SessionRuntime::Play(Arc::new(RwLock::new(PlayHandle {
                     stream_data_consumer: response.media_receiver,
-                    stream_type: response.stream_type,
                     receive_audio: response.has_audio,
                     receive_video: response.has_video,
                     buffer_length: None,
                     play_id: response.subscribe_id,
-                    stat: Default::default(),
                 })));
                 if reset {
                     self.chunk_stream.chunk_writer().write_on_status_response(

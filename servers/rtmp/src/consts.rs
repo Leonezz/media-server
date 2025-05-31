@@ -1,4 +1,4 @@
-pub const FMSVER: &str = "zhuwenq/media-server";
+pub const FMSVER: &str = "yam_server/rtmp";
 pub const FMS_CAPABILITIES: f64 = 31.0;
 
 pub mod response_code {
