@@ -1,8 +1,6 @@
-use std::{cmp::max, collections::VecDeque};
-
-use utils::traits::buffer::GenericSequencer;
-
 use crate::{errors::StreamCenterError, gop::MediaFrame};
+use std::{cmp::max, collections::VecDeque};
+use utils::traits::buffer::GenericSequencer;
 
 #[derive(Debug)]
 pub struct MixQueue {
@@ -57,7 +55,7 @@ impl GenericSequencer for MixQueue {
             }
 
             self.audio.push_back(packet);
-            return Ok(());
+            Ok(())
         } else {
             unreachable!("MixQueue only supports audio and video packets");
         }
@@ -89,6 +87,7 @@ impl GenericSequencer for MixQueue {
         while i < self.video.len() {
             if self.video[i].get_timestamp_ns() <= min_timestamp {
                 result.push(self.video.remove(i).unwrap());
+                break;
             } else {
                 i += 1;
             }
@@ -99,6 +98,7 @@ impl GenericSequencer for MixQueue {
         while i < self.audio.len() {
             if self.audio[i].get_timestamp_ns() <= min_timestamp {
                 result.push(self.audio.remove(i).unwrap());
+                break;
             } else {
                 i += 1;
             }

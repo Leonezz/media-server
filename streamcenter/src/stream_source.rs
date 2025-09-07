@@ -1,21 +1,3 @@
-use std::{
-    cmp::{max, min},
-    collections::HashMap,
-    sync::Arc,
-    time::SystemTime,
-};
-
-use codec_common::{
-    audio::{AudioCodecCommon, AudioConfig},
-    video::VideoCodecCommon,
-};
-use num::ToPrimitive;
-use tokio::sync::{RwLock, mpsc};
-use tokio_util::bytes::Bytes;
-use tracing::trace_span;
-use utils::traits::buffer::GenericSequencer;
-use uuid::Uuid;
-
 use crate::{
     errors::StreamCenterResult,
     gop::{GopQueue, MediaFrame},
@@ -24,6 +6,22 @@ use crate::{
     signal::StreamSignal,
     stream_center::StreamSourceDynamicInfo,
 };
+use codec_common::{
+    audio::{AudioCodecCommon, AudioConfig},
+    video::VideoCodecCommon,
+};
+use num::ToPrimitive;
+use std::{
+    cmp::{max, min},
+    collections::HashMap,
+    sync::Arc,
+    time::SystemTime,
+};
+use tokio::sync::{RwLock, mpsc};
+use tokio_util::bytes::Bytes;
+use tracing::trace_span;
+use utils::traits::buffer::GenericSequencer;
+use uuid::Uuid;
 
 #[derive(Debug, PartialEq, Eq)]
 enum StreamStatus {
@@ -146,7 +144,7 @@ impl StreamSource {
             gop_cache: GopQueue::new(6_0000, 8000),
             status: StreamStatus::NotStarted,
             signal_receiver,
-            mix_queue: MixQueue::new(100, 100, 3),
+            mix_queue: MixQueue::new(100, 100, 30),
         }
     }
 
@@ -156,7 +154,6 @@ impl StreamSource {
         }
         self.status = StreamStatus::Running;
         tracing::info!("stream is running, stream id: {:?}", self.identifier);
-
         loop {
             match tokio::time::timeout(
                 tokio::time::Duration::from_millis(10),
@@ -168,16 +165,16 @@ impl StreamSource {
                 Ok(None) => {}
                 Ok(Some(frame)) => {
                     if (frame.is_video() || frame.is_audio()) && !frame.is_sequence_header() {
-                        // let _ = self.mix_queue.enqueue(frame).inspect_err(|err| {
-                        //     tracing::error!("enqueue frame to mix queue failed: {:?}", err);
-                        // });
+                        let _ = self.mix_queue.enqueue(frame).inspect_err(|err| {
+                            tracing::error!("enqueue frame to mix queue failed: {:?}", err);
+                        });
 
-                        // for frame in self.mix_queue.try_dump() {
-                        if let Err(err) = self.on_media_frame(frame).await {
-                            tracing::error!("on media frame failed: {:?}", err);
-                            return Err(err);
+                        for frame in self.mix_queue.try_dump() {
+                            if let Err(err) = self.on_media_frame(frame).await {
+                                tracing::error!("on media frame failed: {:?}", err);
+                                return Err(err);
+                            }
                         }
-                        // }
                     } else {
                         // sequence header or script frame
                         if let Err(err) = self.on_media_frame(frame).await {
@@ -414,7 +411,6 @@ impl StreamSource {
                 if handler.parsed_context.video_only && frame.is_audio() {
                     continue;
                 }
-                tracing::trace!("dump frame: {:?}", frame);
                 let res = handler.data_sender.try_send(frame.clone());
                 if let Err(err) = &res {
                     tracing::error!(

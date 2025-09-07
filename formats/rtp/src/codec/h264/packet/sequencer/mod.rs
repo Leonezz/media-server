@@ -1,10 +1,6 @@
-use std::collections::VecDeque;
-
-use codec_h264::nalu::NalUnit;
-use de_interleaving::{DeInterleavingBuffer, RtpH264DeInterleavingParameters};
-use fragments::RtpH264FragmentsBuffer;
-use utils::traits::buffer::{GenericFragmentComposer, GenericSequencer};
-
+use super::RtpH264Packet;
+use crate::codec::h264::packet::sequencer::fragments::RtpH264FragmentsBufferItem;
+use crate::codec::h264::packet::sequencer::timestamp_grouper::TimestampGrouper;
 use crate::{
     codec::h264::{
         RtpH264NalUnit,
@@ -18,17 +14,68 @@ use crate::{
     header::RtpHeader,
     packet::sequencer::{RtpBufferItem, RtpBufferVideoItem, RtpBufferedSequencer},
 };
-
-use super::RtpH264Packet;
+use codec_h264::{nalu::NalUnit, nalu_type::NALUType, pps::Pps, sps::Sps};
+use de_interleaving::{DeInterleavingBuffer, RtpH264DeInterleavingParameters};
+use fragments::RtpH264FragmentsBuffer;
+use std::collections::VecDeque;
+use std::vec;
+use utils::traits::buffer::{GenericFragmentComposer, GenericSequencer};
 pub mod de_interleaving;
 pub mod fragments;
+pub mod timestamp_grouper;
 
 #[derive(Debug, Clone)]
 pub struct RtpH264BufferItem {
-    pub nal_unit: NalUnit,
+    pub nal_units: Vec<NalUnit>,
+    pub is_idr: bool,
+    pub sps: Option<NalUnit>,
+    pub pps: Option<NalUnit>,
     pub rtp_header: RtpHeader,
     pub decode_order_number: Option<u16>,
     pub timestamp_offset: Option<u32>,
+}
+
+impl RtpH264BufferItem {
+    pub fn new(
+        nal_units: Vec<NalUnit>,
+        rtp_header: RtpHeader,
+        decode_order_number: Option<u16>,
+        timestamp_offset: Option<u32>,
+        sps: Option<NalUnit>,
+        pps: Option<NalUnit>,
+    ) -> Self {
+        let is_idr = nal_units
+            .iter()
+            .any(|nal| nal.header.nal_unit_type == NALUType::IDRSlice);
+
+        Self {
+            nal_units,
+            is_idr,
+            sps: if is_idr { sps } else { None },
+            pps: if is_idr { pps } else { None },
+            rtp_header: rtp_header.clone(),
+            decode_order_number,
+            timestamp_offset,
+        }
+    }
+
+    pub fn merge(&mut self, other: Self) {
+        assert_eq!(self.rtp_header.timestamp, other.rtp_header.timestamp);
+        assert_eq!(self.timestamp_offset, other.timestamp_offset);
+        assert_eq!(self.decode_order_number, other.decode_order_number);
+
+        self.nal_units.extend(other.nal_units);
+        self.is_idr = self
+            .nal_units
+            .iter()
+            .any(|nal| matches!(nal.header.nal_unit_type, NALUType::IDRSlice));
+        if self.sps.is_none() {
+            self.sps = other.sps;
+        }
+        if self.pps.is_none() {
+            self.pps = other.pps;
+        }
+    }
 }
 
 const DEFAULT_BUFFER_CAPACITY: usize = 1000 * 1000;
@@ -41,12 +88,17 @@ pub struct RtpH264Sequencer {
     decoder_buffer: VecDeque<RtpH264BufferItem>,
     de_interleaving_buffer: Option<DeInterleavingBuffer>,
     fragments_buffer: Option<RtpH264FragmentsBuffer>,
+    timestamp_grouper: Option<TimestampGrouper>,
+    sps: Option<NalUnit>,
+    pps: Option<NalUnit>,
 }
 
 impl RtpH264Sequencer {
     pub fn new(
         packetization_mode: PacketizationMode,
         de_interleaving_parameters: RtpH264DeInterleavingParameters,
+        initial_sps: Option<Sps>,
+        initial_pps: Option<Pps>,
     ) -> Self {
         tracing::info!(
             "creating h264 rtp sequencer with: {}, {:?}",
@@ -68,10 +120,21 @@ impl RtpH264Sequencer {
             } else {
                 None
             },
+            timestamp_grouper: Some(TimestampGrouper::new()),
+            sps: initial_sps.map(|v| (&v).into()),
+            pps: initial_pps.map(|v| (&v).into()),
         }
     }
 
-    fn enqueue_decoder_buffer(&mut self, item: RtpH264BufferItem) -> RtpH264Result<()> {
+    fn enqueue_decoder_buffer(&mut self, mut item: RtpH264BufferItem) -> RtpH264Result<()> {
+        if let Some(timestamp_grouper) = self.timestamp_grouper.as_mut() {
+            let groupped = timestamp_grouper.enqueue(item)?;
+            if groupped.is_none() {
+                return Ok(());
+            }
+            item = groupped.unwrap();
+        }
+
         if self.decoder_buffer.len() >= self.buffer_capacity {
             let dropped = self.decoder_buffer.pop_front();
             tracing::warn!(
@@ -80,7 +143,19 @@ impl RtpH264Sequencer {
             );
         }
 
+        for nal in &item.nal_units {
+            if nal.header.nal_unit_type == NALUType::SPS {
+                self.sps = Some(nal.clone());
+            } else if nal.header.nal_unit_type == NALUType::PPS {
+                self.pps = Some(nal.clone());
+            } else if matches!(nal.header.nal_unit_type, NALUType::IDRSlice) {
+                item.sps = self.sps.clone();
+                item.pps = self.pps.clone();
+            }
+        }
+
         self.decoder_buffer.push_back(item);
+
         Ok(())
     }
 
@@ -90,14 +165,7 @@ impl RtpH264Sequencer {
             de_interleaving
                 .try_dump()
                 .into_iter()
-                .try_for_each(|item| {
-                    self.enqueue_decoder_buffer(RtpH264BufferItem {
-                        nal_unit: item.nal_unit,
-                        rtp_header: item.rtp_header,
-                        decode_order_number: Some(item.decode_order_number.unwrap()),
-                        timestamp_offset: item.timestamp_offset,
-                    })
-                })?;
+                .try_for_each(|item| self.enqueue_decoder_buffer(item))?;
         }
 
         Ok(())
@@ -108,26 +176,35 @@ impl RtpH264Sequencer {
         rtp_header: RtpHeader,
         packet: AggregationNalUnits,
     ) -> RtpH264Result<()> {
+        let _span = tracing::debug_span!(
+            "on_aggregated_packet",
+            rtp_sequence_number = rtp_header.sequence_number,
+            rtp_timestamp = rtp_header.timestamp,
+            rtp_payload_type = rtp_header.payload_type,
+        )
+        .entered();
         match packet {
             AggregationNalUnits::StapA(stap_a_packet) => {
-                stap_a_packet.nal_units.into_iter().try_for_each(|item| {
-                    self.enqueue_decoder_buffer(RtpH264BufferItem {
-                        nal_unit: item,
-                        rtp_header: rtp_header.clone(),
-                        decode_order_number: None,
-                        timestamp_offset: None,
-                    })
-                })?;
+                let item = RtpH264BufferItem::new(
+                    stap_a_packet.nal_units,
+                    rtp_header,
+                    None,
+                    None,
+                    None,
+                    None,
+                );
+                self.enqueue_decoder_buffer(item)?;
             }
             AggregationNalUnits::StapB(stap_b_packet) => {
-                stap_b_packet.nal_units.into_iter().try_for_each(|item| {
-                    self.enqueue_de_interleaving_buffer(RtpH264BufferItem {
-                        nal_unit: item,
-                        rtp_header: rtp_header.clone(),
-                        decode_order_number: Some(stap_b_packet.decode_order_number),
-                        timestamp_offset: None,
-                    })
-                })?;
+                let item = RtpH264BufferItem::new(
+                    stap_b_packet.nal_units,
+                    rtp_header,
+                    Some(stap_b_packet.decode_order_number),
+                    None,
+                    None,
+                    None,
+                );
+                self.enqueue_de_interleaving_buffer(item)?;
             }
             AggregationNalUnits::Mtap16(mtap16_packet) => {
                 mtap16_packet.nal_units.into_iter().try_for_each(|item| {
@@ -139,16 +216,19 @@ impl RtpH264Sequencer {
                         self.decode_order_number_cycles += 1;
                     }
 
-                    self.enqueue_de_interleaving_buffer(RtpH264BufferItem {
-                        nal_unit: item.nal_unit,
-                        rtp_header: rtp_header.clone(),
-                        decode_order_number: Some(
+                    let item = RtpH264BufferItem::new(
+                        vec![item.nal_unit],
+                        rtp_header.clone(),
+                        Some(
                             mtap16_packet
                                 .decode_order_number_base
                                 .wrapping_add(item.decode_order_number_diff as u16),
                         ),
-                        timestamp_offset: Some(item.timestamp_offset as u32),
-                    })
+                        Some(item.timestamp_offset as u32),
+                        None,
+                        None,
+                    );
+                    self.enqueue_de_interleaving_buffer(item)
                 })?;
             }
             AggregationNalUnits::Mtap24(mtap24_packet) => {
@@ -161,16 +241,19 @@ impl RtpH264Sequencer {
                         self.decode_order_number_cycles += 1;
                     }
 
-                    self.enqueue_de_interleaving_buffer(RtpH264BufferItem {
-                        nal_unit: item.nal_unit,
-                        rtp_header: rtp_header.clone(),
-                        decode_order_number: Some(
+                    let item = RtpH264BufferItem::new(
+                        vec![item.nal_unit],
+                        rtp_header.clone(),
+                        Some(
                             mtap24_packet
                                 .decode_order_number_base
                                 .wrapping_add(item.decode_order_number_diff as u16),
                         ),
-                        timestamp_offset: Some(item.timestamp_offset),
-                    })
+                        Some(item.timestamp_offset),
+                        None,
+                        None,
+                    );
+                    self.enqueue_de_interleaving_buffer(item)
                 })?;
             }
         }
@@ -183,7 +266,11 @@ impl RtpH264Sequencer {
         packet: FragmentedUnit,
     ) -> RtpH264Result<()> {
         if let Some(fragment_buffer) = &mut self.fragments_buffer {
-            let packet = fragment_buffer.enqueue((rtp_header, packet))?;
+            let fragment_item = RtpH264FragmentsBufferItem {
+                rtp_header,
+                fragment: packet,
+            };
+            let packet = fragment_buffer.enqueue(fragment_item)?;
             if let Some(packet) = packet {
                 if packet.decode_order_number.is_some() {
                     self.enqueue_de_interleaving_buffer(packet)?;
@@ -259,12 +346,8 @@ impl RtpH264Sequencer {
         let rtp_header = packet.header;
         match packet.payload {
             RtpH264NalUnit::SingleNalu(SingleNalUnit(nalu)) => {
-                self.enqueue_decoder_buffer(RtpH264BufferItem {
-                    nal_unit: nalu,
-                    rtp_header,
-                    decode_order_number: None,
-                    timestamp_offset: None,
-                })?;
+                let item = RtpH264BufferItem::new(vec![nalu], rtp_header, None, None, None, None);
+                self.enqueue_decoder_buffer(item)?;
             }
             RtpH264NalUnit::Aggregated(aggregation) => {
                 self.on_aggregated_packet(rtp_header, aggregation)?;
@@ -291,6 +374,7 @@ impl RtpBufferedSequencer for RtpH264Sequencer {
         let h264_packet: RtpH264Packet = packet
             .try_into()
             .map_err(|err| RtpError::H264SequenceFailed(format!("{}", err)))?;
+
         self.on_packet(h264_packet)
             .map_err(|err| RtpError::H264SequenceFailed(format!("{}", err)))?;
         Ok(())

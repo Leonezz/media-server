@@ -35,7 +35,7 @@ impl From<FrameType> for FrameTypeFLV {
             FrameType::CodedFrames => Self::InterFrame,
             FrameType::KeyFrame => Self::KeyFrame,
             FrameType::SequenceEnd => Self::InterFrame,
-            FrameType::SequenceStart => Self::InterFrame,
+            FrameType::SequenceStart => Self::KeyFrame,
         }
     }
 }

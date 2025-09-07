@@ -1,4 +1,3 @@
-#![feature(let_chains)]
 #![feature(if_let_guard)]
 use rtsp_formats::{consts::status::RtspStatus, response::RtspResponse};
 pub mod config;

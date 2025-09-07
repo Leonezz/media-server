@@ -1,3 +1,11 @@
+use super::{RtcpPacketSizeTrait, common_header::RtcpCommonHeader, payload_types::RtcpPayloadType};
+use crate::{
+    errors::{RtpError, RtpResult},
+    util::{
+        RtpPaddedPacketTrait,
+        padding::{rtp_get_padding_size, rtp_make_padding_bytes, rtp_need_padding},
+    },
+};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use num::ToPrimitive;
 use std::io::{self};
@@ -7,16 +15,6 @@ use utils::traits::{
     reader::{ReadFrom, ReadRemainingFrom},
     writer::WriteTo,
 };
-
-use crate::{
-    errors::{RtpError, RtpResult},
-    util::{
-        RtpPaddedPacketTrait,
-        padding::{rtp_get_padding_size, rtp_make_padding_bytes, rtp_need_padding},
-    },
-};
-
-use super::{RtcpPacketSizeTrait, common_header::RtcpCommonHeader, payload_types::RtcpPayloadType};
 
 // @see: RFC 3550 6.5 SDES: Source Description RTCP Packet
 ///         0                   1                   2                   3
@@ -164,7 +162,7 @@ pub struct SDESChunk {
 impl DynamicSizedPacket for SDESChunk {
     fn get_packet_bytes_count(&self) -> usize {
         let len = self.get_packet_bytes_count_without_padding();
-        if len % 4 == 0 {
+        if len.is_multiple_of(4) {
             len + 4
         } else {
             rtp_get_padding_size(len) + len

@@ -1,17 +1,15 @@
+use crate::{
+    UnifiedIO,
+    errors::{UnifiedIOError, UnifiedIOResult},
+};
+use futures::{Sink, Stream, ready};
 use std::{
     io::{self},
     net::SocketAddr,
     task::Poll,
 };
-
-use futures::{Sink, Stream, ready};
 use tokio::net::UdpSocket;
 use tokio_util::bytes::Bytes;
-
-use crate::{
-    UnifiedIO,
-    errors::{UnifiedIOError, UnifiedIOResult},
-};
 
 #[derive(Debug)]
 pub struct UdpIO {
@@ -47,7 +45,7 @@ impl UdpIO {
             match Self::new(local_addr, remote_addr).await {
                 Ok(io) => return Ok((port, io)),
                 Err(err) => {
-                    tracing::trace!("Failed to bind to port {}: {:?}", port, err);
+                    tracing::warn!("failed to bind to port {}: {:?}", port, err);
                 }
             }
         }

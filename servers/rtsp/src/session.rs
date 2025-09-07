@@ -65,19 +65,19 @@ pub struct RtspSession {
 }
 
 impl RtspMiddleware for RtspSession {
-    fn pre_request(&self, request: RtspRequest) -> RtspServerResult<RtspRequest> {
+    fn pre_request(&mut self, request: RtspRequest) -> RtspServerResult<RtspRequest> {
         self.middlewares
-            .iter()
+            .iter_mut()
             .try_fold(request, |req, mid| mid.pre_request(req))
     }
 
     fn pre_response(
-        &self,
+        &mut self,
         request: &RtspRequest,
         response: RtspResponse,
     ) -> RtspServerResult<RtspResponse> {
         self.middlewares
-            .iter()
+            .iter_mut()
             .try_fold(response, |res, mid| mid.pre_response(request, res))
     }
 }
@@ -97,9 +97,9 @@ impl RtspSession {
             session_id: None,
             timeout_ms: 60_000,
             media_sessions: Arc::new(RwLock::new(HashMap::new())),
-            middlewares: Vec::new(),
             stream_properities: Default::default(),
             runtime_handle: SessionRuntime::Unknown,
+            middlewares: vec![],
         }
     }
 
@@ -268,8 +268,7 @@ impl RtspSession {
             &self.stream_properities.stream_context,
         )
         .await;
-        if media_sender.is_err() {
-            let err = media_sender.unwrap_err();
+        if let Err(err) = media_sender {
             tracing::error!("rtsp stream publish to stream center failed: {}", err);
             return Err(err.into());
         }

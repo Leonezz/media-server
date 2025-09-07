@@ -1,13 +1,10 @@
-use std::{collections::VecDeque, time};
-
-use utils::traits::buffer::GenericSequencer;
-
+use super::{DEFAULT_BUFFER_CAPACITY, RtpH264BufferItem};
 use crate::{
     codec::h264::{paramters::RtpH264Fmtp, util::don_diff},
     errors::RtpError,
 };
-
-use super::{DEFAULT_BUFFER_CAPACITY, RtpH264BufferItem};
+use std::{collections::VecDeque, time};
+use utils::traits::buffer::GenericSequencer;
 
 #[derive(Debug, Default)]
 pub struct RtpH264DeInterleavingParameters {
@@ -17,8 +14,8 @@ pub struct RtpH264DeInterleavingParameters {
     pub sprop_max_don_diff: Option<u64>,
 }
 
-impl From<RtpH264Fmtp> for RtpH264DeInterleavingParameters {
-    fn from(value: RtpH264Fmtp) -> Self {
+impl From<&RtpH264Fmtp> for RtpH264DeInterleavingParameters {
+    fn from(value: &RtpH264Fmtp) -> Self {
         Self {
             sprop_interleaving_depth: value.sprop_interleaving_depth.map(|v| v.into()),
             sprop_deint_buf_req: value.sprop_deint_buf_req,
@@ -168,10 +165,6 @@ impl GenericSequencer for DeInterleavingBuffer {
             if self.buffer.is_empty() {
                 break;
             }
-            if self.buffer.len() as u64 > self.parameters.sprop_interleaving_depth.unwrap_or(1) {
-                result.push(self.try_pop_one().unwrap());
-                continue;
-            }
             if let Some(max_diff) = self.parameters.sprop_max_don_diff {
                 let max_abs_don_item = self.max_abs_don_item().unwrap();
                 let mut prev_index = Some(0);
@@ -192,10 +185,16 @@ impl GenericSequencer for DeInterleavingBuffer {
                 }
 
                 if let Some(index) = prev_index {
-                    result.push(self.buffer.remove(index).unwrap().1);
+                    let pop_item = self.buffer.remove(index).unwrap().1;
+                    result.push(pop_item);
                     self.calculate_abs_don();
                 }
             }
+        }
+        while self.buffer.len() as u64 > self.parameters.sprop_interleaving_depth.unwrap_or(1) {
+            let pop_item = self.try_pop_one().unwrap();
+            result.push(pop_item);
+            continue;
         }
         if let Some(item) = result.last() {
             self.pdon = item.decode_order_number.unwrap() as u64;

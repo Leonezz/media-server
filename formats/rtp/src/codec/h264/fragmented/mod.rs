@@ -58,8 +58,8 @@ impl From<FUHeader> for u8 {
 impl From<u8> for FUHeader {
     fn from(value: u8) -> Self {
         Self {
-            start_bit: ((value >> 7) & 0b1) == 0b1,
-            end_bit: ((value >> 6) & 0b1) == 0b1,
+            start_bit: (value & 0x80) != 0,
+            end_bit: (value & 0x40) != 0,
             reserved_bit: ((value >> 5) & 0b1) == 0b1,
             nalu_type: value & 0b1_1111,
         }
@@ -135,7 +135,7 @@ impl<R: io::Read> ReadRemainingFrom<FuIndicator, R> for FUAPacket {
         Ok(Self {
             indicator,
             fu_header,
-            payload: Bytes::from(bytes),
+            payload: Bytes::from_owner(bytes),
         })
     }
 }
@@ -189,7 +189,7 @@ impl<R: io::Read> ReadRemainingFrom<FuIndicator, R> for FUBPacket {
             indicator,
             fu_header,
             decode_order_number,
-            payload: Bytes::from(bytes),
+            payload: Bytes::from_owner(bytes),
         })
     }
 }

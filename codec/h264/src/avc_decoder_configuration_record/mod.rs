@@ -1,11 +1,7 @@
 use num::ToPrimitive;
 use utils::traits::dynamic_sized_packet::{DynamicSizedBitsPacket, DynamicSizedPacket};
 
-use crate::{
-    pps::Pps,
-    sps::{Sps, chroma_format_idc::ChromaFormatIdc},
-    sps_ext::SpsExt,
-};
+use crate::{nalu::NalUnit, pps::Pps, sps::{chroma_format_idc::ChromaFormatIdc, Sps}, sps_ext::SpsExt};
 
 pub mod reader;
 pub mod writer;
@@ -30,6 +26,58 @@ pub struct SpsExtRelated {
     #[allow(unused)]
     num_of_sequence_parameter_ext: u8, // u(8)
     pub sequence_parameter_set_ext: Vec<ParameterSetInAvcDecoderConfigurationRecord<SpsExt>>,
+}
+
+impl SpsExtRelated {
+    pub fn builder() -> SpsExtRelatedBuilder {
+        SpsExtRelatedBuilder::default()
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct SpsExtRelatedBuilder {
+    chroma_format_idc: Option<ChromaFormatIdc>,
+    bit_depth_luma_minus8: Option<u8>,
+    bit_depth_chroma_minus8: Option<u8>,
+    sequence_parameter_set_ext: Vec<ParameterSetInAvcDecoderConfigurationRecord<SpsExt>>,
+}
+
+impl SpsExtRelatedBuilder {
+    pub fn chroma_format_idc(mut self, chroma_format_idc: ChromaFormatIdc) -> Self {
+        self.chroma_format_idc = Some(chroma_format_idc);
+        self
+    }
+
+    pub fn bit_depth_luma_minus8(mut self, bit_depth_luma_minus8: u8) -> Self {
+        self.bit_depth_luma_minus8 = Some(bit_depth_luma_minus8);
+        self
+    }
+
+    pub fn bit_depth_chroma_minus8(mut self, bit_depth_chroma_minus8: u8) -> Self {
+        self.bit_depth_chroma_minus8 = Some(bit_depth_chroma_minus8);
+        self
+    }
+
+    pub fn sequence_parameter_set_ext(
+        mut self,
+        sequence_parameter_set_ext: ParameterSetInAvcDecoderConfigurationRecord<SpsExt>,
+    ) -> Self {
+        self.sequence_parameter_set_ext.push(sequence_parameter_set_ext);
+        self
+    }
+
+    pub fn build(self) -> SpsExtRelated {
+        SpsExtRelated {
+            reserved_6_bits_1: 1,
+            chroma_format_idc: self.chroma_format_idc.unwrap_or(ChromaFormatIdc::Monochrome),
+            reserved_5_bits_1: 1,
+            bit_depth_luma_minus8: self.bit_depth_luma_minus8.unwrap_or(0),
+            _reserved_5_bits_1: 1,
+            bit_depth_chroma_minus8: self.bit_depth_chroma_minus8.unwrap_or(0),
+            num_of_sequence_parameter_ext: self.sequence_parameter_set_ext.len() as u8,
+            sequence_parameter_set_ext: self.sequence_parameter_set_ext,
+        }
+    }
 }
 
 impl DynamicSizedPacket for SpsExtRelated {
@@ -64,6 +112,64 @@ pub struct AvcDecoderConfigurationRecord {
     pub num_of_picture_parameter_sets: u8, // u(8)
     pub picture_parameter_sets: Vec<ParameterSetInAvcDecoderConfigurationRecord<Pps>>,
     pub sps_ext_related: Option<SpsExtRelated>,
+}
+
+impl From<(&Sps, &Pps)> for AvcDecoderConfigurationRecord {
+    fn from(value: (&Sps, &Pps)) -> Self {
+        let (sps, pps) = value;
+        let profile_idc = sps.profile_idc;
+        let sps_ext_related = match profile_idc {
+            100 | 110 | 122 | 144 => {
+                Some(
+                    SpsExtRelated::builder()
+                        .chroma_format_idc(
+                            sps
+                                .get_chroma_format_idc()
+                                .unwrap()
+                            )
+                        .bit_depth_chroma_minus8(
+                            sps
+                                .get_bit_depth_chroma_minus8()
+                                .unwrap()
+                                .to_u8()
+                                .unwrap()
+                            )
+                        .bit_depth_luma_minus8(
+                            sps
+                                .get_bit_depth_luma_minus8()
+                                .unwrap()
+                                .to_u8()
+                                .unwrap()
+                            )
+                            .build()
+                        )
+            }
+            _ => {
+                None
+            }
+        };
+
+        Self {
+            configuration_version: 1,
+            avc_profile_indication: profile_idc,
+            avc_level_indication: sps.level_idc,
+            profile_compatibility: 0, // TODO: fix this
+            length_size_minus_one: 3,
+            reserved_3_bits_1: 0b111,
+            reserved_6_bits_1: 0b111111,
+            num_of_sequence_parameter_sets: 1,
+            sequence_parameter_sets: {
+                let nalu: NalUnit = sps.into();
+                vec![ParameterSetInAvcDecoderConfigurationRecord { sequence_parameter_set_length: nalu.get_packet_bytes_count().to_u16().unwrap(), parameter_set: sps.clone() }]
+            },
+            num_of_picture_parameter_sets: 1,
+            picture_parameter_sets: {
+                let nalu: NalUnit = pps.into();
+                vec![ParameterSetInAvcDecoderConfigurationRecord { sequence_parameter_set_length: nalu.get_packet_bytes_count().to_u16().unwrap(), parameter_set: pps.clone() }]
+            },
+            sps_ext_related,
+        }
+    }
 }
 
 impl DynamicSizedPacket for AvcDecoderConfigurationRecord {

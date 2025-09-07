@@ -1,16 +1,17 @@
-use bitstream_io::BitWrite;
-use chroma_format_idc::ChromaFormatIdc;
-use tokio_util::bytes::Bytes;
-use utils::traits::{dynamic_sized_packet::DynamicSizedBitsPacket, writer::BitwiseWriteTo};
-
 use crate::{
+    errors::H264CodecError,
     exp_golomb::{find_se_bits_count, find_ue_bits_count},
     nalu::NalUnit,
     nalu_header::NaluHeader,
-    rbsp::rbsp_to_sodb,
     scaling_list::SeqScalingMatrix,
     vui::VuiParameters,
 };
+use bitstream_io::BitWrite;
+use chroma_format_idc::ChromaFormatIdc;
+use codec_bitstream::reader::BitstreamReader;
+use tokio_util::bytes::Bytes;
+use utils::traits::reader::BitwiseReadFrom;
+use utils::traits::{dynamic_sized_packet::DynamicSizedBitsPacket, writer::BitwiseWriteTo};
 
 pub mod chroma_format_idc;
 pub mod reader;
@@ -155,16 +156,30 @@ impl Sps {
         2_u64
             .checked_sub(self.frame_mbs_only_flag as u64)
             .and_then(|v| {
-                v.checked_mul(self.pic_height_in_map_units_minus1.checked_add(1).unwrap())
+                v.checked_mul(
+                    self.pic_height_in_map_units_minus1
+                        .checked_add(1)
+                        .and_then(|v| v.checked_mul(16))
+                        .unwrap(),
+                )
             })
-            .and_then(|v| v.checked_mul(16))
             .and_then(|v| {
-                v.checked_sub(self.frame_cropping.as_ref().map_or(0, |v| {
-                    v.frame_crop_top_offset
-                        .checked_add(v.frame_crop_bottom_offset)
-                        .and_then(|v| v.checked_mul(2))
-                        .unwrap()
-                }))
+                v.checked_sub(
+                    self.frame_cropping
+                        .as_ref()
+                        .map_or(0, |v| v.frame_crop_top_offset)
+                        .checked_mul(2)
+                        .unwrap(),
+                )
+            })
+            .and_then(|v| {
+                v.checked_sub(
+                    self.frame_cropping
+                        .as_ref()
+                        .map_or(0, |v| v.frame_crop_bottom_offset)
+                        .checked_mul(2)
+                        .unwrap(),
+                )
             })
             .unwrap()
     }
@@ -174,14 +189,40 @@ impl Sps {
             .checked_add(1)
             .and_then(|v| v.checked_mul(16))
             .and_then(|v| {
-                v.checked_sub(self.frame_cropping.as_ref().map_or(0, |v| {
-                    v.frame_crop_left_offset
-                        .checked_add(v.frame_crop_right_offset)
-                        .and_then(|v| v.checked_mul(2))
-                        .unwrap()
-                }))
+                v.checked_sub(
+                    self.frame_cropping
+                        .as_ref()
+                        .map_or(0, |v| v.frame_crop_left_offset)
+                        .checked_mul(2)
+                        .unwrap(),
+                )
+            })
+            .and_then(|v| {
+                v.checked_sub(
+                    self.frame_cropping
+                        .as_ref()
+                        .map_or(0, |v| v.frame_crop_right_offset)
+                        .checked_mul(2)
+                        .unwrap(),
+                )
             })
             .unwrap()
+    }
+
+    pub fn get_chroma_format_idc(&self) -> Option<ChromaFormatIdc> {
+        self.profile_idc_related
+            .as_ref()
+            .map(|v| v.chroma_format_idc)
+    }
+    pub fn get_bit_depth_luma_minus8(&self) -> Option<u64> {
+        self.profile_idc_related
+            .as_ref()
+            .map(|v| v.bit_depth_luma_minus8)
+    }
+    pub fn get_bit_depth_chroma_minus8(&self) -> Option<u64> {
+        self.profile_idc_related
+            .as_ref()
+            .map(|v| v.bit_depth_chroma_minus8)
     }
 }
 
@@ -243,7 +284,6 @@ impl From<&Sps> for NalUnit {
         value.write_to(writer.by_ref()).unwrap();
         writer.write_bit(true).unwrap();
         writer.byte_align().unwrap();
-        let bytes = rbsp_to_sodb(&bytes);
         Self {
             header: NaluHeader {
                 forbidden_zero_bit: false,
@@ -252,5 +292,19 @@ impl From<&Sps> for NalUnit {
             },
             body: Bytes::from_owner(bytes),
         }
+    }
+}
+
+impl TryFrom<&NalUnit> for Sps {
+    type Error = H264CodecError;
+
+    fn try_from(nalu: &NalUnit) -> Result<Self, Self::Error> {
+        if nalu.header.nal_unit_type != crate::nalu_type::NALUType::SPS {
+            return Err(H264CodecError::UnknownNaluType(
+                nalu.header.nal_unit_type.into(),
+            ));
+        }
+        let mut reader = BitstreamReader::new(&nalu.body);
+        Self::read_from(&mut reader)
     }
 }

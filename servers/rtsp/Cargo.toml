@@ -20,9 +20,14 @@ codec-h264 = { path = "../../codec/h264" }
 codec-common = { path = "../../codec/common" }
 stream-center = { path = "../../streamcenter" }
 num = "0.4.3"
-uuid = { version = "1.0", features = ["v7"] }
+uuid = { version = "1.11.0", features = [
+    "v7",
+    "fast-rng",
+    "macro-diagnostics",
+] }
 url = "2.5.4"
 chrono = "0.4.40"
+debug-tools = { path = "../../debug_tools" }
 
 [lints.clippy]
 uninlined_format_args = "allow"

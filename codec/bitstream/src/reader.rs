@@ -157,7 +157,7 @@ impl<'a> BitRead for BitstreamReader<'a> {
     }
 
     fn read_to_bytes<const SIZE: usize>(&mut self) -> io::Result<[u8; SIZE]> {
-        self.reader.read_to_bytes::<SIZE>()
+        self.reader.read_to()
     }
 
     fn read_to_vec(&mut self, bytes: usize) -> io::Result<Vec<u8>> {

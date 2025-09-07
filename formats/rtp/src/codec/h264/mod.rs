@@ -5,13 +5,13 @@ pub mod packet;
 pub mod paramters;
 pub mod single_nalu;
 pub(crate) mod util;
-use std::io;
-
+use crate::codec::h264::fragmented::FUHeader;
 use aggregation::{AggregationNalUnits, AggregationPacketType};
 use byteorder::ReadBytesExt;
 use errors::RtpH264Error;
 use fragmented::{FragmentedUnit, FuIndicator};
 use single_nalu::SingleNalUnit;
+use std::io;
 use utils::traits::{
     dynamic_sized_packet::DynamicSizedPacket,
     reader::{ReadFrom, ReadRemainingFrom},
@@ -39,12 +39,12 @@ impl TryFrom<u8> for PayloadStructureType {
     type Error = RtpH264Error;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value & 0x1F {
-            v if (1..=23).contains(&v) => Ok(Self::SingleNALUPacket(v)),
+            v if (1..=23).contains(&v) => Ok(Self::SingleNALUPacket(value)),
             v if (24..=27).contains(&v) => Ok(Self::AggregationPacket(
-                AggregationPacketType::try_from(v).unwrap(),
+                AggregationPacketType::try_from(value).unwrap(),
             )),
             v if v == 28 || v == 29 => Ok(Self::FragmentationUnit(value.try_into().unwrap())),
-            v => Err(RtpH264Error::InvalidH264PacketType(v)),
+            _ => Err(RtpH264Error::InvalidH264PacketType(value)),
         }
     }
 }
@@ -70,6 +70,20 @@ impl RtpH264NalUnit {
                 FragmentedUnit::FuA(packet) => packet.indicator.into(),
                 FragmentedUnit::FuB(packet) => packet.indicator.into(),
             },
+        }
+    }
+
+    pub fn is_fragmented(&self) -> bool {
+        matches!(self, Self::Fragmented(_))
+    }
+
+    pub fn fu_header(&self) -> Option<FUHeader> {
+        match self {
+            Self::Fragmented(f) => match f {
+                FragmentedUnit::FuA(fa) => Some(fa.fu_header),
+                FragmentedUnit::FuB(fb) => Some(fb.fu_header),
+            },
+            _ => None,
         }
     }
 }

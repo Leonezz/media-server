@@ -2,13 +2,11 @@ pub mod errors;
 pub mod packetization_mode;
 #[cfg(test)]
 mod test;
-
 use std::{fmt, str::FromStr};
-
 use base64::Engine;
 use codec_bitstream::reader::BitstreamReader;
 use codec_h264::{
-    avc_decoder_configuration_record::{AvcDecoderConfigurationRecord, ParameterSetInAvcDecoderConfigurationRecord}, nalu::NalUnit, nalu_type::NALUType, pps::Pps, sps::{chroma_format_idc::ChromaFormatIdc, Sps}
+    avc_decoder_configuration_record::{AvcDecoderConfigurationRecord, ParameterSetInAvcDecoderConfigurationRecord, SpsExtRelated}, nalu::NalUnit, nalu_type::NALUType, pps::Pps, sps::{chroma_format_idc::ChromaFormatIdc, Sps}
 };
 use errors::H264SDPError;
 use itertools::Itertools;
@@ -16,7 +14,6 @@ use num::ToPrimitive;
 use packetization_mode::PacketizationMode;
 use utils::traits::reader::{BitwiseReadFrom, BitwiseReadReaminingFrom, ReadFrom};
 use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
-
 
 #[derive(Debug, Clone)]
 pub struct SpropParameterSets {
@@ -120,10 +117,53 @@ impl TryFrom<&RtpH264Fmtp> for AvcDecoderConfigurationRecord {
         } else {
             vec![]
         };
+        let profile_idc = value.get_profile_idc().ok_or(H264SDPError::FmptToAvcDecoderConfigurationRecordError(format!("no profile_idc found: {:?}", value)))?;
+        let sps_ext_related = match profile_idc {
+            100 | 110 | 122 | 144 => {
+                Some(
+                    SpsExtRelated::builder()
+                        .chroma_format_idc(
+                            value
+                                .get_chroma_format_idc()
+                                .ok_or(
+                                    H264SDPError::FmptToAvcDecoderConfigurationRecordError(
+                                        format!("no chroma_format_idc found: {:?}", value)
+                                    )
+                                )?
+                            )
+                        .bit_depth_chroma_minus8(
+                            value
+                                .get_bit_depth_chroma_minus8()
+                                .ok_or(
+                                    H264SDPError::FmptToAvcDecoderConfigurationRecordError(
+                                        format!("no bit_depth_chroma_minus8 found: {:?}", value)
+                                    )
+                                )?
+                                .to_u8()
+                                .unwrap()
+                            )
+                        .bit_depth_luma_minus8(
+                            value
+                                .get_bit_depth_luma_minus8()
+                                .ok_or(
+                                    H264SDPError::FmptToAvcDecoderConfigurationRecordError(
+                                        format!("no bit_depth_luma_minus8 found: {:?}", value)
+                                    )
+                                )?
+                                .to_u8()
+                                .unwrap()
+                            )
+                            .build()
+                        )
+            }
+            _ => {
+                None
+            }
+        };
 
         Ok(Self {
             configuration_version: 1,
-            avc_profile_indication: value.get_profile_idc().ok_or(H264SDPError::FmptToAvcDecoderConfigurationRecordError(format!("no profile_idc found: {:?}", value)))?,
+            avc_profile_indication: profile_idc,
             avc_level_indication: value.get_level_idc().ok_or(H264SDPError::FmptToAvcDecoderConfigurationRecordError(format!("no level_idc found: {:?}", value)))?,
             profile_compatibility: value.get_profile_compatibility().ok_or(H264SDPError::FmptToAvcDecoderConfigurationRecordError(format!("no profile_compatibility found: {:?}", value)))?,
             length_size_minus_one: 3,
@@ -139,7 +179,7 @@ impl TryFrom<&RtpH264Fmtp> for AvcDecoderConfigurationRecord {
                 let nalu: NalUnit = p.into();
                 ParameterSetInAvcDecoderConfigurationRecord { sequence_parameter_set_length: nalu.get_packet_bytes_count().to_u16().unwrap(), parameter_set: p.clone() }
             }).collect(),
-            sps_ext_related: None,
+            sps_ext_related,
         })
     }
 }
@@ -191,6 +231,26 @@ impl RtpH264Fmtp {
         }
         if let Some(parameters) = self.sprop_parameter_sets.as_ref() && let Some(sps) = parameters.sps.as_ref() {
             return Some(sps.level_idc);
+        }
+        None
+    }
+
+    pub fn get_chroma_format_idc(&self) -> Option<ChromaFormatIdc> {
+        if let Some(params) = self.sprop_parameter_sets.as_ref() && let Some(sps) = params.sps.as_ref() {
+            return sps.get_chroma_format_idc();
+        }
+        None
+    }
+
+    pub fn get_bit_depth_chroma_minus8(&self) -> Option<u64> {
+        if let Some(params) = self.sprop_parameter_sets.as_ref() && let Some(sps) = params.sps.as_ref() {
+            return sps.get_bit_depth_chroma_minus8();
+        }
+        None
+    }
+    pub fn get_bit_depth_luma_minus8(&self) -> Option<u64> {
+        if let Some(params) = self.sprop_parameter_sets.as_ref() && let Some(sps) = params.sps.as_ref() {
+            return sps.get_bit_depth_luma_minus8();
         }
         None
     }
@@ -442,22 +502,24 @@ impl FromStr for RtpH264Fmtp {
                             format!("sprop-parameter-sets value decode as base64 failed: {}, err={}", item, err)
                         ))?;
 
+                        tracing::debug!("sprop-parameter-sets bytes: {:x?}", &bytes);
+
                         let nalu = NalUnit::read_from(&mut bytes.as_slice()).map_err(|err| H264SDPError::InvalidSpropLevelParameterSets(
                             format!("sprop-parameter-sets value parse as nalu failed: {}, err={}", item, err)
                         ))?;
                         let mut reader = BitstreamReader::new(&nalu.body);
                         match nalu.header.nal_unit_type {
                             NALUType::SPS => {
-                                result.sprop_parameter_sets.as_mut().unwrap().sps = Some(Sps::read_from(&mut reader).map_err(|err| {
+                                let sps = Sps::read_from(&mut reader).map_err(|err| {
                                     H264SDPError::InvalidSpropParameterSets(format!(
                                         "sprop-parameter-sets value parse as sps failed: {}, err={}",
                                         item, err
                                     ))
-                                })?);
+                                })?;
+                                result.sprop_parameter_sets.as_mut().unwrap().sps = Some(sps);
                             },
                             NALUType::PPS => {
-                                result.sprop_parameter_sets.as_mut().unwrap().pps = Some(
-                                    Pps::read_remaining_from(
+                                let pps = Pps::read_remaining_from(
                                         result.sprop_parameter_sets.as_ref().unwrap().sps
                                         .as_ref()
                                         .map_or(ChromaFormatIdc::Chroma420, 
@@ -470,8 +532,8 @@ impl FromStr for RtpH264Fmtp {
                                             "sprop-parameter-sets value parse as pps failed: {}, err={}",
                                             item, err
                                         ))
-                                    })?
-                                )
+                                    })?;
+                                result.sprop_parameter_sets.as_mut().unwrap().pps = Some(pps);
                             },
                             t => {
                                 return Err(H264SDPError::InvalidSpropParameterSets(

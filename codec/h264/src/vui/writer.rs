@@ -51,7 +51,7 @@ impl<W: BitWrite> BitwiseWriteTo<W> for AspectRatioInfo {
     type Error = H264CodecError;
     fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         let byte: u8 = self.aspect_ratio_idc.into();
-        writer.write::<8, _>(byte)?;
+        writer.write::<8, u8>(byte)?;
         if let Some(sar) = &self.aspect_ratio_info_extended_sar {
             sar.write_to(writer)?;
         }

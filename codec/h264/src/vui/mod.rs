@@ -8,6 +8,8 @@ use crate::{errors::H264CodecError, exp_golomb::find_ue_bits_count};
 pub mod hrd_parameters;
 pub mod reader;
 pub mod writer;
+#[cfg(test)]
+mod test_vui;
 
 #[derive(Debug, Clone, Copy)]
 pub struct AspectRatioInfoExtendedSAR {
@@ -245,37 +247,37 @@ impl DynamicSizedBitsPacket for BitstreamRestriction {
 #[derive(Debug, Clone)]
 pub struct VuiParameters {
     #[allow(unused)]
-    aspect_ratio_info_present_flag: bool, // u(1)
+    pub(crate) aspect_ratio_info_present_flag: bool, // u(1)
     /// if aspect_ratio_info_present_flag {
     pub aspect_ratio_info: Option<AspectRatioInfo>,
     /// }
     #[allow(unused)]
-    overscan_info_present_flag: bool, // u(1)
+    pub(crate) overscan_info_present_flag: bool, // u(1)
     /// if overscan_info_present_flag {
     pub overscan_appropriate_flag: Option<bool>, // u(1)
     /// }
     #[allow(unused)]
-    video_signal_type_present_flag: bool, // u(1)
+    pub(crate) video_signal_type_present_flag: bool, // u(1)
     // if video_signal_type_present_flag {
     pub video_signal_type: Option<VideoSignalType>,
     // }
     #[allow(unused)]
-    chroma_loc_info_present_flag: bool, // u(1)
+    pub(crate) chroma_loc_info_present_flag: bool, // u(1)
     /// if chroma_loc_info_present_flag {
     pub chroma_loc_info: Option<ChromaLocInfo>,
     /// }
     #[allow(unused)]
-    timing_info_present_flag: bool, // u(1)
+    pub(crate) timing_info_present_flag: bool, // u(1)
     /// if timing_info_present_flag {
     pub timing_info: Option<TimingInfo>,
     /// }
     #[allow(unused)]
-    nal_hrd_parameters_present_flag: bool, // u(1)
+    pub(crate) nal_hrd_parameters_present_flag: bool, // u(1)
     /// if nal_hrd_parameters_present_flag {
     pub nal_hrd_parameters: Option<HrdParameters>,
     /// }
     #[allow(unused)]
-    vcl_hrd_parameters_present_flag: bool, // u(1)
+    pub(crate) vcl_hrd_parameters_present_flag: bool, // u(1)
     /// if vcl_hrd_parameters_present_flag {
     pub vcl_hrd_parameters: Option<HrdParameters>,
     /// }
@@ -284,7 +286,7 @@ pub struct VuiParameters {
     /// }
     pub pic_struct_present_flag: bool, // u(1)
     #[allow(unused)]
-    bitstream_restriction_flag: bool, // u(1)
+    pub(crate) bitstream_restriction_flag: bool, // u(1)
     /// if bitstream_restriction_flag {
     pub bitstream_restriction: Option<BitstreamRestriction>,
     // }

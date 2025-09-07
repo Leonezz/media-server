@@ -1,14 +1,15 @@
-use rtsp_formats::{request::RtspRequest, response::RtspResponse};
-
 use crate::errors::RtspServerResult;
+use rtsp_formats::{request::RtspRequest, response::RtspResponse};
+pub mod file_dumpper;
 pub mod response_header_appender;
+
 pub trait RtspMiddleware {
-    fn pre_request(&self, request: RtspRequest) -> RtspServerResult<RtspRequest> {
+    fn pre_request(&mut self, request: RtspRequest) -> RtspServerResult<RtspRequest> {
         Ok(request)
     }
 
     fn pre_response(
-        &self,
+        &mut self,
         request: &RtspRequest,
         response: RtspResponse,
     ) -> RtspServerResult<RtspResponse> {

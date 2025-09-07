@@ -1,10 +1,7 @@
-use std::collections::VecDeque;
-
-use utils::traits::buffer::GenericSequencer;
-
-use crate::codec::mpeg4_generic::errors::RtpMpeg4Error;
-
 use super::RtpMpeg4GenericBufferItem;
+use crate::codec::mpeg4_generic::errors::RtpMpeg4Error;
+use std::{collections::VecDeque, time};
+use utils::traits::buffer::GenericSequencer;
 
 pub struct RtpMpeg4GenericDeInterleavingBuffer {
     de_interleaving_buffer_capacity: usize,
@@ -12,6 +9,7 @@ pub struct RtpMpeg4GenericDeInterleavingBuffer {
     buffer: VecDeque<RtpMpeg4GenericBufferItem>,
 
     next_au_index: u64,
+    last_packet_dumping_instant: Option<time::Instant>,
     initial_buffer_size: usize,
     initial_buffering: bool,
 }
@@ -24,6 +22,7 @@ impl RtpMpeg4GenericDeInterleavingBuffer {
             buffer: VecDeque::with_capacity(capacity),
             next_au_index: 0,
             initial_buffer_size,
+            last_packet_dumping_instant: None,
             initial_buffering: true,
         }
     }
@@ -103,11 +102,21 @@ impl GenericSequencer for RtpMpeg4GenericDeInterleavingBuffer {
         }
         while let Some((min_au_index, index)) = self.smallest_au_index_item_index() {
             if self.next_au_index < min_au_index {
-                tracing::debug!(
+                tracing::info!(
                     "interleaved rtp packets detected, waiting. expected au_index: {}, min au_index: {}",
                     self.next_au_index,
                     min_au_index
                 );
+                if let Some(last_dumping) = self.last_packet_dumping_instant
+                    && last_dumping.elapsed().as_millis() > 500
+                {
+                    tracing::warn!(
+                        "too long waited for interleaved rtp packet, dumping smallest au_index one: {}",
+                        min_au_index
+                    );
+                    result.push(self.buffer.remove(index).unwrap());
+                    self.next_au_index = min_au_index + 1;
+                }
                 break;
             }
             if self.next_au_index > min_au_index {
@@ -147,6 +156,9 @@ impl GenericSequencer for RtpMpeg4GenericDeInterleavingBuffer {
             );
         }
 
+        if !result.is_empty() {
+            self.last_packet_dumping_instant = Some(time::Instant::now());
+        }
         result
     }
 }

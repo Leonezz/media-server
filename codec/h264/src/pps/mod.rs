@@ -1,15 +1,17 @@
-use bitstream_io::BitWrite;
-use num::ToPrimitive;
-use tokio_util::bytes::Bytes;
-use utils::traits::{dynamic_sized_packet::DynamicSizedBitsPacket, writer::BitwiseWriteTo};
-
 use crate::{
+    errors::H264CodecError,
     exp_golomb::{find_se_bits_count, find_ue_bits_count},
     nalu::NalUnit,
     nalu_header::NaluHeader,
-    rbsp::rbsp_to_sodb,
     scaling_list::SeqScalingMatrix,
+    sps::chroma_format_idc::ChromaFormatIdc,
 };
+use bitstream_io::BitWrite;
+use codec_bitstream::reader::BitstreamReader;
+use num::ToPrimitive;
+use tokio_util::bytes::Bytes;
+use utils::traits::reader::BitwiseReadReaminingFrom;
+use utils::traits::{dynamic_sized_packet::DynamicSizedBitsPacket, writer::BitwiseWriteTo};
 
 pub mod reader;
 pub mod writer;
@@ -209,7 +211,6 @@ impl From<&Pps> for NalUnit {
         value.write_to(writer.by_ref()).unwrap();
         writer.write_bit(true).unwrap();
         writer.byte_align().unwrap();
-        let bytes = rbsp_to_sodb(&bytes);
         Self {
             header: NaluHeader {
                 forbidden_zero_bit: false,
@@ -218,5 +219,21 @@ impl From<&Pps> for NalUnit {
             },
             body: Bytes::from_owner(bytes),
         }
+    }
+}
+
+impl TryFrom<(ChromaFormatIdc, &NalUnit)> for Pps {
+    type Error = H264CodecError;
+
+    fn try_from(
+        (chroma_format_idc, nalu): (ChromaFormatIdc, &NalUnit),
+    ) -> Result<Self, Self::Error> {
+        if nalu.header.nal_unit_type != crate::nalu_type::NALUType::PPS {
+            return Err(H264CodecError::UnknownNaluType(
+                nalu.header.nal_unit_type.into(),
+            ));
+        }
+        let mut reader = BitstreamReader::new(&nalu.body);
+        Self::read_remaining_from(chroma_format_idc, &mut reader)
     }
 }

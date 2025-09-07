@@ -1,11 +1,10 @@
+use futures::{Sink, SinkExt, Stream, StreamExt};
 use std::{
     fmt::Debug,
     net::SocketAddr,
     pin::Pin,
     task::{Poll, ready},
 };
-
-use futures::{Sink, SinkExt, Stream, StreamExt};
 use tokio_util::{
     bytes::{Bytes, BytesMut},
     codec::{Decoder, Encoder},
@@ -80,10 +79,10 @@ where
         let pin = self.get_mut();
         pin.read_buffer.reserve(INITIAL_RD_CAPACITY);
         loop {
-            if pin.is_readable {
-                if let Some(frame) = pin.codec.decode_eof(&mut pin.read_buffer)? {
-                    return Poll::Ready(Some(Ok(frame)));
-                }
+            if pin.is_readable
+                && let Some(frame) = pin.codec.decode_eof(&mut pin.read_buffer)?
+            {
+                return Poll::Ready(Some(Ok(frame)));
             }
             pin.is_readable = false;
             pin.read_buffer.clear();

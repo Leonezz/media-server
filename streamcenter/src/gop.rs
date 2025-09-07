@@ -1,8 +1,4 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    io,
-};
-
+use crate::errors::{StreamCenterError, StreamCenterResult};
 use bitstream_io::{BitRead, BitWrite};
 use codec_aac::mpeg4_configuration::audio_specific_config::AudioSpecificConfig;
 use codec_common::{
@@ -23,7 +19,11 @@ use flv_formats::tag::{
     video_tag_header_info::VideoTagHeaderWithoutMultiTrack,
 };
 use num::ToPrimitive;
-use tokio_util::bytes::{Buf, Bytes, BytesMut};
+use std::{
+    collections::{HashMap, VecDeque},
+    io,
+};
+use tokio_util::bytes::{Buf, Bytes};
 use tracing::debug_span;
 use utils::traits::reader::ReadFrom;
 use utils::traits::writer::{BitwiseWriteTo, WriteTo};
@@ -31,8 +31,6 @@ use utils::traits::{
     dynamic_sized_packet::{DynamicSizedBitsPacket, DynamicSizedPacket},
     reader::BitwiseReadFrom,
 };
-
-use crate::errors::{StreamCenterError, StreamCenterResult};
 
 #[derive(Debug, Clone)]
 pub enum MediaFrame {
@@ -242,8 +240,8 @@ impl MediaFrame {
                 payload: _,
             } => {
                 let value = vec![
-                    amf_formats::amf0::string("@setDataFrame"),
-                    amf_formats::amf0::string("@onMetaData"),
+                    // amf_formats::amf0::string("@setDataFrame"),
+                    amf_formats::amf0::string("onMetaData"),
                     amf_formats::amf0::Value::ECMAArray(
                         on_meta_data.clone().map_or(vec![], |ref v| v.into()),
                     ),
@@ -841,6 +839,7 @@ impl GopQueue {
                 last_pts,
                 first_pts,
                 self.max_duration_ms,
+                gops_cnt = self.gops.len(),
                 self.total_frame_cnt,
                 self.max_frame_cnt
             );
@@ -852,8 +851,9 @@ impl GopQueue {
             );
             if let Some(gop) = dropped {
                 self.dropped_gops_cnt += 1;
-                self.dropped_video_cnt += gop.get_video_frame_cnt() as u64;
-                self.dropped_audio_cnt += gop.get_audio_frame_cnt() as u64;
+                self.dropped_video_cnt += gop.get_video_frame_cnt().to_u64().unwrap();
+                self.dropped_audio_cnt += gop.get_audio_frame_cnt().to_u64().unwrap();
+                self.total_frame_cnt -= gop.media_frames.len().to_u64().unwrap();
             }
         }
 

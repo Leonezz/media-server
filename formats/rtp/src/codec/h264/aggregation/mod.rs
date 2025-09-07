@@ -30,7 +30,7 @@ impl From<AggregationPacketType> for u8 {
 impl TryFrom<u8> for AggregationPacketType {
     type Error = RtpH264Error;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
+        match value & 0x1F {
             24 => Ok(Self::STAPA),
             25 => Ok(Self::STAPB),
             26 => Ok(Self::MTAP16),

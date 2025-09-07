@@ -3,9 +3,7 @@ use num::ToPrimitive;
 use tokio_util::bytes::Bytes;
 use utils::traits::{dynamic_sized_packet::DynamicSizedBitsPacket, writer::BitwiseWriteTo};
 
-use crate::{
-    exp_golomb::find_ue_bits_count, nalu::NalUnit, nalu_header::NaluHeader, rbsp::rbsp_to_sodb,
-};
+use crate::{exp_golomb::find_ue_bits_count, nalu::NalUnit, nalu_header::NaluHeader};
 
 pub mod reader;
 pub mod writer;
@@ -64,7 +62,6 @@ impl From<&SpsExt> for NalUnit {
         value.write_to(writer.by_ref()).unwrap();
         writer.write_bit(true).unwrap();
         writer.byte_align().unwrap();
-        let bytes = rbsp_to_sodb(&bytes);
         Self {
             header: NaluHeader {
                 forbidden_zero_bit: false,

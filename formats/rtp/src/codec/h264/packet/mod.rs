@@ -1,23 +1,19 @@
 pub mod builder;
 pub mod sequencer;
-
-use std::io;
-
+use super::{RtpH264NalUnit, errors::RtpH264Error};
+use crate::{
+    header::RtpHeader,
+    packet::RtpTrivialPacket,
+    util::{RtpPacketTrait, RtpPaddedPacketTrait, padding::rtp_need_padding},
+};
 use builder::RtpH264PacketBuilder;
+use std::io;
 use tokio_util::bytes::Buf;
 use utils::traits::{
     dynamic_sized_packet::DynamicSizedPacket,
     reader::{ReadFrom, ReadRemainingFrom},
     writer::WriteTo,
 };
-
-use crate::{
-    header::RtpHeader,
-    packet::RtpTrivialPacket,
-    util::{RtpPacketTrait, RtpPaddedPacketTrait, padding::rtp_need_padding},
-};
-
-use super::{RtpH264NalUnit, errors::RtpH264Error};
 
 #[derive(Debug)]
 pub struct RtpH264Packet {
@@ -80,7 +76,8 @@ impl<R: io::Read> ReadRemainingFrom<RtpHeader, R> for RtpH264Packet {
 impl TryFrom<RtpTrivialPacket> for RtpH264Packet {
     type Error = RtpH264Error;
     fn try_from(value: RtpTrivialPacket) -> Result<Self, Self::Error> {
-        Self::read_remaining_from(value.header, &mut value.payload.reader())
+        let result = Self::read_remaining_from(value.header, &mut value.payload.reader())?;
+        Ok(result)
     }
 }
 

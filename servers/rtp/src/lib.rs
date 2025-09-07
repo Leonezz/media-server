@@ -1,4 +1,3 @@
-#![feature(let_chains)]
 pub mod channel;
 pub mod errors;
 pub mod participant;

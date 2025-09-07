@@ -1,4 +1,3 @@
-#![feature(let_chains)]
 pub mod codec;
 pub mod errors;
 pub mod header;

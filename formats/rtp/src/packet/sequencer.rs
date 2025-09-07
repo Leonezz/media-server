@@ -1,18 +1,4 @@
-use std::{cmp, collections::VecDeque};
-
-use codec_common::{
-    FrameType,
-    audio::{AudioCodecCommon, AudioFrameInfo, SoundInfoCommon},
-    video::VideoFrameInfo,
-};
-use codec_h264::nalu_type::NALUType;
-use num::ToPrimitive;
-use stream_center::gop::MediaFrame;
-use tokio_util::bytes::{BufMut, BytesMut};
-use utils::traits::{
-    buffer::GenericSequencer, dynamic_sized_packet::DynamicSizedPacket, writer::WriteTo,
-};
-
+use super::RtpTrivialPacket;
 use crate::{
     codec::{
         h264::packet::sequencer::RtpH264BufferItem,
@@ -21,8 +7,17 @@ use crate::{
     errors::RtpError,
     sequence_number::SequenceNumber,
 };
-
-use super::RtpTrivialPacket;
+use codec_common::{
+    FrameType,
+    audio::{AudioCodecCommon, AudioFrameInfo, SoundInfoCommon},
+    video::VideoFrameInfo,
+};
+use std::{cmp, collections::VecDeque};
+use stream_center::gop::MediaFrame;
+use tokio_util::bytes::{BufMut, BytesMut};
+use utils::traits::{
+    buffer::GenericSequencer, dynamic_sized_packet::DynamicSizedPacket, writer::WriteTo,
+};
 
 #[derive(Debug)]
 pub enum RtpBufferVideoItem {
@@ -81,23 +76,14 @@ impl RtpBufferItem {
         }
     }
 
-    pub fn get_video_nal_type(&self) -> Option<NALUType> {
-        match self {
-            Self::Video(video) => match video {
-                RtpBufferVideoItem::H264(h264) => Some(h264.nal_unit.header.nal_unit_type),
-            },
-            _ => None,
-        }
-    }
-
-    pub fn to_media_frame(&self, timestamp_base: u32, clock_rate: u32) -> MediaFrame {
-        let timestamp_nano = self
-            .get_timestamp()
-            .checked_sub(timestamp_base)
-            .and_then(|v| v.to_u64())
-            .and_then(|v| v.checked_mul(1_000_000_000)) // to nano seconds
-            .and_then(|v| v.checked_div(clock_rate.to_u64().unwrap()))
-            .unwrap();
+    pub fn to_media_frame(self, timestamp_base: u32, clock_rate: u32) -> MediaFrame {
+        let timestamp_nano = {
+            let timestamp_diff = self.get_timestamp().wrapping_sub(timestamp_base) as u64;
+            // Use 128-bit arithmetic to prevent overflow
+            let nano_ticks = (timestamp_diff as u128) * 1_000_000_000u128;
+            let result = nano_ticks / (clock_rate as u128);
+            result as u64 // Safe because result will be much smaller than u64::MAX
+        };
         match self {
             RtpBufferItem::Audio(audio) => match audio {
                 RtpBufferAudioItem::AAC(aac) => {
@@ -122,7 +108,26 @@ impl RtpBufferItem {
             },
             RtpBufferItem::Video(video) => match video {
                 RtpBufferVideoItem::H264(h264) => {
-                    let is_idr = h264.nal_unit.header.nal_unit_type == NALUType::IDRSlice;
+                    let is_idr = h264.is_idr;
+                    let mut nal_units = vec![];
+                    if is_idr {
+                        if let Some(sps) = h264.sps {
+                            nal_units.push(sps);
+                        }
+                        if let Some(pps) = h264.pps {
+                            nal_units.push(pps);
+                        }
+                    }
+                    if is_idr {
+                        tracing::debug!(
+                            "idr frame with {} nalus, idr_nalu size: {}",
+                            nal_units.len() + 1,
+                            h264.nal_units
+                                .iter()
+                                .fold(0, |prev, item| prev + item.body.len())
+                        );
+                    }
+                    nal_units.extend(h264.nal_units);
                     MediaFrame::Video {
                         frame_info: VideoFrameInfo {
                             codec_id: codec_common::video::VideoCodecCommon::AVC,
@@ -133,9 +138,7 @@ impl RtpBufferItem {
                             },
                             timestamp_nano,
                         },
-                        payload: codec_common::video::VideoFrameUnit::H264 {
-                            nal_units: vec![h264.nal_unit.clone()],
-                        },
+                        payload: codec_common::video::VideoFrameUnit::H264 { nal_units },
                     }
                 }
             },
@@ -226,7 +229,8 @@ impl GenericSequencer for RtpTrivialSequencer {
             self.next_sequence_number.set_round(0);
             self.next_sequence_number.set_number(min_seq);
             self.next_sequence_number.add_number(1);
-            result.push(self.buffer.remove(index).unwrap());
+            let item = self.buffer.remove(index).unwrap();
+            result.push(item);
         }
         while let Some((min_seq, index)) = self.smallest_sequence_number_item_index() {
             if self.next_sequence_number.number() < min_seq && self.buffer.len() < self.capacity / 4
@@ -253,8 +257,9 @@ impl GenericSequencer for RtpTrivialSequencer {
                 }
                 continue;
             }
+            let item = self.buffer.remove(index).unwrap();
             // here: min_seq = self.next_seqence_number
-            result.push(self.buffer.remove(index).unwrap());
+            result.push(item);
             self.next_sequence_number.set_number(min_seq);
             self.next_sequence_number.add_number(1);
         }
@@ -266,7 +271,9 @@ impl GenericSequencer for RtpTrivialSequencer {
                 "sequencer buffer overflow, dump smallest sequence number item: {}",
                 min_seq
             );
-            result.push(self.buffer.remove(index).unwrap());
+
+            let item = self.buffer.remove(index).unwrap();
+            result.push(item);
             self.next_sequence_number.set_number(min_seq);
             self.next_sequence_number.add_number(1);
         }

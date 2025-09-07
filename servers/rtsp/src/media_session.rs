@@ -4,7 +4,6 @@ use std::{
     pin::Pin,
     time::Duration,
 };
-
 use codec_common::audio::SoundInfoCommon;
 use codec_h264::avc_decoder_configuration_record::AvcDecoderConfigurationRecord;
 use futures::SinkExt;
@@ -14,10 +13,7 @@ use rtp_formats::{
         h264::{packet::sequencer::RtpH264Sequencer, paramters::RtpH264Fmtp},
         mpeg4_generic::{packet::sequencer::RtpMpeg4GenericSequencer, parameters::RtpMpeg4Fmtp},
     },
-    packet::{
-        RtpTrivialPacket,
-        sequencer::{RtpBufferedSequencer, RtpTrivialSequencer},
-    },
+    packet::{sequencer::{RtpBufferedSequencer, RtpTrivialSequencer}, RtpTrivialPacket},
     rtcp::RtcpPacket,
 };
 use rtp_session::{
@@ -32,7 +28,6 @@ use sdp_formats::{
     attributes::{SDPAttribute, fmtp::FormatParameters, rtpmap::RtpMap},
     session::{SDPBandwidthType, SDPMediaDescription, SDPMediaType},
 };
-
 use stream_center::gop::MediaFrame;
 use tokio::sync::mpsc::{Sender, error::TryRecvError};
 use tracing::{Instrument, Span};
@@ -40,7 +35,6 @@ use unified_io::{UnifiedIO, channel::ChannelIo, udp::UdpIO};
 use url::Url;
 use utils::traits::buffer::GenericSequencer;
 use uuid::Uuid;
-
 use crate::{
     SERVER_AGENT,
     errors::{RtspServerError, RtspServerResult},
@@ -238,7 +232,12 @@ impl RtspMediaSession {
                     ));
                 }
                 let unpacker =
-                    RtpH264Sequencer::new(h264_fmtp.packetization_mode.unwrap(), h264_fmtp.into());
+                    RtpH264Sequencer::new(
+                        h264_fmtp.packetization_mode.unwrap(), 
+                        (&h264_fmtp).into(), 
+                        h264_fmtp.sprop_parameter_sets.as_ref().and_then(|v| v.sps.clone()), 
+                        h264_fmtp.sprop_parameter_sets.as_ref().and_then(|v| v.pps.clone()),
+                    );
                 Ok(Box::new(unpacker))
             }
             "mpeg4-generic" => {
@@ -393,16 +392,11 @@ impl RtspMediaSession {
 
                 if let Some(unpacker) = &mut self.rtp_unpacker {
                     for packet in packets {
-                        match unpacker.enqueue(packet) {
-                            Err(err) => {
-                                tracing::error!(
-                                    "push new rtp packet to rtp sequencer failed with error: {}",
-                                    err
-                                );
-                            }
-                            Ok(()) => {
-                                tracing::trace!("push new rtp packet to rtp sequencer succeed");
-                            }
+                        if let Err(err) = unpacker.enqueue(packet) {
+                            tracing::error!(
+                                "push new rtp packet to rtp sequencer failed with error: {}",
+                                err
+                            );
                         }
                     }
                     let ready_packets = unpacker.try_dump();
@@ -447,14 +441,42 @@ impl RtspMediaSession {
                         }
                     }
                     for packet in ready_packets {
+                        // #[allow(clippy::single_match)]
                         // match &packet {
                         //     RtpBufferItem::Video(video_item) => {
                         //         if let RtpBufferVideoItem::H264(h264) = video_item {
-
+                        //             if let Some(sps) = h264.sps.as_ref() && let Some(pps) = h264.pps.as_ref() {
+                        //                 let sps = Sps::try_from(sps).unwrap();
+                        //                 let chroma_format_idc =  sps.profile_idc_related.as_ref().map(|v| v.chroma_format_idc);
+                        //                 let pps = Pps::try_from((chroma_format_idc.unwrap(), pps)).unwrap();
+                        //                 tracing::debug!("sps and pps are ready, sps: {:#?}, pps: {:#?}", sps, pps);
+                        //                 let h264_sequence_header = MediaFrame::VideoConfig {
+                        //                     timestamp_nano: 0,
+                        //                     config: Box::new(AvcDecoderConfigurationRecord::from((&sps, &pps)).into()),
+                        //                 };
+                        //                 match self.media_frame_sender.send(h264_sequence_header).await {
+                        //                     Ok(()) => {
+                        //                         tracing::info!("publish h264 video sequence header to stream center succeed");
+                        //                     }
+                        //                     Err(err) => {
+                        //                         tracing::error!(
+                        //                             "send h264 sequence header to stream center failed: {}",
+                        //                             err
+                        //                         );
+                        //                         return Err(RtspServerError::IoError(io::Error::other(format!(
+                        //                             "channel send h264 sequence header to stream center failed: {}",
+                        //                             err
+                        //                         ))));
+                        //                     }
+                        //                 }
+                        //             }
                         //         }
                         //     }
                         //     _ => {}
                         // }
+                        // tracing::debug!("got unpacked rtp media packet, rtp sequence number: {}, rtp timestamp: {}, timestamp_base: {}, packet type: {}", 
+                        // packet.get_sequence_number(), packet.get_timestamp(), self.first_rtp_packet_timestamp.unwrap(), packet.get_packet_type());
+
                         match self.media_frame_sender.send(packet.to_media_frame(self.first_rtp_packet_timestamp.unwrap(), self.rtp_clockrate)).await {
                             Ok(()) => {}
                             Err(err) => {

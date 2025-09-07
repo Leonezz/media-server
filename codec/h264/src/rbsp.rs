@@ -36,9 +36,13 @@ pub fn count_rbsp_bytes(value: &[u8]) -> usize {
         return value.len();
     }
     let mut extra: usize = 0;
-    for i in 2..value.len() {
+    let mut i = 2;
+    while i < value.len() {
         if value[i - 2..i] == [0, 0] && value[i] < 4 {
             extra += 1;
+            i += 2;
+        } else {
+            i += 1;
         }
     }
     extra.checked_add(value.len()).unwrap()
@@ -50,11 +54,12 @@ pub fn rbsp_to_sodb(value: &[u8]) -> Vec<u8> {
     }
     let mut result = Vec::with_capacity(value.len());
     result.extend_from_slice(&value[0..2]);
-    for i in 2..value.len() {
-        if value[i] < 4 && value[i - 2..i] == [0, 0] {
+    for v in &value[2..] {
+        let result_len = result.len();
+        if *v < 4 && result[result_len - 2..result_len] == [0, 0] {
             result.push(0x03);
         }
-        result.push(value[i]);
+        result.push(*v);
     }
     result
 }
@@ -63,21 +68,21 @@ pub fn need_escape(value: &[u8]) -> bool {
     value.windows(3).any(|v| v[2] < 4 && v[0..2] == [0, 0])
 }
 
-pub fn rbsp_extract(rbsp: &[u8]) -> Vec<u8> {
-    if rbsp.len() < 4 {
-        return Vec::from(rbsp);
+pub fn rbsp_extract(sodb: &[u8]) -> Vec<u8> {
+    if sodb.len() < 3 {
+        return Vec::from(sodb);
     }
-    let mut result = Vec::with_capacity(rbsp.len());
-    result.extend_from_slice(&rbsp[0..3]);
-    for i in 3..rbsp.len() {
-        if rbsp[i - 3..i] == [0, 0, 3] && rbsp[i] < 4 {
-            result.pop();
+    let mut result = Vec::with_capacity(sodb.len());
+    result.extend_from_slice(&sodb[0..2]);
+    for i in 2..sodb.len() {
+        if sodb[i - 2..=i] == [0, 0, 3] {
+            continue;
         }
-        result.push(rbsp[i]);
+        result.push(sodb[i]);
     }
     result
 }
 
 pub fn need_extract(rbsp: &[u8]) -> bool {
-    rbsp.windows(4).any(|v| v[3] < 4 && v[0..3] == [0, 0, 3])
+    rbsp.windows(3).any(|v| v[0..3] == [0, 0, 3])
 }

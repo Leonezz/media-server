@@ -1,5 +1,5 @@
 pub(crate) fn rtp_need_padding(size: usize) -> bool {
-    size % 4 != 0
+    !size.is_multiple_of(4)
 }
 
 pub(crate) fn rtp_get_padding_size(size: usize) -> usize {

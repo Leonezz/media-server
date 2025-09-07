@@ -8,7 +8,10 @@ use crate::{
 };
 use byteorder::ReadBytesExt;
 use tokio_util::bytes::Bytes;
-use utils::traits::reader::{ReadExactFrom, ReadFrom, ReadRemainingFrom};
+use utils::traits::{
+    reader::{ReadExactFrom, ReadFrom, ReadRemainingFrom},
+    writer::WriteTo,
+};
 
 /// read all the remaining bytes as body, the header was read ahead
 impl<R: io::Read> ReadRemainingFrom<NaluHeader, R> for NalUnit {
@@ -55,6 +58,8 @@ impl<R: io::Read> ReadFrom<R> for NalUnit {
         let header: NaluHeader = first_byte.try_into()?;
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes)?;
+        let mut raw_bytes = vec![first_byte];
+        raw_bytes.extend_from_slice(&bytes);
         if need_extract(&bytes) {
             bytes = rbsp_extract(&bytes);
         }

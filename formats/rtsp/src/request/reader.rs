@@ -1,12 +1,4 @@
-use std::{
-    io::{self, BufRead, Read},
-    str::FromStr,
-};
-
-use tokio_util::bytes::Buf;
-use url::Url;
-use utils::traits::reader::{ReadFrom, ReadRemainingFrom, TryReadFrom, TryReadRemainingFrom};
-
+use super::RtspRequest;
 use crate::{
     consts::{
         common::{CR_STR, LF, LF_STR, SPACE, SPACE_STR},
@@ -17,8 +9,13 @@ use crate::{
     header::{RtspHeader, RtspHeaders},
     util::TextReader,
 };
-
-use super::RtspRequest;
+use std::{
+    io::{self, BufRead, Read},
+    str::FromStr,
+};
+use tokio_util::bytes::Buf;
+use url::Url;
+use utils::traits::reader::{ReadFrom, ReadRemainingFrom, TryReadFrom, TryReadRemainingFrom};
 
 impl<R: io::BufRead> ReadRemainingFrom<RtspMethod, R> for RtspRequest {
     type Error = RtspMessageError;
@@ -148,11 +145,11 @@ impl<R: AsRef<[u8]>> TryReadFrom<R> for RtspRequest {
         let mut first_line = String::new();
         reader.fill_buf()?.read_line(&mut first_line)?;
 
-        if let Some((first_word, _)) = first_line.split_once(SPACE_STR) {
-            if let Ok(method) = RtspMethod::from_str(first_word) {
-                reader.consume(first_word.len());
-                return Self::try_read_remaining_from(method, reader.by_ref());
-            }
+        if let Some((first_word, _)) = first_line.split_once(SPACE_STR)
+            && let Ok(method) = RtspMethod::from_str(first_word)
+        {
+            reader.consume(first_word.len());
+            return Self::try_read_remaining_from(method, reader.by_ref());
         }
         Err(RtspMessageError::InvalidRtspMessageFormat(format!(
             "message is not rtsp request, first line: {}",
