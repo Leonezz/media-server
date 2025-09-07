@@ -7,5 +7,6 @@ members = [
     'app',
     'utils',
     "streamcenter",
+    "debug_tools",
 ]
 resolver = "3"

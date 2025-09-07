@@ -1,0 +1,21 @@
+[package]
+name = "debug-tools"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tracing = "0.1.41"
+utils = { path = "../utils" }
+bitstream-io = "4.0.0"
+serde_json = "1.0.133"
+serde = { version = "1.0.216", features = ["derive"] }
+[lints.clippy]
+uninlined_format_args = "allow"
+
+[dependencies.uuid]
+version = "1.11.0"
+features = [
+    "v7",                # Lets you generate random UUIDs
+    "fast-rng",          # Use a faster (but still sufficiently random) RNG
+    "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
+]
