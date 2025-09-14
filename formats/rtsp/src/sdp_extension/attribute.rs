@@ -69,6 +69,19 @@ impl TryFrom<&SDPTrivialAttribute> for RtspSDPControl {
     }
 }
 
+impl From<&RtspSDPControl> for SDPTrivialAttribute {
+    fn from(value: &RtspSDPControl) -> Self {
+        Self {
+            name: "control".to_string(),
+            value: Some((match value {
+                    RtspSDPControl::Absolute(url) => url.as_str(),
+                    RtspSDPControl::Relative(path) => path.as_str(),
+                    RtspSDPControl::Asterisk => "*",
+                }).to_string()),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Range(pub TimeRange);
 

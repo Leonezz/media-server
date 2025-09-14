@@ -1,12 +1,14 @@
-use std::io;
-
+use super::errors::RtpH264Error;
+use byteorder::WriteBytesExt;
 use mtap::{Mtap16Format, Mtap24Format};
 use stap::{StapAFormat, StapBFormat};
+use std::io;
 use utils::traits::{
-    dynamic_sized_packet::DynamicSizedPacket, reader::ReadRemainingFrom, writer::WriteTo,
+    dynamic_sized_packet::DynamicSizedPacket,
+    fixed_packet::FixedPacket,
+    reader::{ReadFrom, ReadRemainingFrom},
+    writer::WriteTo,
 };
-
-use super::errors::RtpH264Error;
 
 pub mod mtap;
 pub mod stap;
@@ -40,37 +42,75 @@ impl TryFrom<u8> for AggregationPacketType {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct AggregatedHeader {
+    pub forbidden_zero_bit: bool,
+    pub nal_ref_idc: u8,                       // 2 bits
+    pub aggregate_type: AggregationPacketType, // 5 bits
+}
+
+impl FixedPacket for AggregatedHeader {
+    fn bytes_count() -> usize {
+        1
+    }
+}
+
+impl TryFrom<u8> for AggregatedHeader {
+    type Error = RtpH264Error;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        let forbidden_zero_bit = ((value >> 7) & 0b1) == 0b1;
+        assert!(!forbidden_zero_bit);
+        let nal_ref_idc = (value >> 5) & 0b11;
+        let agg_type = value & 0b1_1111;
+        Ok(Self {
+            forbidden_zero_bit,
+            nal_ref_idc,
+            aggregate_type: agg_type.try_into()?,
+        })
+    }
+}
+
+impl From<AggregatedHeader> for u8 {
+    fn from(value: AggregatedHeader) -> Self {
+        assert!(!value.forbidden_zero_bit);
+        (value.nal_ref_idc << 5) | (Into::<u8>::into(value.aggregate_type))
+    }
+}
+
 #[derive(Debug)]
-pub enum AggregationNalUnits {
+pub enum AggregatedPayload {
     StapA(StapAFormat),
     StapB(StapBFormat),
     Mtap16(Mtap16Format),
     Mtap24(Mtap24Format),
 }
 
-impl<R: io::Read> ReadRemainingFrom<AggregationPacketType, R> for AggregationNalUnits {
+#[derive(Debug)]
+pub struct AggregationNalUnits {
+    pub header: AggregatedHeader,
+    pub payload: AggregatedPayload,
+}
+
+impl<R: io::Read> ReadRemainingFrom<AggregatedHeader, R> for AggregationNalUnits {
     type Error = RtpH264Error;
-    fn read_remaining_from(
-        header: AggregationPacketType,
-        reader: &mut R,
-    ) -> Result<Self, Self::Error> {
-        match header {
-            AggregationPacketType::STAPA => Ok(Self::StapA(StapAFormat::read_remaining_from(
-                header.into(),
-                reader,
-            )?)),
-            AggregationPacketType::STAPB => Ok(Self::StapB(StapBFormat::read_remaining_from(
-                header.into(),
-                reader,
-            )?)),
-            AggregationPacketType::MTAP16 => Ok(Self::Mtap16(Mtap16Format::read_remaining_from(
-                header.into(),
-                reader,
-            )?)),
-            AggregationPacketType::MTAP24 => Ok(Self::Mtap24(Mtap24Format::read_remaining_from(
-                header.into(),
-                reader,
-            )?)),
+    fn read_remaining_from(header: AggregatedHeader, reader: &mut R) -> Result<Self, Self::Error> {
+        match header.aggregate_type {
+            AggregationPacketType::STAPA => Ok(Self {
+                header,
+                payload: AggregatedPayload::StapA(StapAFormat::read_from(reader)?),
+            }),
+            AggregationPacketType::STAPB => Ok(Self {
+                header,
+                payload: AggregatedPayload::StapB(StapBFormat::read_from(reader)?),
+            }),
+            AggregationPacketType::MTAP16 => Ok(Self {
+                header,
+                payload: AggregatedPayload::Mtap16(Mtap16Format::read_from(reader)?),
+            }),
+            AggregationPacketType::MTAP24 => Ok(Self {
+                header,
+                payload: AggregatedPayload::Mtap24(Mtap24Format::read_from(reader)?),
+            }),
         }
     }
 }
@@ -78,22 +118,24 @@ impl<R: io::Read> ReadRemainingFrom<AggregationPacketType, R> for AggregationNal
 impl<W: io::Write> WriteTo<W> for AggregationNalUnits {
     type Error = RtpH264Error;
     fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
-        match self {
-            Self::StapA(packet) => packet.write_to(writer),
-            Self::StapB(packet) => packet.write_to(writer),
-            Self::Mtap16(packet) => packet.write_to(writer),
-            Self::Mtap24(packet) => packet.write_to(writer),
+        writer.write_u8(self.header.into())?;
+        match &self.payload {
+            AggregatedPayload::StapA(packet) => packet.write_to(writer),
+            AggregatedPayload::StapB(packet) => packet.write_to(writer),
+            AggregatedPayload::Mtap16(packet) => packet.write_to(writer),
+            AggregatedPayload::Mtap24(packet) => packet.write_to(writer),
         }
     }
 }
 
 impl DynamicSizedPacket for AggregationNalUnits {
     fn get_packet_bytes_count(&self) -> usize {
-        match self {
-            Self::StapA(packet) => packet.get_packet_bytes_count(),
-            Self::StapB(packet) => packet.get_packet_bytes_count(),
-            Self::Mtap16(packet) => packet.get_packet_bytes_count(),
-            Self::Mtap24(packet) => packet.get_packet_bytes_count(),
-        }
+        AggregatedHeader::bytes_count()
+            + match &self.payload {
+                AggregatedPayload::StapA(packet) => packet.get_packet_bytes_count(),
+                AggregatedPayload::StapB(packet) => packet.get_packet_bytes_count(),
+                AggregatedPayload::Mtap16(packet) => packet.get_packet_bytes_count(),
+                AggregatedPayload::Mtap24(packet) => packet.get_packet_bytes_count(),
+            }
     }
 }

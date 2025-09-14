@@ -1,11 +1,11 @@
-use std::io;
-
+use super::errors::HttpFlvSessionResult;
+use crate::routes::params::{AUDIO_ONLY_KEY, VIDEO_ONLY_KEY};
 use byteorder::{BigEndian, WriteBytesExt};
-
-use codec_common::video::VideoConfig;
+use codec_common::video::{H264VideoConfig, VideoConfig};
 use flv_formats::{header::FLVHeader, tag::flv_tag_header::FLVTagHeader};
 use num::ToPrimitive;
 use server_utils::stream_properities::StreamProperties;
+use std::io;
 use stream_center::{
     events::{StreamCenterEvent, SubscribeResponse},
     gop::MediaFrame,
@@ -17,10 +17,6 @@ use tokio_util::bytes::BytesMut;
 use utils::traits::fixed_packet::FixedPacket;
 use utils::traits::writer::WriteTo;
 use uuid::Uuid;
-
-use crate::routes::params::{AUDIO_ONLY_KEY, VIDEO_ONLY_KEY};
-
-use super::errors::HttpFlvSessionResult;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct HttpFlvSessionConfig {
@@ -140,12 +136,12 @@ impl HttpFlvSession {
         } = &frame
         {
             self.nalu_length_size = match config.as_ref() {
-                VideoConfig::H264 {
+                VideoConfig::H264(H264VideoConfig {
                     sps: _,
                     pps: _,
                     sps_ext: _,
                     avc_decoder_configuration_record,
-                } => avc_decoder_configuration_record
+                }) => avc_decoder_configuration_record
                     .as_ref()
                     .map(|v| v.length_size_minus_one.checked_add(1).unwrap()),
             }
@@ -180,11 +176,11 @@ impl HttpFlvSession {
     pub async fn subscribe_from_stream_center(&self) -> HttpFlvSessionResult<SubscribeResponse> {
         StreamCenter::subscribe(
             &self.stream_center_event_sender,
+            PlayProtocol::HTTPFLV,
             &StreamIdentifier {
                 stream_name: self.stream_properties.stream_name.clone(),
                 app: self.stream_properties.app.clone(),
             },
-            PlayProtocol::HTTPFLV,
             &self.stream_properties.stream_context,
         )
         .await

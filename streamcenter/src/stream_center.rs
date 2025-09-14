@@ -1,13 +1,3 @@
-use std::{backtrace::Backtrace, collections::HashMap, sync::Arc, time::SystemTime};
-
-use codec_common::{audio::AudioConfig, video::VideoConfig};
-use tokio::sync::{
-    RwLock,
-    mpsc::{self, Sender, UnboundedSender},
-    oneshot,
-};
-use uuid::Uuid;
-
 use crate::{
     errors::{StreamCenterError, StreamCenterResult},
     events::{StreamCenterEvent, StreamDescription, SubscribeResponse, SubscriberInfo},
@@ -18,6 +8,14 @@ use crate::{
         SubscribeHandler,
     },
 };
+use codec_common::{audio::AudioConfig, video::VideoConfig};
+use std::{backtrace::Backtrace, collections::HashMap, sync::Arc, time::SystemTime};
+use tokio::sync::{
+    RwLock,
+    mpsc::{self, Sender, UnboundedSender},
+    oneshot,
+};
+use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct StreamSourceDynamicInfo {
@@ -148,7 +146,9 @@ impl StreamCenter {
             publish_protocol: stream.publish_protocol,
             stream_id: stream._stream_identifier.clone(),
             video_config: dynamic_info.video_config.clone(),
+            has_video: dynamic_info.has_video,
             audio_conifg: dynamic_info.audio_config.clone(),
+            has_audio: dynamic_info.has_audio,
             publish_start_time: stream.publish_start_time,
             subscribers,
         };
@@ -500,8 +500,8 @@ impl StreamCenter {
 
     pub async fn subscribe(
         stream_center_event_sender: &UnboundedSender<StreamCenterEvent>,
-        stream_id: &StreamIdentifier,
         protocol: PlayProtocol,
+        stream_id: &StreamIdentifier,
         context: &HashMap<String, String>,
     ) -> StreamCenterResult<SubscribeResponse> {
         let (tx, rx) = oneshot::channel();

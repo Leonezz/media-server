@@ -40,14 +40,17 @@ impl VideoFrameInfo {
 }
 
 #[derive(Debug, Clone)]
+pub struct H264VideoConfig {
+    pub sps: Option<codec_h264::sps::Sps>,
+    pub pps: Option<codec_h264::pps::Pps>,
+    pub sps_ext: Option<codec_h264::sps_ext::SpsExt>,
+    pub avc_decoder_configuration_record:
+        Option<codec_h264::avc_decoder_configuration_record::AvcDecoderConfigurationRecord>,
+}
+
+#[derive(Debug, Clone)]
 pub enum VideoConfig {
-    H264 {
-        sps: Option<codec_h264::sps::Sps>,
-        pps: Option<codec_h264::pps::Pps>,
-        sps_ext: Option<codec_h264::sps_ext::SpsExt>,
-        avc_decoder_configuration_record:
-            Option<codec_h264::avc_decoder_configuration_record::AvcDecoderConfigurationRecord>,
-    },
+    H264(H264VideoConfig),
     // TODO
 }
 
@@ -62,7 +65,7 @@ impl From<AvcDecoderConfigurationRecord> for VideoConfig {
             .first()
             .map(|v| v.parameter_set.clone());
 
-        VideoConfig::H264 {
+        VideoConfig::H264(H264VideoConfig {
             sps,
             pps,
             sps_ext: value
@@ -72,7 +75,7 @@ impl From<AvcDecoderConfigurationRecord> for VideoConfig {
                 .unwrap_or_default()
                 .map(|v| v.parameter_set.clone()),
             avc_decoder_configuration_record: Some(value),
-        }
+        })
     }
 }
 

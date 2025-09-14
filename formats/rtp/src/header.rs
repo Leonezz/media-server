@@ -1,6 +1,5 @@
-use std::io::{self, Cursor};
-
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use std::io::{self, Cursor};
 use tokio_util::bytes::{Buf, Bytes};
 use utils::{
     system::time::get_timestamp_ms,
@@ -231,12 +230,16 @@ impl<W: io::Write> WriteTo<W> for RtpHeaderExtension {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct RtpHeaderBuilder {
     pub header: RtpHeader,
 }
 
 impl RtpHeaderBuilder {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
     pub fn version(&mut self, version: u8) -> &mut Self {
         self.header.version = version;
         self

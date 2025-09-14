@@ -7,6 +7,7 @@ pub struct MixQueue {
     pub video: VecDeque<MediaFrame>,
     pub audio: VecDeque<MediaFrame>,
     initial_buffering_frame_count: usize,
+    pure_av_max_frame_count: usize,
     max_video_frame_count: usize,
     max_audio_frame_count: usize,
 }
@@ -16,6 +17,7 @@ impl MixQueue {
         max_video_frame_count: usize,
         max_audio_frame_count: usize,
         initial_buffering_frame_count: usize,
+        pure_av_max_frame_count: usize,
     ) -> Self {
         Self {
             video: VecDeque::new(),
@@ -23,6 +25,7 @@ impl MixQueue {
             max_video_frame_count,
             max_audio_frame_count,
             initial_buffering_frame_count,
+            pure_av_max_frame_count,
         }
     }
 }
@@ -62,6 +65,12 @@ impl GenericSequencer for MixQueue {
     }
     fn try_dump(&mut self) -> Vec<Self::Out> {
         if self.video.len() + self.audio.len() < self.initial_buffering_frame_count {
+            return vec![];
+        }
+        if self.audio.is_empty() && self.video.len() < self.pure_av_max_frame_count {
+            return vec![];
+        }
+        if self.video.is_empty() && self.audio.len() < self.pure_av_max_frame_count {
             return vec![];
         }
         // after initial buffering

@@ -1,24 +1,23 @@
-use std::{
-    collections::HashMap,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+use crate::{
+    errors::{RtpSessionError, RtpSessionResult},
+    participant::RtpParticipant,
+    rtcp_observer::RtcpObserver,
+    rtp_observer::RtpObserver,
 };
-
 use num::ToPrimitive;
 use rtp_formats::rtcp::{
     RtcpPacket, RtcpPacketTrait, bye::RtcpByePacket, compound_packet::RtcpCompoundPacket,
     receiver_report::RtcpReceiverReport, sdes::RtcpSourceDescriptionPacket,
     sender_report::RtcpSenderReport,
 };
+use std::{
+    collections::HashMap,
+    ops::Mul,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 use utils::{
     random::{random_u32, uniform_random_f64},
     traits::dynamic_sized_packet::DynamicSizedPacket,
-};
-
-use crate::{
-    errors::{RtpSessionError, RtpSessionResult},
-    participant::RtpParticipant,
-    rtcp_observer::RtcpObserver,
-    rtp_observer::RtpObserver,
 };
 
 pub trait RtpSessionObserver: RtpObserver + RtcpObserver + Send + Sync {}
@@ -33,9 +32,7 @@ pub(crate) struct RtcpContext {
     avg_rtcp_size: u64,
     initial: bool,
     about_to_send_bye: bool,
-
     rtp_clockrate: u64,
-
     session_observers: Vec<Box<dyn RtpSessionObserver>>,
 }
 
@@ -138,9 +135,14 @@ impl RtpObserver for RtcpContext {
 }
 
 impl RtcpContext {
-    pub fn new(session_bandwidth: u64, rtp_clockrate: u64, cname: Option<String>) -> Self {
+    pub fn new(
+        session_bandwidth: u64,
+        rtp_clockrate: u64,
+        cname: Option<String>,
+        ssrc: u32,
+    ) -> Self {
         let mut ctx = RtcpContext {
-            ssrc: 0,
+            ssrc,
             tp: UNIX_EPOCH,
             tn: UNIX_EPOCH,
             pmembers: 0,
@@ -338,19 +340,13 @@ impl RtcpContext {
 
     fn generate_sender_report(
         &self,
+        rtp_timestamp: u32,
         current_timestamp: SystemTime,
     ) -> RtpSessionResult<RtcpSenderReport> {
         rtp_formats::rtcp::sender_report::RtcpSenderReport::builder()
             .ssrc(self.ssrc)
             .ntp(current_timestamp.into())
-            .rtp_timestamp(
-                current_timestamp
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis()
-                    .to_u32()
-                    .unwrap(),
-            ) // TODO: replace with rtp timestamp
+            .rtp_timestamp(rtp_timestamp) // TODO: replace with rtp timestamp
             .report_blocks(self.generate_report_blocks(current_timestamp))
             .build()
             .map_err(RtpSessionError::RtpFormatError)
@@ -397,20 +393,37 @@ impl RtcpContext {
         with_packets: Vec<RtcpPacket>,
     ) -> RtpSessionResult<RtcpCompoundPacket> {
         let mut builder = RtcpCompoundPacket::builder();
-        if self
-            .participants
-            .get(&self.ssrc)
-            .unwrap_or_else(|| {
-                panic!(
-                    "missing self in participants, something must be wrong, self ssrc: {}",
-                    self.ssrc
-                )
-            })
-            .is_sender()
-        {
-            builder = builder.packet(RtcpPacket::SenderReport(
-                self.generate_sender_report(current_timestamp)?,
-            ));
+        let participant_self = self.participants.get(&self.ssrc).unwrap_or_else(|| {
+            panic!(
+                "missing self in participants, something must be wrong, self ssrc: {}",
+                self.ssrc
+            )
+        });
+        if participant_self.is_sender() {
+            let first_rtp_sent_timestamp = participant_self.first_rtp_sent_timestamp();
+            let first_rtp_sent_timestamp_rtp = participant_self.first_rtp_sent_timestamp_rtp();
+            if let Some(first_rtp_sent_timestamp) = first_rtp_sent_timestamp
+                && let Some(first_rtp_sent_timestamp_rtp) = first_rtp_sent_timestamp_rtp
+            {
+                let rtp_timestamp = first_rtp_sent_timestamp_rtp
+                    .checked_add(
+                        (current_timestamp
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs_f64()
+                            - first_rtp_sent_timestamp
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap()
+                                .as_secs_f64())
+                        .mul(self.rtp_clockrate.to_f64().unwrap())
+                        .to_u32()
+                        .unwrap(),
+                    )
+                    .unwrap();
+                builder = builder.packet(RtcpPacket::SenderReport(
+                    self.generate_sender_report(rtp_timestamp, current_timestamp)?,
+                ));
+            }
         } else {
             builder = builder.packet(RtcpPacket::ReceiverReport(
                 self.generate_receiver_report(current_timestamp)?,

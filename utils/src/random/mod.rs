@@ -14,6 +14,10 @@ pub fn random_u32() -> u32 {
     rand::random::<u32>()
 }
 
+pub fn random_u16() -> u16 {
+    rand::random::<u16>()
+}
+
 pub fn random_u8() -> u8 {
     rand::random::<u8>()
 }

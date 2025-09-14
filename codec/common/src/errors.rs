@@ -13,5 +13,7 @@ pub enum CodecCommonError {
     ParseH264NaluFailed(#[from] codec_h264::errors::H264CodecError),
     #[error("write audio config failed: {0:?}, {1}")]
     WriteAudioConfigFailed(Box<AudioConfig>, String),
+    #[error("invalid sampling frequency index: {0}")]
+    InvalidSamplingFrequencyIndex(u8),
 }
 pub type CodecCommonResult<T> = Result<T, CodecCommonError>;

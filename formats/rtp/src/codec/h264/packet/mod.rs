@@ -1,4 +1,4 @@
-pub mod builder;
+pub mod packetizer;
 pub mod sequencer;
 use super::{RtpH264NalUnit, errors::RtpH264Error};
 use crate::{
@@ -6,9 +6,8 @@ use crate::{
     packet::RtpTrivialPacket,
     util::{RtpPacketTrait, RtpPaddedPacketTrait, padding::rtp_need_padding},
 };
-use builder::RtpH264PacketBuilder;
-use std::io;
-use tokio_util::bytes::Buf;
+use std::io::{self};
+use tokio_util::bytes::{Buf, Bytes};
 use utils::traits::{
     dynamic_sized_packet::DynamicSizedPacket,
     reader::{ReadFrom, ReadRemainingFrom},
@@ -19,12 +18,6 @@ use utils::traits::{
 pub struct RtpH264Packet {
     pub header: RtpHeader,
     pub payload: RtpH264NalUnit,
-}
-
-impl RtpH264Packet {
-    pub fn builder() -> RtpH264PacketBuilder {
-        Default::default()
-    }
 }
 
 impl DynamicSizedPacket for RtpH264Packet {
@@ -67,7 +60,6 @@ impl<R: io::Read> ReadRemainingFrom<RtpHeader, R> for RtpH264Packet {
                 header,
                 err
             );
-            panic!()
         })?;
         Ok(Self { header, payload })
     }
@@ -87,5 +79,17 @@ impl<W: io::Write> WriteTo<W> for RtpH264Packet {
         self.header.write_to(writer.by_ref())?;
         self.payload.write_to(writer.by_ref())?;
         Ok(())
+    }
+}
+
+impl TryInto<RtpTrivialPacket> for RtpH264Packet {
+    type Error = RtpH264Error;
+    fn try_into(self) -> Result<RtpTrivialPacket, Self::Error> {
+        let mut payload = Vec::with_capacity(1500);
+        self.payload.write_to(&mut payload)?;
+        Ok(RtpTrivialPacket {
+            header: self.header,
+            payload: Bytes::from_owner(payload),
+        })
     }
 }

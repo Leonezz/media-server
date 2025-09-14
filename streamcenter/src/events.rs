@@ -1,9 +1,3 @@
-use std::{collections::HashMap, time::SystemTime};
-
-use codec_common::{audio::AudioConfig, video::VideoConfig};
-use tokio::sync::{mpsc, oneshot};
-use uuid::Uuid;
-
 use crate::{
     errors::StreamCenterResult,
     gop::MediaFrame,
@@ -11,6 +5,10 @@ use crate::{
         ParsedContext, PlayProtocol, PlayStat, PublishProtocol, StreamIdentifier, SubscribeHandler,
     },
 };
+use codec_common::{audio::AudioConfig, video::VideoConfig};
+use std::{collections::HashMap, time::SystemTime};
+use tokio::sync::{mpsc, oneshot};
+use uuid::Uuid;
 
 #[derive(Debug)]
 pub enum StreamCenterEvent {
@@ -67,7 +65,9 @@ pub struct StreamDescription {
     pub publish_protocol: PublishProtocol,
     pub stream_id: StreamIdentifier,
     pub video_config: Option<VideoConfig>,
+    pub has_video: bool,
     pub audio_conifg: Option<AudioConfig>,
+    pub has_audio: bool,
     pub publish_start_time: SystemTime,
     pub subscribers: HashMap<Uuid, SubscriberInfo>,
 }

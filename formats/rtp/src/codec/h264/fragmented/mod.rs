@@ -85,6 +85,12 @@ pub struct FuIndicator {
     pub fu_type: FragmentationUnitPacketType, // 5 bits
 }
 
+impl FixedPacket for FuIndicator {
+    fn bytes_count() -> usize {
+        1
+    }
+}
+
 impl TryFrom<u8> for FuIndicator {
     type Error = RtpH264Error;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
@@ -152,7 +158,7 @@ impl<W: io::Write> WriteTo<W> for FUAPacket {
 
 impl DynamicSizedPacket for FUAPacket {
     fn get_packet_bytes_count(&self) -> usize {
-        1 // FU indicator
+        FuIndicator::bytes_count() // FU indicator
         + FUHeader::bytes_count()
         + self.payload.len()
     }

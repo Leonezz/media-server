@@ -125,20 +125,11 @@ impl Stream for UdpIO {
         let mut recv_slice = tokio::io::ReadBuf::new(&mut recv_buffer);
         match self.inner.poll_recv(cx, &mut recv_slice) {
             Poll::Ready(Ok(_)) => {
-                // Successfully received a datagram
                 let data = Bytes::copy_from_slice(recv_slice.filled());
                 Poll::Ready(Some(Ok(data)))
             }
-            Poll::Ready(Err(e)) => {
-                // Error receiving - Note: UDP doesn't typically have an "end of stream"
-                // unless the socket is closed for non-recoverable error.
-                // Returning Some(Err(e)) signals the error but keeps the stream potentially alive.
-                Poll::Ready(Some(Err(e)))
-            }
-            Poll::Pending => {
-                // No datagram ready
-                Poll::Pending
-            }
+            Poll::Ready(Err(e)) => Poll::Ready(Some(Err(e))),
+            Poll::Pending => Poll::Pending,
         }
     }
 }

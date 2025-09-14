@@ -1,10 +1,13 @@
 //! @see: RFC 8866 SDP: Session Description Protocol
+use crate::{
+    CRLF,
+    attributes::{SDPAttribute, fmtp::FormatParameters, rtpmap::RtpMap},
+    errors::SDPError,
+    reader::SessionDescriptionReader,
+};
 use std::{fmt, io, str::FromStr};
-
 use url::Url;
 use utils::traits::reader::ReadFrom;
-
-use crate::{CRLF, attributes::SDPAttribute, errors::SDPError, reader::SessionDescriptionReader};
 
 /// 5.1. Protocol Version ("v=")
 /// v=0
@@ -85,7 +88,7 @@ impl fmt::Display for SDPAddrType {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct SDPOrigin {
     pub user_name: String,
     pub session_id: u64,
@@ -218,7 +221,7 @@ impl fmt::Display for SDPBandWidthInformation {
 /// t=<start-time> <stop-time>
 /// 5.10. Repeat Times ("r=")
 /// r=<repeat interval> <active duration> <offsets from start-time>
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SDPRepeatTime {
     // in seconds
     pub interval: i64,
@@ -247,7 +250,7 @@ impl fmt::Display for SDPRepeatTime {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SDPTimeInformation {
     pub start_time: u64,
     pub stop_time: u64,
@@ -269,7 +272,7 @@ impl fmt::Display for SDPTimeInformation {
 
 /// 5.11. Time Zone Adjustment ("z=")
 /// z=<adjustment time> <offset> <adjustment time> <offset> ....
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SDPTimeZoneAdjustment {
     pub adjustment_time: i64,
     // in seconds
@@ -354,6 +357,15 @@ impl From<&str> for SDPMediaType {
 pub struct SDPRangedPort {
     pub port: u16,
     pub range: Option<u16>,
+}
+
+impl From<u16> for SDPRangedPort {
+    fn from(value: u16) -> Self {
+        SDPRangedPort {
+            port: value,
+            range: None,
+        }
+    }
 }
 
 impl fmt::Display for SDPRangedPort {
@@ -460,6 +472,27 @@ pub struct SDPMediaDescription {
     pub attributes: Vec<SDPAttribute>,
 }
 
+impl SDPMediaDescription {
+    pub fn get_rtp_map(&self) -> Option<RtpMap> {
+        self.attributes.iter().find_map(|attr| {
+            if let SDPAttribute::RtpMap(rtpmap) = attr {
+                Some(rtpmap.clone())
+            } else {
+                None
+            }
+        })
+    }
+    pub fn get_fmtp(&self) -> Option<FormatParameters> {
+        self.attributes.iter().find_map(|attr| {
+            if let SDPAttribute::Fmtp(fmtp) = attr {
+                Some(fmtp.clone())
+            } else {
+                None
+            }
+        })
+    }
+}
+
 impl fmt::Display for SDPMediaDescription {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.media_line)?;
@@ -482,7 +515,7 @@ impl fmt::Display for SDPMediaDescription {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Sdp {
     pub version: SDPVersion,
     pub origin: SDPOrigin,

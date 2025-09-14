@@ -17,6 +17,7 @@ rtp-formats = { path = "../../formats/rtp" }
 utils = { path = "../../utils" }
 server-utils = { path = "../utils" }
 codec-h264 = { path = "../../codec/h264" }
+codec-aac = { path = "../../codec/aac" }
 codec-common = { path = "../../codec/common" }
 stream-center = { path = "../../streamcenter" }
 num = "0.4.3"
@@ -28,6 +29,7 @@ uuid = { version = "1.11.0", features = [
 url = "2.5.4"
 chrono = "0.4.40"
 debug-tools = { path = "../../debug_tools" }
+scopeguard = "1.1"
 
 [lints.clippy]
 uninlined_format_args = "allow"

@@ -32,6 +32,13 @@ impl RtspServer {
                 Box::pin(TcpIO::new(tcp_stream)),
                 addr.to_owned(),
             )
+            .with_middleware(Box::new(middleware::file_dumpper::DialogFileDumpper::new(
+                format!(
+                    "./debug/rtsp-{}.log",
+                    chrono::Local::now().format("%Y%m%d-%H%M%S")
+                )
+                .as_str(),
+            )))
             .with_middleware(Box::new(
                 middleware::response_header_appender::ResponseHeaderAppender {},
             ));

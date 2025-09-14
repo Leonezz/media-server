@@ -1,5 +1,3 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use crate::{rtcp_observer::RtcpObserver, rtp_observer::RtpObserver};
 use num::ToPrimitive;
 use rtp_formats::{
@@ -9,7 +7,7 @@ use rtp_formats::{
     },
     sequence_number::SequenceNumber,
 };
-
+use std::time::{SystemTime, UNIX_EPOCH};
 use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
 
 #[derive(Debug, Clone)]
@@ -31,8 +29,10 @@ pub struct RtpParticipant {
     last_sr_timestamp_ntp: Option<SimpleNtp>,
     last_sr_timestamp: Option<SystemTime>,
 
+    first_rtp_sent_timestamp: Option<SystemTime>,
+    first_rtp_sent_timestamp_rtp: Option<u32>,
     last_rtp_sent_timestamp: Option<SystemTime>,
-    last_rtp_sent_timestamp_rtp: Option<u64>,
+    last_rtp_sent_timestamp_rtp: Option<u32>,
     last_rtp_interarrvial_jitter: u64,
     last_rtp_sent_rtcp_report_round: u64,
     last_rtcp_sent_timestamp: Option<SystemTime>,
@@ -146,8 +146,14 @@ impl RtpObserver for RtpParticipant {
                 .and_then(|v| v.to_u64())
                 .unwrap();
         }
-        self.last_rtp_sent_timestamp_rtp = Some(packet.header.timestamp.to_u64().unwrap());
+        self.last_rtp_sent_timestamp_rtp = Some(packet.header.timestamp);
         self.last_rtp_sent_timestamp = Some(timestamp);
+        if self.first_rtp_sent_timestamp.is_none() {
+            self.first_rtp_sent_timestamp = Some(timestamp);
+        }
+        if self.first_rtp_sent_timestamp_rtp.is_none() {
+            self.first_rtp_sent_timestamp_rtp = Some(packet.header.timestamp);
+        }
     }
 }
 
@@ -171,6 +177,8 @@ impl RtpParticipant {
             last_sr_timestamp_ntp: Default::default(),
             last_sr_timestamp: None,
 
+            first_rtp_sent_timestamp: None,
+            first_rtp_sent_timestamp_rtp: None,
             last_rtp_sent_timestamp: None,
             last_rtp_sent_timestamp_rtp: None,
             last_rtp_interarrvial_jitter: 0,
@@ -295,5 +303,13 @@ impl RtpParticipant {
 
     pub fn get_joined_timestamp(&self) -> SystemTime {
         self.joined_at
+    }
+
+    pub fn first_rtp_sent_timestamp(&self) -> Option<SystemTime> {
+        self.first_rtp_sent_timestamp
+    }
+
+    pub fn first_rtp_sent_timestamp_rtp(&self) -> Option<u32> {
+        self.first_rtp_sent_timestamp_rtp
     }
 }

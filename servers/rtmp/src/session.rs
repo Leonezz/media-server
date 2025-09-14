@@ -1,13 +1,11 @@
-use std::{
-    backtrace::Backtrace,
-    collections::HashMap,
-    io::{self, Cursor, Read},
-    sync::Arc,
-    time::SystemTime,
+use super::{
+    config::RtmpSessionConfig,
+    consts::{response_code, response_level},
+    errors::RtmpServerResult,
 };
-
+use crate::{chunk_stream::RtmpChunkStream, errors::RtmpServerError};
 use ::stream_center::{events::StreamCenterEvent, stream_source::StreamIdentifier};
-use codec_common::video::VideoConfig;
+use codec_common::video::{H264VideoConfig, VideoConfig};
 use flv_formats::tag::{
     FLVTag,
     flv_tag_body::FLVTagBodyWithFilter,
@@ -32,6 +30,13 @@ use server_utils::{
     runtime_handle::{PlayHandle, PublishHandle, SessionRuntime},
     stream_properities::StreamProperties,
 };
+use std::{
+    backtrace::Backtrace,
+    collections::HashMap,
+    io::{self, Cursor, Read},
+    sync::Arc,
+    time::SystemTime,
+};
 use stream_center::{
     events::SubscribeResponse,
     gop::MediaFrame,
@@ -55,14 +60,6 @@ use utils::{
     traits::reader::{ReadFrom, ReadRemainingFrom},
 };
 use uuid::Uuid;
-
-use crate::{chunk_stream::RtmpChunkStream, errors::RtmpServerError};
-
-use super::{
-    config::RtmpSessionConfig,
-    consts::{response_code, response_level},
-    errors::RtmpServerResult,
-};
 
 #[derive(Debug)]
 pub struct RtmpSession {
@@ -230,12 +227,12 @@ impl RtmpSession {
                         } = message
                         {
                             match config.as_ref() {
-                                VideoConfig::H264 {
+                                VideoConfig::H264(H264VideoConfig {
                                     sps: _,
                                     pps: _,
                                     sps_ext: _,
                                     avc_decoder_configuration_record,
-                                } => {
+                                }) => {
                                     self.video_nalu_size_length = avc_decoder_configuration_record
                                         .as_ref()
                                         .map(|v| v.length_size_minus_one.checked_add(1).unwrap());
@@ -532,12 +529,12 @@ impl RtmpSession {
             } = item
             {
                 match config.as_ref() {
-                    VideoConfig::H264 {
+                    VideoConfig::H264(H264VideoConfig {
                         sps: _,
                         pps: _,
                         sps_ext: _,
                         avc_decoder_configuration_record,
-                    } => {
+                    }) => {
                         if let Some(record) = avc_decoder_configuration_record {
                             self.video_nalu_size_length =
                                 Some(record.length_size_minus_one.checked_add(1).unwrap());
@@ -849,11 +846,11 @@ impl RtmpSession {
     async fn subscribe_from_stream_center(&self) -> RtmpServerResult<SubscribeResponse> {
         StreamCenter::subscribe(
             &self.stream_center_event_sender,
+            PlayProtocol::RTMP,
             &StreamIdentifier {
                 stream_name: self.stream_properties.stream_name.to_owned(),
                 app: self.stream_properties.app.to_owned(),
             },
-            PlayProtocol::RTMP,
             &self.stream_properties.stream_context,
         )
         .await

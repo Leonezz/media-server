@@ -1,11 +1,12 @@
+use super::errors::RtpH264Result;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use codec_h264::nalu::NalUnit;
+use num::ToPrimitive;
 use std::io::{self, Cursor, Read};
 use tokio_util::bytes::Buf;
+use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
 use utils::traits::reader::ReadExactFrom;
 use utils::traits::writer::WriteTo;
-
-use super::errors::RtpH264Result;
 
 fn read_aggregated_nal_units<
     R: io::Read,
@@ -68,7 +69,7 @@ pub fn write_aggregated_stap_nal_unit<W: io::Write>(
     writer: &mut W,
     nal_unit: &NalUnit,
 ) -> RtpH264Result<()> {
-    writer.write_u16::<BigEndian>(nal_unit.body.len() as u16 + 1)?;
+    writer.write_u16::<BigEndian>(nal_unit.get_packet_bytes_count().to_u16().unwrap())?;
     nal_unit.write_to(writer)?;
     Ok(())
 }
@@ -79,7 +80,7 @@ pub fn write_aggregated_mtap16_nal_unit<W: io::Write>(
     decode_order_number_diff: u8,
     timestamp_offset: u16,
 ) -> RtpH264Result<()> {
-    writer.write_u16::<BigEndian>(nal_unit.body.len() as u16 + 1 + 1 + 2)?;
+    writer.write_u16::<BigEndian>(nal_unit.get_packet_bytes_count() as u16 + 1 + 2)?;
     writer.write_u8(decode_order_number_diff)?;
     writer.write_u16::<BigEndian>(timestamp_offset)?;
     nal_unit.write_to(writer)?;
@@ -92,7 +93,7 @@ pub fn write_aggregated_mtap24_nal_unit<W: io::Write>(
     decode_order_number_diff: u8,
     timestamp_offset: u32,
 ) -> RtpH264Result<()> {
-    writer.write_u16::<BigEndian>(nal_unit.body.len() as u16 + 1 + 1 + 3)?;
+    writer.write_u16::<BigEndian>(nal_unit.get_packet_bytes_count() as u16 + 1 + 3)?;
     writer.write_u8(decode_order_number_diff)?;
     writer.write_u24::<BigEndian>(timestamp_offset)?;
     nal_unit.write_to(writer)?;

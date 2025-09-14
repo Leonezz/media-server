@@ -4,7 +4,7 @@ use codec_aac::mpeg4_configuration::audio_specific_config::AudioSpecificConfig;
 use codec_common::{
     FrameType,
     audio::{AudioCodecCommon, AudioConfig, AudioFrameInfo, SoundInfoCommon},
-    video::{VideoCodecCommon, VideoConfig, VideoFrameInfo, VideoFrameUnit},
+    video::{H264VideoConfig, VideoCodecCommon, VideoConfig, VideoFrameInfo, VideoFrameUnit},
 };
 use codec_h264::avc_decoder_configuration_record::AvcDecoderConfigurationRecord;
 use flv_formats::tag::{
@@ -102,11 +102,7 @@ impl MediaFrame {
                 frame_info,
                 payload: _,
             } => frame_info.timestamp_nano,
-            Self::AudioConfig {
-                timestamp_nano,
-                sound_info: _,
-                config: _,
-            } => *timestamp_nano,
+            Self::AudioConfig { timestamp_nano, .. } => *timestamp_nano,
             Self::Script {
                 timestamp_nano,
                 on_meta_data: _,
@@ -116,10 +112,7 @@ impl MediaFrame {
                 frame_info,
                 payload: _,
             } => frame_info.timestamp_nano,
-            Self::VideoConfig {
-                timestamp_nano,
-                config: _,
-            } => *timestamp_nano,
+            Self::VideoConfig { timestamp_nano, .. } => *timestamp_nano,
         }
     }
 
@@ -129,11 +122,7 @@ impl MediaFrame {
                 frame_info,
                 payload: _,
             } => &mut frame_info.timestamp_nano,
-            Self::AudioConfig {
-                timestamp_nano,
-                sound_info: _,
-                config: _,
-            } => timestamp_nano,
+            Self::AudioConfig { timestamp_nano, .. } => timestamp_nano,
             Self::Script {
                 timestamp_nano,
                 on_meta_data: _,
@@ -143,10 +132,7 @@ impl MediaFrame {
                 frame_info,
                 payload: _,
             } => &mut frame_info.timestamp_nano,
-            Self::VideoConfig {
-                timestamp_nano,
-                config: _,
-            } => timestamp_nano,
+            Self::VideoConfig { timestamp_nano, .. } => timestamp_nano,
         }
     }
 
@@ -316,6 +302,7 @@ impl MediaFrame {
             Self::VideoConfig {
                 timestamp_nano,
                 config,
+                ..
             } => {
                 let frame_info = VideoFrameInfo {
                     codec_id: config.as_ref().into(),
@@ -326,12 +313,12 @@ impl MediaFrame {
                 let _enter = span.enter();
                 let legacy_header: LegacyVideoTagHeader = (&frame_info).try_into()?;
                 match config.as_ref() {
-                    VideoConfig::H264 {
+                    VideoConfig::H264(H264VideoConfig {
                         sps: _,
                         pps: _,
                         sps_ext: _,
                         avc_decoder_configuration_record,
-                    } => {
+                    }) => {
                         if let Some(record) = avc_decoder_configuration_record {
                             let mut bytes = Vec::with_capacity(record.get_packet_bytes_count());
                             let mut writer = io::Cursor::new(&mut bytes);
@@ -742,8 +729,8 @@ impl Default for Gop {
 
 #[derive(Debug)]
 pub struct GopQueue {
-    pub video_config: Option<VideoConfig>,
-    pub audio_config: Option<(AudioConfig, SoundInfoCommon)>,
+    pub video_config: Option<VideoConfig>, // video config
+    pub audio_config: Option<(AudioConfig, SoundInfoCommon)>, // audio config, sound info
     pub script_frame: Option<MediaFrame>,
     pub gops: VecDeque<Gop>,
     total_frame_cnt: u64,
@@ -821,6 +808,20 @@ impl GopQueue {
         let span = tracing::trace_span!("gop cache append frame");
         let _enter = span.enter();
 
+        if frame.is_video()
+            && !frame.is_sequence_header()
+            && !frame.is_video_key_frame()
+            && self.get_video_frame_cnt() == 0
+            && self.max_duration_ms != 0
+            && self.max_frame_cnt != 0
+        {
+            tracing::warn!(
+                "first video frame not key frame, dropping. frame codec id: {:?}, timestamp: {}",
+                frame.video_codec_id(),
+                frame.get_timestamp_ns()
+            );
+            return Ok(());
+        }
         let first_pts = self
             .gops
             .front()

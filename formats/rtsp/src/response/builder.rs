@@ -29,6 +29,10 @@ impl RtspResponseBuilder {
         self
     }
 
+    pub fn ok(self) -> Self {
+        self.status(RtspStatus::OK)
+    }
+
     pub fn header<S: Into<String>>(mut self, key: RtspHeader, value: S) -> Self {
         self.headers.push(key, value.into());
         self

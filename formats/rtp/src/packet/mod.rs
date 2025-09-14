@@ -1,15 +1,6 @@
-pub mod builder;
 pub mod framed;
+pub mod packetizer;
 pub mod sequencer;
-use std::io::{self, Read};
-
-use builder::RtpTrivialPacketBuilder;
-
-use tokio_util::bytes::{Buf, Bytes};
-use utils::traits::{
-    dynamic_sized_packet::DynamicSizedPacket, reader::TryReadFrom, writer::WriteTo,
-};
-
 use crate::{
     errors::RtpError,
     header::RtpHeader,
@@ -17,6 +8,12 @@ use crate::{
         RtpPacketTrait, RtpPaddedPacketTrait,
         padding::{rtp_get_padding_size, rtp_make_padding_bytes, rtp_need_padding},
     },
+};
+use packetizer::RtpTrivialPacketBuilder;
+use std::io::{self, Read};
+use tokio_util::bytes::{Buf, Bytes};
+use utils::traits::{
+    dynamic_sized_packet::DynamicSizedPacket, reader::TryReadFrom, writer::WriteTo,
 };
 
 #[derive(Debug, Clone)]

@@ -25,14 +25,9 @@ impl GenericFragmentComposer for TimestampGrouper {
         let buffer = self.buffer.as_mut().unwrap();
         if packet.rtp_header.timestamp == buffer.rtp_header.timestamp {
             buffer.merge(packet);
-        } else if packet.rtp_header.timestamp > buffer.rtp_header.timestamp {
+        } else {
             let out = self.buffer.replace(packet);
             return Ok(out);
-        } else {
-            panic!(
-                "input packet rtp_header: {:?}, buffer rtp_header: {:?}",
-                packet.rtp_header, buffer.rtp_header
-            );
         }
         Ok(None)
     }

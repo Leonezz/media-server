@@ -76,7 +76,7 @@ impl RtpBufferItem {
         }
     }
 
-    pub fn to_media_frame(self, timestamp_base: u32, clock_rate: u32) -> MediaFrame {
+    pub fn to_media_frame(self, timestamp_base: u32, clock_rate: u64) -> MediaFrame {
         let timestamp_nano = {
             let timestamp_diff = self.get_timestamp().wrapping_sub(timestamp_base) as u64;
             // Use 128-bit arithmetic to prevent overflow
@@ -97,7 +97,7 @@ impl RtpBufferItem {
                             frame_type: FrameType::CodedFrames,
                             sound_info: SoundInfoCommon {
                                 sound_rate: codec_common::audio::SoundRateCommon::KHZ44,
-                                sound_size: codec_common::audio::SoundSizeCommon::Bit8,
+                                sound_size: codec_common::audio::SoundSizeCommon::Bit16,
                                 sound_type: codec_common::audio::SoundTypeCommon::Stereo,
                             },
                             timestamp_nano,
@@ -117,15 +117,6 @@ impl RtpBufferItem {
                         if let Some(pps) = h264.pps {
                             nal_units.push(pps);
                         }
-                    }
-                    if is_idr {
-                        tracing::debug!(
-                            "idr frame with {} nalus, idr_nalu size: {}",
-                            nal_units.len() + 1,
-                            h264.nal_units
-                                .iter()
-                                .fold(0, |prev, item| prev + item.body.len())
-                        );
                     }
                     nal_units.extend(h264.nal_units);
                     MediaFrame::Video {

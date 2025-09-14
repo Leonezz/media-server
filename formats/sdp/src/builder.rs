@@ -13,6 +13,14 @@ pub struct SdpBuilder {
     session_description: Sdp,
 }
 
+impl From<Sdp> for SdpBuilder {
+    fn from(value: Sdp) -> Self {
+        Self {
+            session_description: value,
+        }
+    }
+}
+
 impl SdpBuilder {
     pub fn new() -> Self {
         Self::default()
@@ -157,6 +165,10 @@ pub struct SdpMediaBuilder {
 impl SdpMediaBuilder {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn build(self) -> SDPMediaDescription {
+        self.media
     }
 
     pub fn media_type(mut self, media_type: SDPMediaType) -> Self {

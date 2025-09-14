@@ -1,4 +1,4 @@
-use crate::FrameType;
+use crate::{FrameType, errors::CodecCommonError};
 pub mod reader;
 pub mod writer;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,6 +29,33 @@ pub enum SoundRateCommon {
     KHZ22,
     KHZ44,
 }
+type AACSamplingFrequencyIndex = codec_aac::mpeg4_configuration::audio_specific_config::sampling_frequency_index::SamplingFrequencyIndex;
+impl TryFrom<AACSamplingFrequencyIndex> for SoundRateCommon {
+    type Error = CodecCommonError;
+    fn try_from(value: AACSamplingFrequencyIndex) -> Result<Self, Self::Error> {
+        match value {
+            AACSamplingFrequencyIndex::F96000 => Ok(Self::KHZ44),
+            AACSamplingFrequencyIndex::F88200 => Ok(Self::KHZ44),
+            AACSamplingFrequencyIndex::F64000 => Ok(Self::KHZ44),
+            AACSamplingFrequencyIndex::F48000 => Ok(Self::KHZ44),
+            AACSamplingFrequencyIndex::F44100 => Ok(Self::KHZ44),
+            AACSamplingFrequencyIndex::F32000 => Ok(Self::KHZ22),
+            AACSamplingFrequencyIndex::F24000 => Ok(Self::KHZ22),
+            AACSamplingFrequencyIndex::F22050 => Ok(Self::KHZ22),
+            AACSamplingFrequencyIndex::F16000 => Ok(Self::KHZ11),
+            AACSamplingFrequencyIndex::F12000 => Ok(Self::KHZ11),
+            AACSamplingFrequencyIndex::F11025 => Ok(Self::KHZ11),
+            AACSamplingFrequencyIndex::F8000 => Ok(Self::KHZ5D5),
+            AACSamplingFrequencyIndex::F7350 => Ok(Self::KHZ5D5),
+            AACSamplingFrequencyIndex::Reserved(v) => {
+                Err(CodecCommonError::InvalidSamplingFrequencyIndex(v))
+            }
+            AACSamplingFrequencyIndex::Escape => {
+                Err(CodecCommonError::InvalidSamplingFrequencyIndex(0xF))
+            }
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum SoundSizeCommon {
@@ -47,6 +74,30 @@ pub struct SoundInfoCommon {
     pub sound_rate: SoundRateCommon,
     pub sound_size: SoundSizeCommon,
     pub sound_type: SoundTypeCommon,
+}
+
+impl TryFrom<&codec_aac::mpeg4_configuration::audio_specific_config::AudioSpecificConfig>
+    for SoundInfoCommon
+{
+    type Error = CodecCommonError;
+    fn try_from(
+        value: &codec_aac::mpeg4_configuration::audio_specific_config::AudioSpecificConfig,
+    ) -> Result<Self, Self::Error> {
+        let sound_rate: SoundRateCommon = value.sampling_frequency_index.try_into()?;
+        let sound_type = if value.channel_configuration == 1 {
+            SoundTypeCommon::Mono
+        } else if value.channel_configuration == 0 {
+            tracing::warn!("channel configuration is 0, treat as stereo");
+            SoundTypeCommon::Stereo
+        } else {
+            SoundTypeCommon::Stereo
+        };
+        Ok(Self {
+            sound_rate,
+            sound_size: SoundSizeCommon::Bit16,
+            sound_type,
+        })
+    }
 }
 
 #[derive(Debug, Clone)]

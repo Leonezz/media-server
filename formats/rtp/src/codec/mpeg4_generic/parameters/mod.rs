@@ -1,8 +1,9 @@
-use std::{fmt, str::FromStr};
-
-use tokio_util::bytes::Bytes;
-
 use super::errors::{RtpMpeg4Error, RtpMpeg4Result};
+use bitstream_io::BitRead;
+use std::{fmt, str::FromStr};
+use tokio_util::bytes::Bytes;
+use utils::traits::writer::BitwiseWriteTo;
+use utils::{bytes::bytes_to_hex, traits::reader::BitwiseReadFrom};
 
 pub mod reader;
 pub mod stream_type;
@@ -50,12 +51,10 @@ impl fmt::Display for Mode {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct RtpMpeg4Fmtp {
     pub profile_level_id: u16,
     pub config: Bytes,
-    pub aac_audio_specific_config:
-        Option<codec_aac::mpeg4_configuration::audio_specific_config::AudioSpecificConfig>,
     pub mode: Mode,
     pub object_type: Option<u8>,
     pub constant_size: Option<u64>, // The sizeLength and the constantSize parameters MUST NOT be simultaneously present.
@@ -70,6 +69,31 @@ pub struct RtpMpeg4Fmtp {
     pub random_access_indication: Option<bool>, // default to false
     pub stream_state_indication: Option<u64>, // SHALL NOT be present for MPEG-4 audio and MPEG-4 video streams
     pub auxiliary_data_size_length: Option<u64>,
+}
+
+impl Default for RtpMpeg4Fmtp {
+    fn default() -> Self {
+        let mut params = Self {
+            profile_level_id: 0,
+            config: Bytes::new(),
+            mode: Mode::AAChbr,
+            object_type: None,
+            constant_size: None,
+            constant_duration: None,
+            max_displacement: None,
+            de_interleave_buffer_size: None,
+            size_length: None,
+            index_length: None,
+            index_delta_length: None,
+            cts_delta_length: None,
+            dts_delta_length: None,
+            random_access_indication: None,
+            stream_state_indication: None,
+            auxiliary_data_size_length: None,
+        };
+        params.reset_default();
+        params
+    }
 }
 
 impl RtpMpeg4Fmtp {
@@ -217,5 +241,35 @@ impl RtpMpeg4Fmtp {
             ));
         }
         Ok(())
+    }
+}
+
+impl TryFrom<&RtpMpeg4Fmtp>
+    for codec_aac::mpeg4_configuration::audio_specific_config::AudioSpecificConfig
+{
+    type Error = RtpMpeg4Error;
+    fn try_from(value: &RtpMpeg4Fmtp) -> Result<Self, Self::Error> {
+        let mut reader = codec_bitstream::reader::BitstreamReader::new(&value.config);
+        Ok(
+            codec_aac::mpeg4_configuration::audio_specific_config::AudioSpecificConfig::read_from(
+                reader.by_ref(),
+            )?,
+        )
+    }
+}
+
+impl TryFrom<&codec_aac::mpeg4_configuration::audio_specific_config::AudioSpecificConfig>
+    for RtpMpeg4Fmtp
+{
+    type Error = RtpMpeg4Error;
+    fn try_from(
+        value: &codec_aac::mpeg4_configuration::audio_specific_config::AudioSpecificConfig,
+    ) -> Result<Self, Self::Error> {
+        let mut result = Self::default();
+        let mut config = vec![];
+        let mut writer = bitstream_io::BitWriter::endian(&mut config, bitstream_io::BigEndian);
+        value.write_to(&mut writer)?;
+        result.config = Bytes::from_owner(bytes_to_hex(&config));
+        Ok(result)
     }
 }

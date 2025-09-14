@@ -5,6 +5,7 @@ mod test;
 use std::{fmt, str::FromStr};
 use base64::Engine;
 use codec_bitstream::reader::BitstreamReader;
+use codec_common::video::H264VideoConfig;
 use codec_h264::{
     avc_decoder_configuration_record::{AvcDecoderConfigurationRecord, ParameterSetInAvcDecoderConfigurationRecord, SpsExtRelated}, nalu::NalUnit, nalu_type::NALUType, pps::Pps, sps::{chroma_format_idc::ChromaFormatIdc, Sps}
 };
@@ -33,6 +34,22 @@ pub struct RtpH264FmtpProfileLevelId {
     pub constraint_set5_flag: bool,
     pub reserved_zero_2bits: u8, // 2 bits
     pub level_idc: u8
+}
+
+impl From<&codec_h264::sps::Sps> for RtpH264FmtpProfileLevelId {
+    fn from(value: &codec_h264::sps::Sps) -> Self {
+        Self { 
+            profile_idc: value.profile_idc,
+            constraint_set0_flag: value.constraint_set0_flag,
+            constraint_set1_flag: value.constraint_set1_flag,
+            constraint_set2_flag: value.constraint_set2_flag,
+            constraint_set3_flag: value.constraint_set3_flag,
+            constraint_set4_flag: value.constraint_set4_flag,
+            constraint_set5_flag: value.constraint_set5_flag,
+            reserved_zero_2bits: value.reserved_zero_2bits,
+            level_idc: value.level_idc
+        }
+    }
 }
 
 impl From<[u8; 3]> for RtpH264FmtpProfileLevelId {
@@ -102,6 +119,72 @@ pub struct RtpH264Fmtp {
     pub sprop_parameter_sets: Option<SpropParameterSets>,
     pub sprop_level_parameter_sets: Vec<([u8; 3], Vec<String>)>,
     pub unknown: Vec<String>,
+}
+
+#[derive(Default)]
+pub struct RtpH264FmtpBuilder(RtpH264Fmtp);
+
+impl RtpH264FmtpBuilder {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn sps(mut self, sps: codec_h264::sps::Sps) -> Self {
+        if self.0.sprop_parameter_sets.is_none() {
+            self.0.sprop_parameter_sets = Some(SpropParameterSets { raw: vec![], sps: None, pps: None })
+        }
+        
+        let nalu: NalUnit = (&sps).into();
+        let bytes = utils::bytes::writable_to_bytes(&nalu).unwrap();
+        let base64_str = base64::prelude::BASE64_STANDARD.encode(bytes);
+        self.0.sprop_parameter_sets.as_mut().unwrap().raw.push(base64_str);
+        self.0.profile_level_id = Some(RtpH264FmtpProfileLevelId::from(&sps));
+        // TODO: sprop_level_parameter_sets ?
+        self.0.sprop_parameter_sets.as_mut().unwrap().sps = Some(sps);
+        self
+    }
+
+    pub fn pps(mut self, pps: codec_h264::pps::Pps) -> Self {
+        if self.0.sprop_parameter_sets.is_none() {
+            self.0.sprop_parameter_sets = Some(SpropParameterSets { raw: vec![], sps: None, pps: None });
+        }
+
+        let nalu: NalUnit = (&pps).into();
+        let bytes = utils::bytes::writable_to_bytes(&nalu).unwrap();
+        let base64_str = base64::prelude::BASE64_STANDARD.encode(bytes);
+        self.0.sprop_parameter_sets.as_mut().unwrap().raw.push(base64_str);
+        self.0.sprop_parameter_sets.as_mut().unwrap().pps = Some(pps);
+        self
+    }
+
+    pub fn max_recv_level(mut self, value: [u8; 2]) -> Self {
+        self.0.max_recv_level = Some(value);
+        self
+    }
+
+    pub fn packetization_mode(mut self, mode: PacketizationMode) -> Self {
+        self.0.packetization_mode = Some(mode);
+        self
+    }
+
+    pub fn sprop_deint_buf_req(mut self, req: u64) -> Self {
+        self.0.sprop_deint_buf_req = Some(req);
+        self
+    }
+
+    pub fn sprop_interleaving_depth(mut self, depth: u16) -> Self {
+        self.0.sprop_interleaving_depth = Some(depth);
+        self
+    }
+
+    pub fn sprop_max_don_diff(mut self, diff: u16) -> Self {
+        self.0.sprop_max_don_diff = Some(diff);
+        self
+    }
+
+    pub fn build(self) -> RtpH264Fmtp {
+        self.0
+    }
 }
 
 impl TryFrom<&RtpH264Fmtp> for AvcDecoderConfigurationRecord {
@@ -181,6 +264,19 @@ impl TryFrom<&RtpH264Fmtp> for AvcDecoderConfigurationRecord {
             }).collect(),
             sps_ext_related,
         })
+    }
+}
+
+impl From<&H264VideoConfig> for RtpH264FmtpBuilder {
+    fn from(value: &H264VideoConfig) -> Self {
+        let mut builder = RtpH264FmtpBuilder::new();
+        if let Some(sps) = &value.sps {
+            builder = builder.sps(sps.clone());
+        }
+        if let Some(pps) = &value.pps {
+            builder = builder.pps(pps.clone());
+        }
+        builder
     }
 }
 

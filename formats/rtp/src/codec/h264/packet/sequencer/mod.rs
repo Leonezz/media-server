@@ -1,4 +1,5 @@
 use super::RtpH264Packet;
+use crate::codec::h264::aggregation::{AggregatedPayload, AggregationPacketType};
 use crate::codec::h264::packet::sequencer::fragments::RtpH264FragmentsBufferItem;
 use crate::codec::h264::packet::sequencer::timestamp_grouper::TimestampGrouper;
 use crate::{
@@ -183,8 +184,8 @@ impl RtpH264Sequencer {
             rtp_payload_type = rtp_header.payload_type,
         )
         .entered();
-        match packet {
-            AggregationNalUnits::StapA(stap_a_packet) => {
+        match packet.payload {
+            AggregatedPayload::StapA(stap_a_packet) => {
                 let item = RtpH264BufferItem::new(
                     stap_a_packet.nal_units,
                     rtp_header,
@@ -195,7 +196,7 @@ impl RtpH264Sequencer {
                 );
                 self.enqueue_decoder_buffer(item)?;
             }
-            AggregationNalUnits::StapB(stap_b_packet) => {
+            AggregatedPayload::StapB(stap_b_packet) => {
                 let item = RtpH264BufferItem::new(
                     stap_b_packet.nal_units,
                     rtp_header,
@@ -206,7 +207,7 @@ impl RtpH264Sequencer {
                 );
                 self.enqueue_de_interleaving_buffer(item)?;
             }
-            AggregationNalUnits::Mtap16(mtap16_packet) => {
+            AggregatedPayload::Mtap16(mtap16_packet) => {
                 mtap16_packet.nal_units.into_iter().try_for_each(|item| {
                     if mtap16_packet
                         .decode_order_number_base
@@ -231,7 +232,7 @@ impl RtpH264Sequencer {
                     self.enqueue_de_interleaving_buffer(item)
                 })?;
             }
-            AggregationNalUnits::Mtap24(mtap24_packet) => {
+            AggregatedPayload::Mtap24(mtap24_packet) => {
                 mtap24_packet.nal_units.into_iter().try_for_each(|item| {
                     if mtap24_packet
                         .decode_order_number_base
@@ -293,8 +294,8 @@ impl RtpH264Sequencer {
                     )));
                 }
             }
-            RtpH264NalUnit::Aggregated(aggregated) => match &aggregated {
-                AggregationNalUnits::Mtap16(_) | AggregationNalUnits::Mtap24(_) => {
+            RtpH264NalUnit::Aggregated(aggregated) => match &aggregated.header.aggregate_type {
+                AggregationPacketType::MTAP16 | AggregationPacketType::MTAP24 => {
                     if self.packetization_mode != PacketizationMode::Interleaved {
                         return Err(RtpH264Error::UnexpectedPacketType(format!(
                             "got mtap packet while not in Interleaved packetization mode, mode: {}, header: {:?}",
@@ -302,7 +303,7 @@ impl RtpH264Sequencer {
                         )));
                     }
                 }
-                AggregationNalUnits::StapA(_) => {
+                AggregationPacketType::STAPA => {
                     if self.packetization_mode != PacketizationMode::NonInterleaved {
                         return Err(RtpH264Error::UnexpectedPacketType(format!(
                             "got stap-A packet while not in NonInterleaved mode, mode: {}, header: {:?}",
@@ -310,7 +311,7 @@ impl RtpH264Sequencer {
                         )));
                     }
                 }
-                AggregationNalUnits::StapB(_) => {
+                AggregationPacketType::STAPB => {
                     if self.packetization_mode != PacketizationMode::Interleaved {
                         return Err(RtpH264Error::UnexpectedPacketType(format!(
                             "got stap-B packet while not in Interleaved mode, mode: {}, header: {:?}",

@@ -2,8 +2,9 @@ use std::{fmt, str::FromStr};
 
 use crate::codec::h264::errors::RtpH264Error;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Default, Debug, PartialEq, Eq, Clone, Copy)]
 pub enum PacketizationMode {
+    #[default]
     SingleNalu,
     NonInterleaved,
     Interleaved,

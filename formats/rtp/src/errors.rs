@@ -1,5 +1,4 @@
 use std::{io, string};
-
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -8,8 +7,12 @@ pub enum RtpError {
     Io(#[from] io::Error),
     #[error("h264 sequence failed: {0}")]
     H264SequenceFailed(String),
+    #[error("h264 packetization failed: {0}")]
+    H264PacketizationFailed(String),
     #[error("mpeg4 sequence failed: {0}")]
     Mpeg4SequenceFailed(String),
+    #[error("mpeg4 packetization failed: {0}")]
+    Mpeg4PacketizationFailed(String),
     #[error("unknown rtcp payload type: {0}")]
     UnknownRtcpPayloadType(u8),
     #[error("wrong payload type: {0}")]

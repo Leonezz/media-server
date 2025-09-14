@@ -1,5 +1,4 @@
 use std::io;
-
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -16,6 +15,8 @@ pub enum RtpSessionError {
     SendRtpPacketToChannelFailed(String),
     #[error("send rtcp packet to channel failed: {0}")]
     SendRtcpPacketToChannelFailed(String),
+    #[error("not a valid rtp session configuration: {0}")]
+    InvalidRtpSessionConfiguration(String),
     #[error("gracefully exit")]
     GracefulExit,
 }

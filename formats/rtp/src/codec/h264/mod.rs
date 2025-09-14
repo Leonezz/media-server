@@ -5,8 +5,8 @@ pub mod packet;
 pub mod paramters;
 pub mod single_nalu;
 pub(crate) mod util;
-use crate::codec::h264::fragmented::FUHeader;
-use aggregation::{AggregationNalUnits, AggregationPacketType};
+use crate::codec::h264::{aggregation::AggregatedHeader, fragmented::FUHeader};
+use aggregation::AggregationNalUnits;
 use byteorder::ReadBytesExt;
 use errors::RtpH264Error;
 use fragmented::{FragmentedUnit, FuIndicator};
@@ -21,7 +21,7 @@ use utils::traits::{
 #[derive(Debug, Clone, Copy)]
 pub enum PayloadStructureType {
     SingleNALUPacket(u8),
-    AggregationPacket(AggregationPacketType),
+    AggregationPacket(AggregatedHeader),
     FragmentationUnit(FuIndicator),
 }
 
@@ -40,9 +40,9 @@ impl TryFrom<u8> for PayloadStructureType {
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value & 0x1F {
             v if (1..=23).contains(&v) => Ok(Self::SingleNALUPacket(value)),
-            v if (24..=27).contains(&v) => Ok(Self::AggregationPacket(
-                AggregationPacketType::try_from(value).unwrap(),
-            )),
+            v if (24..=27).contains(&v) => {
+                Ok(Self::AggregationPacket(AggregatedHeader::try_from(value)?))
+            }
             v if v == 28 || v == 29 => Ok(Self::FragmentationUnit(value.try_into().unwrap())),
             _ => Err(RtpH264Error::InvalidH264PacketType(value)),
         }
@@ -60,12 +60,7 @@ impl RtpH264NalUnit {
     pub fn first_byte(&self) -> u8 {
         match self {
             Self::SingleNalu(nalu) => nalu.0.header.into(),
-            Self::Aggregated(nalu) => match nalu {
-                AggregationNalUnits::StapA(packet) => packet.header,
-                AggregationNalUnits::StapB(packet) => packet.header,
-                AggregationNalUnits::Mtap16(packet) => packet.header,
-                AggregationNalUnits::Mtap24(packet) => packet.header,
-            },
+            Self::Aggregated(nalu) => nalu.header.into(),
             Self::Fragmented(nalu) => match nalu {
                 FragmentedUnit::FuA(packet) => packet.indicator.into(),
                 FragmentedUnit::FuB(packet) => packet.indicator.into(),

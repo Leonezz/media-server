@@ -1,5 +1,6 @@
-use rtp_formats::codec::{
-    h264::paramters::errors::H264SDPError, mpeg4_generic::errors::RtpMpeg4Error,
+use rtp_formats::{
+    codec::{h264::paramters::errors::H264SDPError, mpeg4_generic::errors::RtpMpeg4Error},
+    errors::RtpError,
 };
 use thiserror::Error;
 #[derive(Debug, Error)]
@@ -32,6 +33,14 @@ pub enum RtspServerError {
     InvalidParamForRtpUnpacker(String),
     #[error("no rtp unpacket is set: {0}")]
     NoRtpUnpacker(String),
+    #[error("unable to play video stream: {0}")]
+    UnableToPlayVideo(String),
+    #[error("unable to play audio stream: {0}")]
+    UnableToPlayAudio(String),
+    #[error("codec parameters error: {0}")]
+    CodecParametersError(String),
+    #[error("rtp packetize failed: {0}")]
+    RtpPacketizeFailed(#[from] RtpError),
     #[error("Gracefully exit")]
     GracefulExit,
 }

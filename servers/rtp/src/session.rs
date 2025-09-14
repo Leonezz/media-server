@@ -9,10 +9,15 @@ use rtp_formats::{
     packet::{RtpTrivialPacket, framed::RtpTrivialPacketFramed},
     rtcp::{RtcpPacket, compound_packet::RtcpCompoundPacket, framed::RtcpPacketFramed},
 };
-use std::{io, pin::Pin, sync::Arc, time::SystemTime};
+use std::{
+    io,
+    pin::Pin,
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 use tokio::sync::{
     RwLock,
-    mpsc::{self, UnboundedSender, error::TryRecvError},
+    mpsc::{self, error::TryRecvError},
 };
 use unified_io::{UnifiedIO, UnifiyStreamed};
 
@@ -24,20 +29,21 @@ pub enum RtpSessionCommand {
 }
 
 pub struct RtpSession {
-    command_rx: Arc<RwLock<mpsc::UnboundedReceiver<RtpSessionCommand>>>,
+    command_rx: Arc<RwLock<mpsc::Receiver<RtpSessionCommand>>>,
     // received rtp packets from rtp_io, and send them to application level through rtp_tx
-    rtp_tx: mpsc::UnboundedSender<RtpTrivialPacket>,
+    rtp_tx: Option<mpsc::Sender<RtpTrivialPacket>>,
     // rtp and rtcp observer
     rtcp_context: Arc<RwLock<RtcpContext>>,
 }
 
 impl RtpSession {
     pub fn new(
+        ssrc: u32,
         cname: Option<String>,
         session_bandwidth: u64,
         rtp_clockrate: u64,
-        command_rx: mpsc::UnboundedReceiver<RtpSessionCommand>,
-        rtp_tx: mpsc::UnboundedSender<RtpTrivialPacket>,
+        command_rx: mpsc::Receiver<RtpSessionCommand>,
+        rtp_tx: Option<mpsc::Sender<RtpTrivialPacket>>,
     ) -> Self {
         Self {
             command_rx: Arc::new(RwLock::new(command_rx)),
@@ -46,26 +52,28 @@ impl RtpSession {
                 session_bandwidth,
                 rtp_clockrate,
                 cname,
+                ssrc,
             ))),
         }
     }
 
     pub async fn run(
         &mut self,
+        send: bool,
         rtp_io: Pin<Box<dyn UnifiedIO>>,
         rtcp_io: Pin<Box<dyn UnifiedIO>>,
     ) -> RtpSessionResult<()> {
-        let (rtp_sender, rtp_receiver) = mpsc::unbounded_channel();
-        let (rtcp_sender, rtcp_receiver) = mpsc::unbounded_channel();
+        let (rtp_sender, rtp_receiver) = mpsc::channel(1000);
+        let (rtcp_sender, rtcp_receiver) = mpsc::channel(1000);
         select! {
-            result = Self::run_rtp(rtp_io, self.rtcp_context.clone(), self.rtp_tx.clone(), rtp_receiver).fuse() => {
+            result = Self::run_rtp(send, rtp_io, self.rtcp_context.clone(), self.rtp_tx.clone(), rtp_receiver).fuse() => {
                 if let Err(err) = &result {
                     tracing::error!("rtp thread got error: {}", err);
                 }
                 tracing::info!("rtp session is about to exit because rtp thread exited, {:?}", result);
                 result
             }
-            result = Self::run_rtcp(rtcp_io, self.rtcp_context.clone(), rtcp_receiver).fuse() => {
+            result = Self::run_rtcp(send, rtcp_io, self.rtcp_context.clone(), rtcp_receiver).fuse() => {
                 if let Err(err) = &result {
                     tracing::error!("rtcp thread got error: {}", err);
                 }
@@ -84,46 +92,75 @@ impl RtpSession {
     }
 
     async fn run_rtp(
+        send: bool,
         rtp_io: Pin<Box<dyn UnifiedIO>>,
         rtcp_context: Arc<RwLock<RtcpContext>>,
-        rtp_tx: mpsc::UnboundedSender<RtpTrivialPacket>,
-        mut rtp_rx: mpsc::UnboundedReceiver<RtpTrivialPacket>,
+        rtp_tx: Option<mpsc::Sender<RtpTrivialPacket>>,
+        mut rtp_rx: mpsc::Receiver<RtpTrivialPacket>,
     ) -> RtpSessionResult<()> {
         let mut io = UnifiyStreamed::new(rtp_io, RtpTrivialPacketFramed);
-        loop {
-            let packet = Self::receive_rtp(&mut io).await?;
-            rtcp_context
-                .write()
-                .await
-                .on_rtp_packet_received(&packet, SystemTime::now());
-            rtp_tx
-                .send(packet)
-                .map_err(|_| RtpSessionError::RtpPacketChannelDisconnected)?;
-            match rtp_rx.try_recv() {
-                Err(TryRecvError::Disconnected) => {
-                    return Err(RtpSessionError::RtpPacketChannelDisconnected);
-                }
-                Err(_) => {}
-                Ok(packet) => {
-                    io.send(packet).await?;
+        if send {
+            loop {
+                match rtp_rx.recv().await {
+                    None => {
+                        return Err(RtpSessionError::RtpPacketChannelDisconnected);
+                    }
+                    Some(packet) => {
+                        rtcp_context
+                            .write()
+                            .await
+                            .on_rtp_packet_sent(&packet, SystemTime::now());
+                        io.send(packet).await?;
+                    }
                 }
             }
+        } else if let Some(rtp_tx) = rtp_tx {
+            loop {
+                let packet = Self::receive_rtp(&mut io).await?;
+                rtcp_context
+                    .write()
+                    .await
+                    .on_rtp_packet_received(&packet, SystemTime::now());
+                rtp_tx
+                    .send_timeout(packet, Duration::from_secs(1))
+                    .await
+                    .map_err(|_| RtpSessionError::RtpPacketChannelDisconnected)?;
+
+                // rtp packets might be received from commands channel
+                match rtp_rx.try_recv() {
+                    Err(TryRecvError::Disconnected) => {
+                        return Err(RtpSessionError::RtpPacketChannelDisconnected);
+                    }
+                    Err(_) => {}
+                    Ok(packet) => {
+                        io.send(packet).await?;
+                    }
+                }
+            }
+        } else {
+            Err(RtpSessionError::InvalidRtpSessionConfiguration(
+                "rtp session is configured to receive rtp packets, but no rtp packet channel is provided"
+                    .to_string(),
+            ))
         }
     }
 
     async fn run_rtcp(
+        send: bool,
         rtcp_io: Pin<Box<dyn UnifiedIO>>,
         rtcp_context: Arc<RwLock<RtcpContext>>,
-        mut rtcp_rx: mpsc::UnboundedReceiver<RtcpPacket>,
+        mut rtcp_rx: mpsc::Receiver<RtcpPacket>,
     ) -> RtpSessionResult<()> {
         let mut io = UnifiyStreamed::new(rtcp_io, RtcpPacketFramed);
         let mut rtcp_buffer = Vec::new();
         loop {
-            let packet = Self::receive_rtcp(&mut io).await?;
-            rtcp_context
-                .write()
-                .await
-                .on_rtcp_compound_packet_received(&packet, SystemTime::now());
+            if !send {
+                let packet = Self::receive_rtcp(&mut io).await?;
+                rtcp_context
+                    .write()
+                    .await
+                    .on_rtcp_compound_packet_received(&packet, SystemTime::now());
+            }
             match rtcp_rx.try_recv() {
                 Err(TryRecvError::Disconnected) => {
                     return Err(RtpSessionError::RtcpPacketChannelDisconnected);
@@ -153,13 +190,14 @@ impl RtpSession {
                 .write()
                 .await
                 .on_rtcp_compound_packet_sent(&packet, now);
+            tokio::time::sleep(Duration::from_secs(5)).await;
         }
     }
 
     async fn run_command(
-        command_rx: Arc<RwLock<mpsc::UnboundedReceiver<RtpSessionCommand>>>,
-        rtp_tx: UnboundedSender<RtpTrivialPacket>,
-        rtcp_tx: UnboundedSender<RtcpPacket>,
+        command_rx: Arc<RwLock<mpsc::Receiver<RtpSessionCommand>>>,
+        rtp_tx: mpsc::Sender<RtpTrivialPacket>,
+        rtcp_tx: mpsc::Sender<RtcpPacket>,
     ) -> RtpSessionResult<()> {
         loop {
             match command_rx.write().await.recv().await {
@@ -177,12 +215,18 @@ impl RtpSession {
                         tracing::info!("rtp session is grecefully stopping");
                         return Err(RtpSessionError::GracefulExit);
                     }
-                    RtpSessionCommand::Rtp(packet) => rtp_tx.send(packet).map_err(|err| {
-                        RtpSessionError::SendRtpPacketToChannelFailed(format!("{}", err))
-                    })?,
-                    RtpSessionCommand::Rtcp(packet) => rtcp_tx.send(packet).map_err(|err| {
-                        RtpSessionError::SendRtcpPacketToChannelFailed(format!("{}", err))
-                    })?,
+                    RtpSessionCommand::Rtp(packet) => rtp_tx
+                        .send_timeout(packet, Duration::from_secs(1))
+                        .await
+                        .map_err(|err| {
+                            RtpSessionError::SendRtpPacketToChannelFailed(format!("{}", err))
+                        })?,
+                    RtpSessionCommand::Rtcp(packet) => rtcp_tx
+                        .send_timeout(packet, Duration::from_secs(1))
+                        .await
+                        .map_err(|err| {
+                            RtpSessionError::SendRtcpPacketToChannelFailed(format!("{}", err))
+                        })?,
                 },
             }
         }

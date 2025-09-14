@@ -8,12 +8,13 @@ use crate::{
 };
 use codec_common::{
     audio::{AudioCodecCommon, AudioConfig},
-    video::VideoCodecCommon,
+    video::{H264VideoConfig, VideoCodecCommon},
 };
 use num::ToPrimitive;
 use std::{
     cmp::{max, min},
     collections::HashMap,
+    fmt,
     sync::Arc,
     time::SystemTime,
 };
@@ -47,6 +48,12 @@ pub enum PlayProtocol {
 pub struct StreamIdentifier {
     pub stream_name: String,
     pub app: String,
+}
+
+impl fmt::Display for StreamIdentifier {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}/{}", self.app, self.stream_name)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -144,7 +151,7 @@ impl StreamSource {
             gop_cache: GopQueue::new(6_0000, 8000),
             status: StreamStatus::NotStarted,
             signal_receiver,
-            mix_queue: MixQueue::new(100, 100, 30),
+            mix_queue: MixQueue::new(100, 100, 30, 30),
         }
     }
 
@@ -199,15 +206,12 @@ impl StreamSource {
 
     async fn on_media_frame(&mut self, frame: MediaFrame) -> StreamCenterResult<()> {
         match &frame {
-            MediaFrame::AudioConfig {
-                timestamp_nano: _,
-                sound_info: _,
-                config,
-            } => self.stream_dynamic_info.write().await.audio_config = Some(*config.clone()),
-            MediaFrame::VideoConfig {
-                timestamp_nano: _,
-                config,
-            } => self.stream_dynamic_info.write().await.video_config = Some(*config.clone()),
+            MediaFrame::AudioConfig { config, .. } => {
+                self.stream_dynamic_info.write().await.audio_config = Some(*config.clone())
+            }
+            MediaFrame::VideoConfig { config, .. } => {
+                self.stream_dynamic_info.write().await.video_config = Some(*config.clone())
+            }
             _ => {}
         }
         if let Err(err) = self.gop_cache.append_frame(frame.clone()) {
@@ -237,12 +241,12 @@ impl StreamSource {
             });
             if let Some((video_codec, video_height, video_width)) =
                 self.gop_cache.video_config.as_ref().map(|v| match v {
-                    codec_common::video::VideoConfig::H264 {
+                    codec_common::video::VideoConfig::H264(H264VideoConfig {
                         sps,
                         pps: _,
                         sps_ext: _,
                         avc_decoder_configuration_record: _,
-                    } => (
+                    }) => (
                         VideoCodecCommon::AVC,
                         sps.as_ref().map_or(0, |v| v.get_video_height()),
                         sps.as_ref().map_or(0, |v| v.get_video_width()),
@@ -265,6 +269,7 @@ impl StreamSource {
             }
         }
 
+        let mut invalid_ids = vec![];
         for (key, handler) in &mut self.data_distributer.write().await.iter_mut() {
             if (!handler.stat.audio_sh_sent && !handler.parsed_context.video_only)
                 || (!handler.stat.video_sh_sent && !handler.parsed_context.audio_only)
@@ -280,12 +285,21 @@ impl StreamSource {
             let res = handler.data_sender.try_send(frame.clone());
             if res.is_err() {
                 tracing::error!("distribute frame data to {} failed: {:?}", key, res);
+                invalid_ids.push(*key);
             }
             if frame.is_video_key_frame() {
                 handler.stat.first_key_frame_sent = true;
             }
             update_stat(&mut handler.stat, &frame, res.is_err());
         }
+
+        self.data_distributer.write().await.retain(|key, value| {
+            if invalid_ids.contains(key) {
+                tracing::info!("remove invalid subscriber: {}, {:?}", key, value);
+                return false;
+            }
+            true
+        });
 
         Ok(())
     }

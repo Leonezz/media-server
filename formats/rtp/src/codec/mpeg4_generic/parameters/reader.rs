@@ -1,12 +1,7 @@
-use std::{fmt::Display, str::FromStr};
-
-use bitstream_io::BitRead;
-use tokio_util::bytes::Bytes;
-use utils::traits::reader::BitwiseReadFrom;
-
-use crate::codec::mpeg4_generic::{errors::RtpMpeg4Error, parameters::Mode};
-
 use super::RtpMpeg4Fmtp;
+use crate::codec::mpeg4_generic::{errors::RtpMpeg4Error, parameters::Mode};
+use std::{fmt::Display, str::FromStr};
+use tokio_util::bytes::Bytes;
 
 impl FromStr for RtpMpeg4Fmtp {
     type Err = RtpMpeg4Error;
@@ -91,12 +86,6 @@ impl FromStr for RtpMpeg4Fmtp {
                 "generic mode is not supported".to_owned(),
             ));
         }
-        let mut reader = codec_bitstream::reader::BitstreamReader::new(&result.config);
-        result.aac_audio_specific_config = Some(
-            codec_aac::mpeg4_configuration::audio_specific_config::AudioSpecificConfig::read_from(
-                reader.by_ref(),
-            )?,
-        );
         Ok(result)
     }
 }

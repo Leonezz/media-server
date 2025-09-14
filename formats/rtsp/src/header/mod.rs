@@ -269,8 +269,8 @@ impl RtspHeaders {
     pub fn new(items: Vec<(RtspHeader, String)>) -> Self {
         Self(items)
     }
-    pub fn push(&mut self, key: RtspHeader, value: String) {
-        self.0.push((key, value));
+    pub fn push<S: Into<String>>(&mut self, key: RtspHeader, value: S) {
+        self.0.push((key, value.into()));
     }
 
     pub fn append(&mut self, mut items: Vec<(RtspHeader, String)>) {
