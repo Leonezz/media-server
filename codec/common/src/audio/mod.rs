@@ -22,6 +22,30 @@ pub enum AudioCodecCommon {
     FLAC,
 }
 
+impl AudioCodecCommon {
+    pub fn get_codec_name(&self) -> &'static str {
+        match self {
+            Self::LinearPCM => "LinearPCM",
+            Self::ADPCM => "ADPCM",
+            Self::MP3 => "MP3",
+            Self::LinearPCMLittleEndian => "LinearPCMLittleEndian",
+            Self::NellyMoser16KHZ => "NellyMoser16KHZ",
+            Self::NellyMoser8KHZ => "NellyMoser8KHZ",
+            Self::NellyMoser => "NellyMoser",
+            Self::G711ALawLogarithmicPCM => "G711ALowLogarithmicPCM",
+            Self::G711MULawLogarithmicPCM => "G711MULawLogarithmicPCM",
+            Self::AAC => "AAC",
+            Self::Speex => "Speex",
+            Self::MP38KHZ => "MP38KHZ",
+            Self::DeviceSpecific => "DeviceSpecific",
+            Self::AC3 => "AC3",
+            Self::EAC3 => "EAC3",
+            Self::OPUS => "OPUS",
+            Self::FLAC => "FLAC",
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum SoundRateCommon {
     KHZ5D5,

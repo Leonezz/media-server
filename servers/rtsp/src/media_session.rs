@@ -489,7 +489,6 @@ impl RtspMediaSession {
                 }
             }
         }).await?;
-        let first_frame_sent: AtomicBool = AtomicBool::new(false);
         loop {
             self.process_commands(&span).await?;
             match &mut self.session_handler {
@@ -498,7 +497,6 @@ impl RtspMediaSession {
                         Duration::from_secs(2),
                         Self::process_play(
                             &span,
-                            &first_frame_sent,
                             media_frame_receiver,
                             rtp_packetizer,
                             &mut self.rtp_session_command_tx
@@ -547,7 +545,6 @@ impl RtspMediaSession {
 
     async fn process_play(
         span: &Span,
-        first_frame_sent: &AtomicBool,
         media_frame_receiver: &mut tokio::sync::mpsc::Receiver<MediaFrame>,
         rtp_packetizer: &mut Box<dyn RtpTrivialPacketPacketizer + Send>,
         rtp_sender: &mut tokio::sync::mpsc::Sender<RtpSessionCommand>,
@@ -557,11 +554,6 @@ impl RtspMediaSession {
                 "media frame channel from stream center to rtsp media session is closed unexpected",
             ))),
             Some(frame) => span.in_scope(async || {
-                if frame.is_video() && !frame.is_sequence_header() && !frame.is_video_key_frame() && !first_frame_sent.load(std::sync::atomic::Ordering::Acquire) {
-                    tracing::error!("not first key frame");
-                    return Ok(());
-                }
-                first_frame_sent.store(true, Ordering::Release);
                 rtp_packetizer.set_frame_timestamp(frame.get_timestamp_ns().checked_div(1_000_000).unwrap());
                 if let Some(item) = RtpPacketizerItem::from_media_frame(frame) {
                 rtp_packetizer.packetize(item).inspect_err(|err| {

@@ -22,6 +22,23 @@ pub enum VideoCodecCommon {
     AV1,
 }
 
+impl VideoCodecCommon {
+    pub fn get_codec_name(&self) -> &'static str {
+        match self {
+            Self::SorensonH263 => "SorensonH263",
+            Self::ScreenVideo => "ScreenVideo",
+            Self::On2VP6 => "On2VP6",
+            Self::On2VP6WithAlpha => "On2VP6WithAlpha",
+            Self::ScreenVideoV2 => "ScreenVideoV2",
+            Self::AVC => "AVC",
+            Self::HEVC => "HEVC",
+            Self::VP8 => "VP8",
+            Self::VP9 => "VP9",
+            Self::AV1 => "AV1",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct VideoFrameInfo {
     pub codec_id: VideoCodecCommon,

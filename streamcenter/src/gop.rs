@@ -74,6 +74,23 @@ impl MediaFrame {
     }
 
     #[inline]
+    pub fn get_codec_name(&self) -> &'static str {
+        if self.is_audio() {
+            match self.audio_codec_id() {
+                Some(id) => id.get_codec_name(),
+                None => "Known",
+            }
+        } else if self.is_video() {
+            match self.video_codec_id() {
+                Some(id) => id.get_codec_name(),
+                None => "Known",
+            }
+        } else {
+            "Known"
+        }
+    }
+
+    #[inline]
     pub fn is_audio(&self) -> bool {
         matches!(
             self,

@@ -43,6 +43,10 @@ impl RtspResponseBuilder {
         self
     }
 
+    pub fn content_type(self, content_type: String) -> Self {
+        self.header(RtspHeader::ContentType, content_type)
+    }
+
     pub fn body(mut self, body: String) -> Self {
         self.body = Some(body);
         self

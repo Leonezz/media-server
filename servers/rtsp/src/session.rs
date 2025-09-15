@@ -64,6 +64,7 @@ pub struct RtspMediaSessionHandler {
     pub(crate) session_id: String,
     pub(crate) media_sdp: SDPMediaDescription,
     pub(crate) transport: TransportHeader,
+    pub(crate) media_frame_sender: Option<tokio::sync::mpsc::Sender<MediaFrame>>,
 }
 
 pub struct RtspSession {
@@ -354,6 +355,31 @@ impl RtspSession {
         None
     }
 
+    fn require_headers(
+        &self,
+        request: &RtspRequest,
+        headers: &[RtspHeader],
+    ) -> Option<RtspResponse> {
+        for header in headers {
+            if request.headers().contains(*header) {
+                continue;
+            }
+            return Some(
+                RtspResponse::builder()
+                    .status(RtspStatus::NotAcceptable)
+                    .body(format!(
+                        "no {} header found, not allowed in {} request",
+                        header,
+                        request.method()
+                    ))
+                    .content_type("text/plain".to_string())
+                    .build()
+                    .unwrap(),
+            );
+        }
+        None
+    }
+
     async fn publish_stream(
         &mut self,
         request: &RtspRequest,
@@ -435,9 +461,8 @@ impl RtspSession {
 
     async fn subscribe_stream(
         &mut self,
-        request: &RtspRequest,
+        stream_prop: StreamProperties,
     ) -> RtspServerResult<Option<RtspResponse>> {
-        let stream_prop: StreamProperties = request.uri().try_into()?;
         if let Some(res) = self.session_pre_setup(stream_prop, false) {
             return Ok(Some(res));
         }
@@ -462,6 +487,7 @@ impl RtspSession {
             tracing::error!("rtsp subscribe from stream center failed: {}", err);
             return Err(err.into());
         }
+
         let subscribe_response = subscribe_response.unwrap();
         self.runtime_handle = SessionRuntime::Play(Arc::new(RwLock::new(PlayHandle {
             stream_data_consumer: subscribe_response.media_receiver,
@@ -495,7 +521,6 @@ impl RtspSession {
             .clone();
         let mut response_builder = RtspResponse::builder();
 
-        let mut frame_distributors = vec![];
         for media in &sdp.media_description {
             let control = media.attributes.iter().find_map(|attr| {
                 if let SDPAttribute::Trivial(attr) = attr
@@ -533,13 +558,19 @@ impl RtspSession {
                 media,
                 transport,
             );
-
             let (media_frame_distributor_tx, media_frame_distributor_rx) =
                 tokio::sync::mpsc::channel::<MediaFrame>(1000);
-            frame_distributors.push((
-                matches!(media.media_line.media_type, SDPMediaType::Video),
-                media_frame_distributor_tx,
-            ));
+            self.media_sessions.write().await.insert(
+                control_str.clone(),
+                RtspMediaSessionHandler {
+                    peer_addr: self.peer_addr,
+                    uri: request.uri().clone(),
+                    session_id: this_session_id.clone(),
+                    media_sdp: media.clone(),
+                    transport: transport.clone(),
+                    media_frame_sender: Some(media_frame_distributor_tx),
+                },
+            );
             let media_session = RtspMediaSession::new_play_session(
                 self.peer_addr,
                 request.uri().clone(),
@@ -583,17 +614,6 @@ impl RtspSession {
                     tracing::info!("media session exited gracefully");
                 }
             });
-
-            self.media_sessions.write().await.insert(
-                control_str,
-                RtspMediaSessionHandler {
-                    peer_addr: self.peer_addr,
-                    uri: request.uri().clone(),
-                    session_id: this_session_id.clone(),
-                    media_sdp: media.clone(),
-                    transport: transport.clone(),
-                },
-            );
             match media.media_line.media_type {
                 SDPMediaType::Video => {}
                 SDPMediaType::Audio => {}
@@ -603,55 +623,6 @@ impl RtspSession {
                 }
             }
         }
-
-        if self.session_id.is_none()
-            && let Some(response) = self.subscribe_stream(request).await?
-        {
-            return Ok(response);
-        }
-        let play_handle = self.runtime_handle.get_play_handle().unwrap().clone();
-        let mut rtsp_command_receiver = self.rtsp_command_tx.subscribe();
-        let rtsp_command_sender = self.rtsp_command_tx.clone();
-        tokio::spawn(async move {
-            defer!(let _ = rtsp_command_sender.send(RtspSessionCommand::Stop););
-            loop {
-                match rtsp_command_receiver.try_recv() {
-                    Ok(RtspSessionCommand::Stop) => {
-                        tracing::info!("play session received teardown command, exiting");
-                        return;
-                    }
-                    Ok(_) => {}
-                    Err(tokio::sync::broadcast::error::TryRecvError::Closed) => {
-                        tracing::info!("play session command channel closed, exiting");
-                        return;
-                    }
-                    Err(tokio::sync::broadcast::error::TryRecvError::Lagged(skipped)) => {
-                        tracing::warn!(
-                            "play session command channel lagged, skipped {} messages",
-                            skipped
-                        );
-                    }
-                    Err(tokio::sync::broadcast::error::TryRecvError::Empty) => {}
-                }
-                let mut play_handle = play_handle.write().await;
-                match play_handle.stream_data_consumer.recv().await {
-                    Some(frame) => {
-                        for (is_video, distributor) in &frame_distributors {
-                            if (*is_video && frame.is_video() || !*is_video && frame.is_audio())
-                                && let Err(err) = distributor.send(frame.clone()).await
-                            {
-                                tracing::error!("failed to distribute media frame: {}", err);
-                                return;
-                            }
-                        }
-                    }
-                    None => {
-                        tracing::info!("no more media frames, exiting");
-                        return;
-                    }
-                }
-            }
-        });
 
         if self.session_id.is_none() {
             tracing::trace!("new publish session, session_id={}", this_session_id);
@@ -674,16 +645,6 @@ impl RtspSession {
         request: &RtspRequest,
         transport: &TransportHeader,
     ) -> RtspServerResult<RtspResponse> {
-        tracing::debug!(
-            "creating new rtsp publish session with request: {}, transport: {}",
-            request,
-            transport
-        );
-        if self.sdp.is_none() {
-            tracing::error!("sdp is not set by now, unable to handle SETUP request");
-            return Ok(rtsp_server_simple_response(RtspStatus::NotAcceptable));
-        }
-
         if self.session_id.is_none()
             && let Some(response) = self.publish_stream(request).await?
         {
@@ -726,6 +687,18 @@ impl RtspSession {
                 control,
                 media,
                 transport,
+            );
+
+            self.media_sessions.write().await.insert(
+                control_str.clone(),
+                RtspMediaSessionHandler {
+                    peer_addr: self.peer_addr,
+                    uri: request.uri().clone(),
+                    session_id: this_session_id.clone(),
+                    media_sdp: media.clone(),
+                    transport: transport.clone(),
+                    media_frame_sender: None,
+                },
             );
 
             let media_session = RtspMediaSession::new_publish_session(
@@ -777,16 +750,6 @@ impl RtspSession {
                     tracing::info!("media session exited gracefully");
                 }
             });
-            self.media_sessions.write().await.insert(
-                control_str,
-                RtspMediaSessionHandler {
-                    peer_addr: self.peer_addr,
-                    uri: request.uri().clone(),
-                    session_id: this_session_id.clone(),
-                    media_sdp: media.clone(),
-                    transport: transport.clone(),
-                },
-            );
 
             match media.media_line.media_type {
                 SDPMediaType::Video => {}
@@ -982,7 +945,15 @@ impl RtspRequestHandler for RtspSession {
             ));
         }
         let transport = transport.unwrap();
-        tracing::debug!("got SETUP request with transport: {:?}", &transport);
+        tracing::debug!(
+            "creating new rtsp publish session with request: {}, transport: {}",
+            request,
+            transport
+        );
+        if self.sdp.is_none() {
+            tracing::error!("sdp is not set by now, unable to handle SETUP request");
+            return Ok(rtsp_server_simple_response(RtspStatus::NotAcceptable));
+        }
 
         let transport_mode = if transport.mode.is_empty() {
             &TransportMode::Play
@@ -1002,8 +973,101 @@ impl RtspRequestHandler for RtspSession {
         }
     }
 
-    async fn handle_play(&mut self, _request: &RtspRequest) -> RtspServerResult<RtspResponse> {
-        // Handle PLAY request
+    async fn handle_play(&mut self, request: &RtspRequest) -> RtspServerResult<RtspResponse> {
+        if let Some(res) = self.require_headers(request, &[RtspHeader::Session]) {
+            return Ok(res);
+        }
+        if self.session_id.as_ref() != request.headers().get_unique(RtspHeader::Session) {
+            return Ok(rtsp_server_simple_response(RtspStatus::SessionNotFound));
+        }
+
+        if self.runtime_handle.is_play() || self.runtime_handle.is_publish() {
+            return Ok(rtsp_server_simple_response(
+                RtspStatus::MethodNotValidInThisState,
+            ));
+        }
+        let stream_prop: StreamProperties = request.uri().try_into()?;
+        if let Some(response) = self.subscribe_stream(stream_prop).await? {
+            return Ok(response);
+        }
+        let play_handle = self.runtime_handle.get_play_handle().unwrap().clone();
+        let mut rtsp_command_receiver = self.rtsp_command_tx.subscribe();
+        let rtsp_command_sender = self.rtsp_command_tx.clone();
+
+        let frame_distributors: Vec<_> = {
+            let sessions = self.media_sessions.read().await;
+            sessions
+                .values()
+                .map(|value| {
+                    value.media_frame_sender.as_ref()?;
+                    Some((
+                        matches!(value.media_sdp.media_line.media_type, SDPMediaType::Video),
+                        value.media_frame_sender.clone().unwrap(),
+                    ))
+                })
+                .collect()
+        };
+        if frame_distributors.iter().any(|v| v.is_none()) {
+            tracing::error!(
+                "no frame sender is set for media session: {:?}",
+                self.session_id,
+            );
+            return Ok(rtsp_server_simple_response(RtspStatus::InternalServerError));
+        }
+        let frame_distributors: Vec<_> =
+            frame_distributors.into_iter().map(|v| v.unwrap()).collect();
+        tokio::spawn(async move {
+            defer!(let _ = rtsp_command_sender.send(RtspSessionCommand::Stop););
+            let mut first_frame_sent = false;
+            loop {
+                let mut play_handle = play_handle.write().await;
+                match play_handle.stream_data_consumer.recv().await {
+                    Some(frame) => {
+                        if !first_frame_sent
+                            && !frame.is_sequence_header()
+                            && !frame.is_video_key_frame()
+                        {
+                            continue;
+                        }
+
+                        if !first_frame_sent && frame.is_video_key_frame() {
+                            first_frame_sent = true;
+                        }
+                        for (is_video, distributor) in &frame_distributors {
+                            if (*is_video && frame.is_video() || !*is_video && frame.is_audio())
+                                && let Err(err) = distributor.send(frame.clone()).await
+                            {
+                                tracing::error!("failed to distribute media frame: {}", err);
+                                return;
+                            }
+                        }
+                    }
+                    None => {
+                        tracing::info!("no more media frames, exiting");
+                        return;
+                    }
+                }
+                match rtsp_command_receiver.try_recv() {
+                    Ok(RtspSessionCommand::Stop) => {
+                        tracing::info!("play session received teardown command, exiting");
+                        return;
+                    }
+                    Ok(_) => {}
+                    Err(tokio::sync::broadcast::error::TryRecvError::Closed) => {
+                        tracing::info!("play session command channel closed, exiting");
+                        return;
+                    }
+                    Err(tokio::sync::broadcast::error::TryRecvError::Lagged(skipped)) => {
+                        tracing::warn!(
+                            "play session command channel lagged, skipped {} messages",
+                            skipped
+                        );
+                    }
+                    Err(tokio::sync::broadcast::error::TryRecvError::Empty) => {}
+                }
+            }
+        });
+
         Ok(rtsp_server_simple_response(RtspStatus::OK))
     }
 
