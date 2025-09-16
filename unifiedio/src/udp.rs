@@ -36,9 +36,12 @@ impl UdpIO {
     }
 
     pub async fn new_with_remote_addr(
-        local_port_start_from: u16,
+        mut local_port_start_from: u16,
         remote_addr: SocketAddr,
     ) -> UnifiedIOResult<(u16, Self)> {
+        if local_port_start_from > u16::MAX / 2 {
+            local_port_start_from /= 2;
+        }
         for port in (local_port_start_from..=u16::MAX).step_by(1) {
             let local_addr =
                 SocketAddr::new(std::net::IpAddr::V4("0.0.0.0".parse().unwrap()), port);

@@ -8,7 +8,7 @@ use crate::{
     sequence_number::SequenceNumber,
 };
 use codec_common::{
-    FrameType,
+    FrameType, MediaFrameTimestamp,
     audio::{AudioCodecCommon, AudioFrameInfo, SoundInfoCommon},
     video::VideoFrameInfo,
 };
@@ -36,10 +36,10 @@ pub enum RtpBufferItem {
 }
 
 impl RtpBufferItem {
-    pub fn get_timestamp(&self) -> u32 {
+    pub fn get_presentation_timestamp_ms(&self) -> u32 {
         match self {
             Self::Audio(audio) => match audio {
-                RtpBufferAudioItem::AAC(aac) => aac.access_unit.timestamp,
+                RtpBufferAudioItem::AAC(aac) => aac.access_unit.presentation_timestamp_ms,
             },
             Self::Video(video) => match video {
                 RtpBufferVideoItem::H264(h264) => h264
@@ -77,8 +77,10 @@ impl RtpBufferItem {
     }
 
     pub fn to_media_frame(self, timestamp_base: u32, clock_rate: u64) -> MediaFrame {
-        let timestamp_nano = {
-            let timestamp_diff = self.get_timestamp().wrapping_sub(timestamp_base) as u64;
+        let pts_nano = {
+            let timestamp_diff = self
+                .get_presentation_timestamp_ms()
+                .wrapping_sub(timestamp_base) as u64;
             // Use 128-bit arithmetic to prevent overflow
             let nano_ticks = (timestamp_diff as u128) * 1_000_000_000u128;
             let result = nano_ticks / (clock_rate as u128);
@@ -100,7 +102,7 @@ impl RtpBufferItem {
                                 sound_size: codec_common::audio::SoundSizeCommon::Bit16,
                                 sound_type: codec_common::audio::SoundTypeCommon::Stereo,
                             },
-                            timestamp_nano,
+                            timestamp_nano: pts_nano,
                         },
                         payload: bytes.freeze(),
                     }
@@ -127,7 +129,7 @@ impl RtpBufferItem {
                             } else {
                                 FrameType::CodedFrames
                             },
-                            timestamp_nano,
+                            timestamp: MediaFrameTimestamp::with_timestamp_nano(pts_nano),
                         },
                         payload: codec_common::video::VideoFrameUnit::H264 { nal_units },
                     }

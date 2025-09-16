@@ -1,17 +1,14 @@
-use std::io::{self, Read};
-
+use super::{AccessUnit, AccessUnitFragment, AccessUnitSection};
+use crate::codec::mpeg4_generic::{
+    au_header::AuHeader, errors::RtpMpeg4Error, parameters::RtpMpeg4Fmtp,
+};
 use num::ToPrimitive;
+use std::io::{self, Read};
 use tokio_util::{
     bytes::{Buf, Bytes, BytesMut},
     either::Either,
 };
 use utils::traits::reader::ReadRemainingFrom;
-
-use crate::codec::mpeg4_generic::{
-    au_header::AuHeader, errors::RtpMpeg4Error, parameters::RtpMpeg4Fmtp,
-};
-
-use super::{AccessUnit, AccessUnitFragment, AccessUnitSection};
 
 impl<R: io::Read> ReadRemainingFrom<(&AuHeader, u32, &RtpMpeg4Fmtp), R> for AccessUnit {
     type Error = RtpMpeg4Error;
@@ -34,7 +31,7 @@ impl<R: io::Read> ReadRemainingFrom<(&AuHeader, u32, &RtpMpeg4Fmtp), R> for Acce
         Ok(Self {
             header: au_header.clone(),
             body: Bytes::from_owner(bytes),
-            timestamp: timestamp
+            presentation_timestamp_ms: timestamp
                 .checked_add(
                     au_header
                         .cts_delta
@@ -123,7 +120,7 @@ impl<R: AsRef<[u8]>> ReadRemainingFrom<(&Vec<AuHeader>, u32, bool, &RtpMpeg4Fmtp
         for au_header in au_headers {
             let au =
                 AccessUnit::read_remaining_from((au_header, timestamp, params), reader.by_ref())?;
-            timestamp = au.timestamp;
+            timestamp = au.presentation_timestamp_ms;
             aus.push(au);
         }
         Ok(Self {

@@ -208,7 +208,7 @@ impl RtpTrivialPacketPacketizer for RtpMpeg4GenericPacketPacketizer {
                         access_units_or_fragment: Either::Left(vec![AccessUnit {
                             header: au_header,
                             body: au.clone(),
-                            timestamp: self.rtp_header.timestamp,
+                            presentation_timestamp_ms: self.rtp_header.timestamp,
                         }]),
                     },
                 });

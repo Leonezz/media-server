@@ -2,7 +2,7 @@ use crate::errors::{StreamCenterError, StreamCenterResult};
 use bitstream_io::{BitRead, BitWrite};
 use codec_aac::mpeg4_configuration::audio_specific_config::AudioSpecificConfig;
 use codec_common::{
-    FrameType,
+    FrameType, MediaFrameTimestamp,
     audio::{AudioCodecCommon, AudioConfig, AudioFrameInfo, SoundInfoCommon},
     video::{H264VideoConfig, VideoCodecCommon, VideoConfig, VideoFrameInfo, VideoFrameUnit},
 };
@@ -113,44 +113,94 @@ impl MediaFrame {
         )
     }
 
-    pub fn get_timestamp_ns(&self) -> u64 {
+    pub fn get_presentation_timestamp_ns(&self) -> u64 {
         match self {
             Self::Audio {
-                frame_info,
-                payload: _,
-            } => frame_info.timestamp_nano,
-            Self::AudioConfig { timestamp_nano, .. } => *timestamp_nano,
-            Self::Script {
-                timestamp_nano,
-                on_meta_data: _,
-                payload: _,
-            } => *timestamp_nano,
+                frame_info: AudioFrameInfo { timestamp_nano, .. },
+                ..
+            }
+            | Self::AudioConfig { timestamp_nano, .. }
+            | Self::VideoConfig { timestamp_nano, .. }
+            | Self::Script { timestamp_nano, .. } => *timestamp_nano,
             Self::Video {
-                frame_info,
-                payload: _,
-            } => frame_info.timestamp_nano,
-            Self::VideoConfig { timestamp_nano, .. } => *timestamp_nano,
+                frame_info: VideoFrameInfo { timestamp, .. },
+                ..
+            } => timestamp.pts(),
         }
     }
 
-    pub fn get_timestamp_ns_mut(&mut self) -> &mut u64 {
+    pub fn get_presentation_timestamp_ms(&self) -> u64 {
+        self.get_presentation_timestamp_ns()
+            .checked_div(1_000_000)
+            .unwrap()
+    }
+
+    pub fn get_decode_timestamp_ns(&self) -> u64 {
         match self {
             Self::Audio {
-                frame_info,
-                payload: _,
-            } => &mut frame_info.timestamp_nano,
-            Self::AudioConfig { timestamp_nano, .. } => timestamp_nano,
-            Self::Script {
-                timestamp_nano,
-                on_meta_data: _,
-                payload: _,
-            } => timestamp_nano,
+                frame_info: AudioFrameInfo { timestamp_nano, .. },
+                ..
+            }
+            | Self::AudioConfig { timestamp_nano, .. }
+            | Self::VideoConfig { timestamp_nano, .. }
+            | Self::Script { timestamp_nano, .. } => *timestamp_nano,
             Self::Video {
-                frame_info,
-                payload: _,
-            } => &mut frame_info.timestamp_nano,
-            Self::VideoConfig { timestamp_nano, .. } => timestamp_nano,
+                frame_info: VideoFrameInfo { timestamp, .. },
+                ..
+            } => timestamp.dts(),
         }
+    }
+
+    pub fn get_decode_timestamp_ms(&self) -> u64 {
+        self.get_decode_timestamp_ns()
+            .checked_div(1_000_000)
+            .unwrap()
+    }
+
+    pub fn set_presentation_timestamp_ns(&mut self, pts_nano: u64) {
+        match self {
+            Self::Audio {
+                frame_info: AudioFrameInfo { timestamp_nano, .. },
+                ..
+            }
+            | Self::AudioConfig { timestamp_nano, .. }
+            | Self::VideoConfig { timestamp_nano, .. }
+            | Self::Script { timestamp_nano, .. } => *timestamp_nano = pts_nano,
+            Self::Video {
+                frame_info: VideoFrameInfo { timestamp, .. },
+                ..
+            } => {
+                timestamp.set_pts(pts_nano);
+            }
+        }
+    }
+
+    pub fn set_presentation_timestamp_ms(&mut self, pts_ms: u64) {
+        let ts = pts_ms.checked_mul(1_000_000).unwrap();
+        self.set_presentation_timestamp_ns(ts);
+    }
+
+    pub fn set_decode_timestamp_ns(&mut self, dts_nano: u64) {
+        match self {
+            Self::Audio {
+                frame_info: AudioFrameInfo { timestamp_nano, .. },
+                ..
+            }
+            | Self::AudioConfig { timestamp_nano, .. }
+            | Self::VideoConfig { timestamp_nano, .. }
+            | Self::Script { timestamp_nano, .. } => *timestamp_nano = dts_nano,
+            Self::Video {
+                frame_info: VideoFrameInfo { timestamp, .. },
+                ..
+            } => {
+                timestamp.set_dts(dts_nano);
+            }
+        }
+    }
+
+    pub fn set_decode_timestamp_ms(&mut self, dts_ms: u64) {
+        let ts = dts_ms.checked_mul(1_000_000).unwrap();
+        self.set_decode_timestamp_ns(ts);
     }
 
     #[inline]
@@ -202,6 +252,8 @@ impl MediaFrame {
     pub fn to_flv_tag(&self, nalu_size_length: u8) -> StreamCenterResult<flv_formats::tag::FLVTag> {
         assert!(nalu_size_length == 1 || nalu_size_length == 2 || nalu_size_length == 4);
         let span = debug_span!("media frame to flv tag", nalu_size_length);
+
+        let flv_dts_ms = self.get_decode_timestamp_ms().to_u32().unwrap();
         let _enter = span.enter();
         match self {
             Self::Audio {
@@ -219,11 +271,7 @@ impl MediaFrame {
                             .checked_add(payload.len())
                             .and_then(|v| v.to_u32())
                             .unwrap(),
-                        timestamp: frame_info
-                            .timestamp_nano
-                            .checked_div(1_000_000)
-                            .and_then(|v| v.to_u32())
-                            .unwrap(),
+                        timestamp: flv_dts_ms,
                         filter_enabled: false,
                     },
                     body_with_filter: flv_formats::tag::flv_tag_body::FLVTagBodyWithFilter {
@@ -237,11 +285,7 @@ impl MediaFrame {
                     },
                 })
             }
-            Self::Script {
-                timestamp_nano,
-                on_meta_data,
-                payload: _,
-            } => {
+            Self::Script { on_meta_data, .. } => {
                 let value = vec![
                     // amf_formats::amf0::string("@setDataFrame"),
                     amf_formats::amf0::string("onMetaData"),
@@ -258,10 +302,7 @@ impl MediaFrame {
                     tag_header: flv_formats::tag::flv_tag_header::FLVTagHeader {
                         tag_type: FLVTagType::Script,
                         data_size: length.to_u32().unwrap(),
-                        timestamp: timestamp_nano
-                            .checked_div(1_000_000)
-                            .and_then(|v| v.to_u32())
-                            .unwrap(),
+                        timestamp: flv_dts_ms,
                         filter_enabled: false,
                     },
                     body_with_filter: flv_formats::tag::flv_tag_body::FLVTagBodyWithFilter {
@@ -295,11 +336,7 @@ impl MediaFrame {
                         .checked_add(bytes.len())
                         .and_then(|v| v.to_u32())
                         .unwrap(),
-                    timestamp: frame_info
-                        .timestamp_nano
-                        .checked_div(1_000_000)
-                        .and_then(|v| v.to_u32())
-                        .unwrap(),
+                    timestamp: flv_dts_ms,
                     filter_enabled: false,
                 };
 
@@ -324,7 +361,7 @@ impl MediaFrame {
                 let frame_info = VideoFrameInfo {
                     codec_id: config.as_ref().into(),
                     frame_type: FrameType::SequenceStart,
-                    timestamp_nano: *timestamp_nano,
+                    timestamp: MediaFrameTimestamp::with_timestamp_nano(*timestamp_nano),
                 };
                 let span = debug_span!("video_config", ?frame_info);
                 let _enter = span.enter();
@@ -347,10 +384,7 @@ impl MediaFrame {
                                     .checked_add(bytes.len())
                                     .and_then(|v| v.to_u32())
                                     .unwrap(),
-                                timestamp: timestamp_nano
-                                    .checked_div(1_000_000)
-                                    .and_then(|v| v.to_u32())
-                                    .unwrap(),
+                                timestamp: flv_dts_ms,
                                 filter_enabled: false,
                             };
                             tracing::debug!("video sequence header tag header: {:?}", tag_header);
@@ -406,10 +440,7 @@ impl MediaFrame {
                                     .checked_add(bytes.len())
                                     .and_then(|v| v.to_u32())
                                     .unwrap(),
-                                timestamp: timestamp_nano
-                                    .checked_div(1_000_000)
-                                    .and_then(|v| v.to_u32())
-                                    .unwrap(),
+                                timestamp: flv_dts_ms,
                                 filter_enabled: false,
                             },
                             body_with_filter:
@@ -585,34 +616,28 @@ impl MediaFrame {
                             } else {
                                 FrameType::CodedFrames
                             };
+                        let timestamp = *MediaFrameTimestamp::with_timestamp_ms(
+                            tag.tag_header.timestamp.to_u64().unwrap(),
+                        )
+                        .apply_offset_ms(
+                            tag_header_info
+                                .composition_time
+                                .unwrap_or(0)
+                                .to_u64()
+                                .unwrap(),
+                        )
+                        .apply_offset_nano(
+                            tag_header_info
+                                .timestamp_nano
+                                .unwrap_or(0)
+                                .to_u64()
+                                .unwrap(),
+                        );
                         Ok(Self::Video {
                             frame_info: VideoFrameInfo::new(
                                 tag_header_info.codec_id,
                                 frame_type,
-                                tag.tag_header
-                                    .timestamp
-                                    .to_u64()
-                                    .and_then(|v| v.checked_mul(1_000_000))
-                                    .and_then(|v| {
-                                        v.checked_add(
-                                            tag_header_info
-                                                .composition_time
-                                                .unwrap_or(0)
-                                                .to_u64()
-                                                .and_then(|v| v.checked_mul(1_000_000))
-                                                .unwrap(),
-                                        )
-                                    })
-                                    .and_then(|v| {
-                                        v.checked_add(
-                                            tag_header_info
-                                                .timestamp_nano
-                                                .unwrap_or(0)
-                                                .to_u64()
-                                                .unwrap(),
-                                        )
-                                    })
-                                    .unwrap(),
+                                timestamp,
                             ),
                             payload: nalus,
                         })
@@ -629,8 +654,8 @@ pub struct Gop {
     video_tag_cnt: usize,
     audio_tag_cnt: usize,
     meta_tag_cnt: usize,
-    first_video_pts_nano: u64,
-    last_video_pts_nano: u64,
+    first_video_dts_nano: u64,
+    last_video_dts_nano: u64,
 }
 
 impl Gop {
@@ -640,8 +665,8 @@ impl Gop {
             video_tag_cnt: 0,
             audio_tag_cnt: 0,
             meta_tag_cnt: 0,
-            first_video_pts_nano: 0,
-            last_video_pts_nano: 0,
+            first_video_dts_nano: 0,
+            last_video_dts_nano: 0,
         }
     }
 
@@ -655,15 +680,15 @@ impl Gop {
                 self.video_tag_cnt -= 1;
             }
         }
-        self.first_video_pts_nano = self
+        self.first_video_dts_nano = self
             .media_frames
             .front()
-            .map(|v| v.get_timestamp_ns())
+            .map(|v| v.get_decode_timestamp_ns())
             .unwrap_or(0);
-        self.last_video_pts_nano = self
+        self.last_video_dts_nano = self
             .media_frames
             .back()
-            .map(|v| v.get_timestamp_ns())
+            .map(|v| v.get_decode_timestamp_ns())
             .unwrap_or(0);
 
         dropped
@@ -685,13 +710,13 @@ impl Gop {
     }
 
     #[inline]
-    pub fn get_first_video_timestamp_nano(&self) -> u64 {
-        self.first_video_pts_nano
+    pub fn get_first_video_dts_nano(&self) -> u64 {
+        self.first_video_dts_nano
     }
 
     #[inline]
-    pub fn get_last_video_timestamp_nano(&self) -> u64 {
-        self.last_video_pts_nano
+    pub fn get_last_video_dts_nano(&self) -> u64 {
+        self.last_video_dts_nano
     }
 
     #[inline]
@@ -704,34 +729,21 @@ impl Gop {
 
     pub fn append_media_frame(&mut self, frame: MediaFrame) {
         match &frame {
-            MediaFrame::VideoConfig {
-                timestamp_nano: _,
-                config: _,
-            } => {
+            MediaFrame::VideoConfig { .. } => {
                 self.video_tag_cnt += 1;
             }
-            MediaFrame::Video {
-                frame_info,
-                payload: _,
-            } => {
+            MediaFrame::Video { .. } => {
                 self.video_tag_cnt += 1;
                 if self.media_frames.is_empty() {
-                    self.first_video_pts_nano = frame_info.timestamp_nano;
+                    self.first_video_dts_nano = frame.get_decode_timestamp_ns();
                 }
-                self.last_video_pts_nano = frame_info.timestamp_nano;
+                self.last_video_dts_nano = frame.get_decode_timestamp_ns();
             }
-            MediaFrame::Audio {
-                frame_info: _,
-                payload: _,
-            } => self.audio_tag_cnt += 1,
+            MediaFrame::Audio { .. } => self.audio_tag_cnt += 1,
             MediaFrame::AudioConfig { .. } => {
                 self.audio_tag_cnt += 1;
             }
-            MediaFrame::Script {
-                timestamp_nano: _,
-                payload: _,
-                on_meta_data: _,
-            } => self.meta_tag_cnt += 1,
+            MediaFrame::Script { .. } => self.meta_tag_cnt += 1,
         }
 
         self.media_frames.push_back(frame);
@@ -835,27 +847,24 @@ impl GopQueue {
             tracing::warn!(
                 "first video frame not key frame, dropping. frame codec id: {:?}, timestamp: {}",
                 frame.video_codec_id(),
-                frame.get_timestamp_ns()
+                frame.get_decode_timestamp_ns()
             );
             return Ok(());
         }
-        let first_pts = self
+        let first_dts = self
             .gops
             .front()
-            .map_or(0, |v| v.get_first_video_timestamp_nano());
-        let last_pts = self
-            .gops
-            .back()
-            .map_or(0, |v| v.get_last_video_timestamp_nano());
+            .map_or(0, |v| v.get_first_video_dts_nano());
+        let last_dts = self.gops.back().map_or(0, |v| v.get_last_video_dts_nano());
 
-        if (last_pts > first_pts
-            && (last_pts - first_pts) >= self.max_duration_ms.checked_mul(1_000_000).unwrap())
+        if (last_dts > first_dts
+            && (last_dts - first_dts) >= self.max_duration_ms.checked_mul(1_000_000).unwrap())
             || self.total_frame_cnt >= self.max_frame_cnt
         {
             let span = tracing::trace_span!(
                 "dopping gop",
-                last_pts,
-                first_pts,
+                last_dts,
+                first_dts,
                 self.max_duration_ms,
                 gops_cnt = self.gops.len(),
                 self.total_frame_cnt,

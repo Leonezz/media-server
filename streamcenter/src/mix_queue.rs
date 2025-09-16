@@ -76,25 +76,25 @@ impl GenericSequencer for MixQueue {
         // after initial buffering
         self.initial_buffering_frame_count = 5;
 
-        let (mut min_video_timestamp, mut min_audio_timestamp) = (u64::MAX, u64::MAX);
+        let (mut min_video_dts_nano, mut min_audio_dts_nano) = (u64::MAX, u64::MAX);
         for frame in &self.video {
-            if frame.get_timestamp_ns() < min_video_timestamp {
-                min_video_timestamp = frame.get_timestamp_ns();
+            if frame.get_decode_timestamp_ns() < min_video_dts_nano {
+                min_video_dts_nano = frame.get_decode_timestamp_ns();
             }
         }
         for frame in &self.audio {
-            if frame.get_timestamp_ns() < min_audio_timestamp {
-                min_audio_timestamp = frame.get_timestamp_ns();
+            if frame.get_decode_timestamp_ns() < min_audio_dts_nano {
+                min_audio_dts_nano = frame.get_decode_timestamp_ns();
             }
         }
 
-        let min_timestamp = max(min_audio_timestamp, min_video_timestamp);
+        let min_dts_nano = max(min_audio_dts_nano, min_video_dts_nano);
         let mut result = Vec::new();
 
         // Remove video frames with timestamp <= min_timestamp
         let mut i = 0;
         while i < self.video.len() {
-            if self.video[i].get_timestamp_ns() <= min_timestamp {
+            if self.video[i].get_decode_timestamp_ns() <= min_dts_nano {
                 result.push(self.video.remove(i).unwrap());
                 break;
             } else {
@@ -105,14 +105,14 @@ impl GenericSequencer for MixQueue {
         // Remove audio frames with timestamp <= min_timestamp
         let mut i = 0;
         while i < self.audio.len() {
-            if self.audio[i].get_timestamp_ns() <= min_timestamp {
+            if self.audio[i].get_decode_timestamp_ns() <= min_dts_nano {
                 result.push(self.audio.remove(i).unwrap());
                 break;
             } else {
                 i += 1;
             }
         }
-        result.sort_by_key(|a| a.get_timestamp_ns());
+        result.sort_by_key(|a| a.get_decode_timestamp_ns());
         result
     }
 }

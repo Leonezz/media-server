@@ -1,5 +1,5 @@
 use std::{
-    io, net::{IpAddr, SocketAddr}, pin::Pin, sync::atomic::{AtomicBool, Ordering}, time::Duration
+    io, net::{IpAddr, SocketAddr}, pin::Pin, time::Duration
 };
 use codec_aac::mpeg4_configuration::audio_specific_config::AudioSpecificConfig;
 use codec_h264::avc_decoder_configuration_record::AvcDecoderConfigurationRecord;
@@ -26,7 +26,7 @@ use tokio::sync::broadcast::error::TryRecvError;
 use tracing::{Instrument, Span};
 use unified_io::{UnifiedIO, channel::ChannelIo, udp::UdpIO};
 use url::Url;
-use utils::{random::random_u32, traits::buffer::GenericSequencer};
+use utils::{random::{random_u16, random_u32}, traits::buffer::GenericSequencer};
 use crate::{
     SERVER_AGENT,
     errors::{RtspServerError, RtspServerResult},
@@ -443,7 +443,7 @@ impl RtspMediaSession {
         peer_rtcp_port: u16,
     ) -> RtspServerResult<((UdpIO, u16), (UdpIO, u16))> {
         let (rtp_port, rtp_io) =
-            UdpIO::new_with_remote_addr(1000, SocketAddr::new(peer_ip, peer_rtp_port))
+            UdpIO::new_with_remote_addr(random_u16(), SocketAddr::new(peer_ip, peer_rtp_port))
                 .await
                 .map_err(|err| {
                     tracing::error!("failed to create udp io: {}", err);
@@ -554,7 +554,7 @@ impl RtspMediaSession {
                 "media frame channel from stream center to rtsp media session is closed unexpected",
             ))),
             Some(frame) => span.in_scope(async || {
-                rtp_packetizer.set_frame_timestamp(frame.get_timestamp_ns().checked_div(1_000_000).unwrap());
+                rtp_packetizer.set_frame_timestamp(frame.get_presentation_timestamp_ms());
                 if let Some(item) = RtpPacketizerItem::from_media_frame(frame) {
                 rtp_packetizer.packetize(item).inspect_err(|err| {
                     tracing::error!("error while packetizing media frame to rtp: {}", err);
@@ -613,7 +613,7 @@ impl RtspMediaSession {
                 }
                 let ready_packets = rtp_unpacker.try_dump();
                 if first_rtp_timestamp.is_none() && !ready_packets.is_empty() {
-                    *first_rtp_timestamp = Some(ready_packets[0].get_timestamp());
+                    *first_rtp_timestamp = Some(ready_packets[0].get_presentation_timestamp_ms());
                     // time to send audio/video configs
                     if let Some(fmtp) = fmtp {
                         match rtpmap.encoding_name.to_lowercase().as_str() {

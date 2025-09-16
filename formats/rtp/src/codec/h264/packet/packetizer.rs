@@ -166,12 +166,15 @@ impl RtpH264PacketPacketizer {
     }
 
     fn packetize_single_nalu(&self, nalu: NalUnit) -> RtpH264Result<RtpH264NalUnit> {
-        let nalu_bytes_length = nalu.get_packet_bytes_count();
-        if nalu_bytes_length + self.header.get_packet_bytes_count() <= self.mtu {
+        if self.single_nalu_check_mtu_with_length(&nalu) {
             return Ok(RtpH264NalUnit::SingleNalu(SingleNalUnit(nalu)));
         }
 
         Err(RtpH264Error::InvalidMTU(self.mtu))
+    }
+
+    fn single_nalu_check_mtu_with_length(&self, nalu: &NalUnit) -> bool {
+        nalu.get_packet_bytes_count() + self.header.get_packet_bytes_count() <= self.mtu
     }
 
     fn aggreated_check_mtu_with_length(&self, nalu_total_size: usize, nalu_cnt: usize) -> bool {
@@ -212,49 +215,48 @@ impl RtpH264PacketPacketizer {
             return Ok(vec![]);
         }
         let mut result = vec![];
-        result.extend(self.packetize_sps_pps()?);
-        // if self.nal_units.len() == 1 {
-        //     let nalu = self.nal_units.remove(0);
-        //     if let Ok(res) = self.packetize_single_nalu(nalu.clone()) {
-        //         result.push(res);
-        //     } else {
-        //         result.extend(self.packetize_fragmented_nalu(nalu)?);
-        //     }
-        //     return Ok(result);
-        // }
+        // result.extend(self.packetize_sps_pps()?);
 
         let mut fragments = vec![];
         let (mut start_idx, mut total_size) = (0, 0);
-        for (idx, nalu) in self.nal_units.iter().enumerate() {
+        let nalus: Vec<_> = self.nal_units.drain(..).collect();
+        for (idx, nalu) in nalus.iter().enumerate() {
             let nalu_size = nalu.get_packet_bytes_count();
-            if !self.aggreated_check_mtu_with_length(nalu_size, 1) {
-                if !total_size == 0 {
-                    fragments.push((start_idx, idx - start_idx));
-                }
+
+            // Check if this NALU fits if we add it
+            let nalu_cnt = idx - start_idx + 1;
+            if self.aggreated_check_mtu_with_length(total_size + nalu_size, nalu_cnt) {
+                total_size += nalu_size;
+                continue;
+            }
+
+            // Current NALU doesn't fit -> emit previous group if non-empty
+            if idx > start_idx {
+                fragments.push((start_idx, idx - start_idx));
+            }
+
+            // Now handle current NALU individually
+            if self.aggreated_check_mtu_with_length(nalu_size, 1) {
+                // Start a new group with this NALU
+                start_idx = idx;
+                total_size = nalu_size;
+            } else {
+                // Too big -> FU-A fragmentation
                 fragments.push((idx, 1));
                 start_idx = idx + 1;
                 total_size = 0;
-                continue;
             }
-            total_size += nalu_size;
-            let nalu_cnt = idx - start_idx + 1;
-            if self.aggreated_check_mtu_with_length(total_size, nalu_cnt) {
-                continue;
-            }
-            fragments.push((start_idx, nalu_cnt - 1));
-            start_idx = idx;
-            total_size = nalu_size;
         }
-        if total_size != 0 {
-            fragments.push((start_idx, self.nal_units.len() - start_idx));
+        if start_idx < nalus.len() {
+            fragments.push((start_idx, nalus.len() - start_idx));
         }
 
         for (start, len) in fragments {
-            let mut nalus_slice: Vec<NalUnit> = self.nal_units[start..start + len].to_vec();
+            let mut nalus_slice: Vec<NalUnit> = nalus[start..start + len].to_vec();
             if nalus_slice.len() == 1 {
                 let nalu = nalus_slice.remove(0);
-                if let Ok(res) = self.packetize_single_nalu(nalu.clone()) {
-                    result.push(res);
+                if self.single_nalu_check_mtu_with_length(&nalu) {
+                    result.push(self.packetize_single_nalu(nalu)?);
                 } else {
                     result.extend(self.packetize_fragmented_nalu(nalu)?);
                 }
@@ -270,7 +272,7 @@ impl RtpH264PacketPacketizer {
         let mut result = vec![];
         match self.packetization_mode {
             PacketizationMode::SingleNalu => {
-                result.extend(self.packetize_sps_pps()?);
+                // result.extend(self.packetize_sps_pps()?);
                 let nalus: Vec<_> = self.nal_units.drain(..).collect();
                 for nalu in nalus {
                     result.push(self.packetize_single_nalu(nalu)?);

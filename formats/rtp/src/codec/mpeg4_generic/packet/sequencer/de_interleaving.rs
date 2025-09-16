@@ -51,12 +51,12 @@ impl RtpMpeg4GenericDeInterleavingBuffer {
         }
         let mut result = (u32::MAX, 0, u32::MIN, 0);
         for (i, item) in self.buffer.iter().enumerate() {
-            if item.access_unit.timestamp < result.0 {
-                result.0 = item.access_unit.timestamp;
+            if item.access_unit.presentation_timestamp_ms < result.0 {
+                result.0 = item.access_unit.presentation_timestamp_ms;
                 result.1 = i;
             }
-            if item.access_unit.timestamp > result.2 {
-                result.2 = item.access_unit.timestamp;
+            if item.access_unit.presentation_timestamp_ms > result.2 {
+                result.2 = item.access_unit.presentation_timestamp_ms;
                 result.3 = i;
             }
         }

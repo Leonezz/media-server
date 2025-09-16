@@ -1,12 +1,10 @@
 pub mod reader;
 pub mod writer;
-
+use crate::{FrameType, MediaFrameTimestamp};
 use codec_h264::{
     avc_decoder_configuration_record::AvcDecoderConfigurationRecord, nalu_type::NALUType,
 };
 use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
-
-use crate::FrameType;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VideoCodecCommon {
@@ -43,15 +41,19 @@ impl VideoCodecCommon {
 pub struct VideoFrameInfo {
     pub codec_id: VideoCodecCommon,
     pub frame_type: FrameType,
-    pub timestamp_nano: u64,
+    pub timestamp: MediaFrameTimestamp,
 }
 
 impl VideoFrameInfo {
-    pub fn new(codec_id: VideoCodecCommon, frame_type: FrameType, timestamp_nano: u64) -> Self {
+    pub fn new(
+        codec_id: VideoCodecCommon,
+        frame_type: FrameType,
+        timestamp: MediaFrameTimestamp,
+    ) -> Self {
         Self {
             codec_id,
             frame_type,
-            timestamp_nano,
+            timestamp,
         }
     }
 }

@@ -1,12 +1,11 @@
+use super::enhanced::ex_video::ex_video_header::ExVideoTagHeader;
+use crate::errors::FLVError;
 use codec_common::{
     FrameType,
     video::{VideoCodecCommon, VideoFrameInfo},
 };
+use num::ToPrimitive;
 use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
-
-use crate::errors::FLVError;
-
-use super::enhanced::ex_video::ex_video_header::ExVideoTagHeader;
 
 pub mod reader;
 pub mod writer;
@@ -214,12 +213,19 @@ impl TryFrom<&VideoFrameInfo> for LegacyVideoTagHeader {
         } else {
             None
         };
+        let cts = value
+            .timestamp
+            .pts_ms()
+            .checked_sub(value.timestamp.dts_ms())
+            .unwrap()
+            .to_u32()
+            .unwrap();
         Ok(Self {
             frame_type: value.frame_type.into(),
             codec_id: value.codec_id.try_into()?,
             avc_packet_type: packet_type,
             video_command: None,
-            composition_time: Some(0),
+            composition_time: Some(cts),
         })
     }
 }

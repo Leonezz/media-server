@@ -1072,8 +1072,7 @@ impl RtspRequestHandler for RtspSession {
     }
 
     async fn handle_pause(&mut self, _request: &RtspRequest) -> RtspServerResult<RtspResponse> {
-        // Handle PAUSE request
-        todo!()
+        Ok(rtsp_server_simple_response(RtspStatus::OK))
     }
 
     async fn handle_teardown(&mut self, request: &RtspRequest) -> RtspServerResult<RtspResponse> {
@@ -1110,21 +1109,18 @@ impl RtspRequestHandler for RtspSession {
         &mut self,
         _request: &RtspRequest,
     ) -> RtspServerResult<RtspResponse> {
-        // Handle SET_PARAMETER request
-        todo!()
+        Ok(rtsp_server_simple_response(RtspStatus::OK))
     }
 
     async fn handle_play_notify(
         &mut self,
         _request: &RtspRequest,
     ) -> RtspServerResult<RtspResponse> {
-        // Handle PLAY_NOTIFY request
-        todo!()
+        Ok(rtsp_server_simple_response(RtspStatus::OK))
     }
 
     async fn handle_redirect(&mut self, _request: &RtspRequest) -> RtspServerResult<RtspResponse> {
-        // Handle REDIRECT request
-        todo!()
+        Ok(rtsp_server_simple_response(RtspStatus::OK))
     }
 
     async fn handle_announce(&mut self, request: &RtspRequest) -> RtspServerResult<RtspResponse> {

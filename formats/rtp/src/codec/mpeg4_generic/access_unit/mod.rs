@@ -1,21 +1,17 @@
+use super::au_header::AuHeader;
 use std::fmt;
-
 use tokio_util::{
     bytes::{Bytes, BytesMut},
     either::Either,
 };
-
-use super::au_header::AuHeader;
-
 pub mod packet_size;
 pub mod reader;
 pub mod writer;
-
 pub struct AccessUnit {
     pub header: AuHeader,
     pub body: Bytes,
 
-    pub timestamp: u32,
+    pub presentation_timestamp_ms: u32,
 }
 
 impl fmt::Debug for AccessUnit {
@@ -25,7 +21,7 @@ impl fmt::Debug for AccessUnit {
             "au_header: {:?}, body len: {}, timestamp: {}",
             self.header,
             self.body.len(),
-            self.timestamp
+            self.presentation_timestamp_ms
         )
     }
 }
@@ -43,7 +39,7 @@ impl AccessUnitFragment {
             header: self.header,
             body: self.body.freeze(),
 
-            timestamp: self.timestamp,
+            presentation_timestamp_ms: self.timestamp,
         }
     }
 }
