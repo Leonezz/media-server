@@ -151,7 +151,7 @@ impl StreamSource {
             gop_cache: GopQueue::new(6_0000, 8000),
             status: StreamStatus::NotStarted,
             signal_receiver,
-            mix_queue: MixQueue::new(100, 100, 30, 30),
+            mix_queue: MixQueue::new(100, 100),
         }
     }
 

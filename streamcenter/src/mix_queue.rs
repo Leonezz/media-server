@@ -1,32 +1,48 @@
 use crate::{errors::StreamCenterError, gop::MediaFrame};
-use std::{cmp::max, collections::VecDeque};
+use std::collections::BTreeMap;
 use utils::traits::buffer::GenericSequencer;
 
 #[derive(Debug)]
 pub struct MixQueue {
-    pub video: VecDeque<MediaFrame>,
-    pub audio: VecDeque<MediaFrame>,
-    initial_buffering_frame_count: usize,
+    pub media_frames: BTreeMap<u64, MediaFrame>,
+    video_cnt: usize,
+    audio_cnt: usize,
     pure_av_max_frame_count: usize,
-    max_video_frame_count: usize,
-    max_audio_frame_count: usize,
+    capacity: usize,
 }
 
 impl MixQueue {
-    pub fn new(
-        max_video_frame_count: usize,
-        max_audio_frame_count: usize,
-        initial_buffering_frame_count: usize,
-        pure_av_max_frame_count: usize,
-    ) -> Self {
+    pub fn new(capacity: usize, pure_av_max_frame_count: usize) -> Self {
+        assert!(capacity > 0);
+        assert!(pure_av_max_frame_count > 0);
         Self {
-            video: VecDeque::new(),
-            audio: VecDeque::new(),
-            max_video_frame_count,
-            max_audio_frame_count,
-            initial_buffering_frame_count,
+            media_frames: BTreeMap::new(),
             pure_av_max_frame_count,
+            capacity,
+            video_cnt: 0,
+            audio_cnt: 0,
         }
+    }
+
+    fn try_dump_one(&mut self) -> Option<MediaFrame> {
+        if self.audio_cnt == 0 && self.video_cnt == 0 {
+            return None;
+        }
+        if (self.audio_cnt == 0 || self.video_cnt == 0)
+            && self.video_cnt + self.audio_cnt < self.pure_av_max_frame_count
+        {
+            return None;
+        }
+
+        if let Some((_, frame)) = self.media_frames.pop_first() {
+            if frame.is_video() {
+                self.video_cnt -= 1;
+            } else {
+                self.audio_cnt -= 1;
+            }
+            return Some(frame);
+        }
+        None
     }
 }
 
@@ -39,80 +55,30 @@ impl GenericSequencer for MixQueue {
             !packet.is_sequence_header(),
             "MixQueue does not support sequence header packets"
         );
+        if self.media_frames.len() > self.capacity {
+            return Err(StreamCenterError::MixQueueFull(
+                packet.get_codec_name().to_string(),
+                self.capacity,
+            ));
+        }
+
         if packet.is_video() {
-            if self.video.len() >= self.max_video_frame_count {
-                return Err(StreamCenterError::MixQueueFull(
-                    "video".to_owned(),
-                    self.max_video_frame_count,
-                ));
-            }
-
-            self.video.push_back(packet);
-            Ok(())
+            self.video_cnt += 1;
         } else if packet.is_audio() {
-            if self.audio.len() >= self.max_audio_frame_count {
-                return Err(StreamCenterError::MixQueueFull(
-                    "audio".to_owned(),
-                    self.max_audio_frame_count,
-                ));
-            }
-
-            self.audio.push_back(packet);
-            Ok(())
+            self.audio_cnt += 1;
         } else {
             unreachable!("MixQueue only supports audio and video packets");
         }
+        self.media_frames
+            .insert(packet.get_decode_timestamp_ns(), packet);
+        Ok(())
     }
+
     fn try_dump(&mut self) -> Vec<Self::Out> {
-        if self.video.len() + self.audio.len() < self.initial_buffering_frame_count {
-            return vec![];
+        let mut result = vec![];
+        while let Some(frame) = self.try_dump_one() {
+            result.push(frame);
         }
-        if self.audio.is_empty() && self.video.len() < self.pure_av_max_frame_count {
-            return vec![];
-        }
-        if self.video.is_empty() && self.audio.len() < self.pure_av_max_frame_count {
-            return vec![];
-        }
-        // after initial buffering
-        self.initial_buffering_frame_count = 5;
-
-        let (mut min_video_dts_nano, mut min_audio_dts_nano) = (u64::MAX, u64::MAX);
-        for frame in &self.video {
-            if frame.get_decode_timestamp_ns() < min_video_dts_nano {
-                min_video_dts_nano = frame.get_decode_timestamp_ns();
-            }
-        }
-        for frame in &self.audio {
-            if frame.get_decode_timestamp_ns() < min_audio_dts_nano {
-                min_audio_dts_nano = frame.get_decode_timestamp_ns();
-            }
-        }
-
-        let min_dts_nano = max(min_audio_dts_nano, min_video_dts_nano);
-        let mut result = Vec::new();
-
-        // Remove video frames with timestamp <= min_timestamp
-        let mut i = 0;
-        while i < self.video.len() {
-            if self.video[i].get_decode_timestamp_ns() <= min_dts_nano {
-                result.push(self.video.remove(i).unwrap());
-                break;
-            } else {
-                i += 1;
-            }
-        }
-
-        // Remove audio frames with timestamp <= min_timestamp
-        let mut i = 0;
-        while i < self.audio.len() {
-            if self.audio[i].get_decode_timestamp_ns() <= min_dts_nano {
-                result.push(self.audio.remove(i).unwrap());
-                break;
-            } else {
-                i += 1;
-            }
-        }
-        result.sort_by_key(|a| a.get_decode_timestamp_ns());
         result
     }
 }
