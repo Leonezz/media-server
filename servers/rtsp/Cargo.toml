@@ -1,0 +1,35 @@
+[package]
+name = "rtsp-server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+thiserror = "2.0.7"
+tokio = { version = "1.44.2", features = ["full"] }
+tokio-util = { version = "0.7.13", features = ["full"] }
+futures = "0.3.31"
+tracing = "0.1.41"
+unified-io = { path = "../../unifiedio" }
+rtsp-formats = { path = "../../formats/rtsp" }
+sdp-formats = { path = "../../formats/sdp" }
+rtp-session = { path = "../rtp" }
+rtp-formats = { path = "../../formats/rtp" }
+utils = { path = "../../utils" }
+server-utils = { path = "../utils" }
+codec-h264 = { path = "../../codec/h264" }
+codec-aac = { path = "../../codec/aac" }
+codec-common = { path = "../../codec/common" }
+stream-center = { path = "../../streamcenter" }
+num = "0.4.3"
+uuid = { version = "1.11.0", features = [
+    "v7",
+    "fast-rng",
+    "macro-diagnostics",
+] }
+url = "2.5.4"
+chrono = "0.4.40"
+debug-tools = { path = "../../debug_tools" }
+scopeguard = "1.1"
+
+[lints.clippy]
+uninlined_format_args = "allow"

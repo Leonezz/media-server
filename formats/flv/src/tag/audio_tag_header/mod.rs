@@ -1,9 +1,15 @@
 pub mod reader;
 pub mod writer;
 
-use std::io;
+use codec_common::{
+    FrameType,
+    audio::{AudioCodecCommon, AudioFrameInfo, SoundRateCommon, SoundSizeCommon, SoundTypeCommon},
+};
+use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
 
-use crate::errors::{FLVError, FLVResult};
+use crate::errors::FLVError;
+
+use super::enhanced::ex_audio::ex_audio_header::ExAudioTagHeader;
 
 ///
 /// Format of SoundData, the following values are defined
@@ -85,6 +91,28 @@ pub enum SoundRate {
     KHZ44 = 3,
 }
 
+impl From<SoundRateCommon> for SoundRate {
+    fn from(value: SoundRateCommon) -> Self {
+        match value {
+            SoundRateCommon::KHZ11 => Self::KHZ11,
+            SoundRateCommon::KHZ22 => Self::KHZ22,
+            SoundRateCommon::KHZ44 => Self::KHZ44,
+            SoundRateCommon::KHZ5D5 => Self::KHZ5D5,
+        }
+    }
+}
+
+impl From<SoundRate> for SoundRateCommon {
+    fn from(value: SoundRate) -> Self {
+        match value {
+            SoundRate::KHZ11 => Self::KHZ11,
+            SoundRate::KHZ22 => Self::KHZ22,
+            SoundRate::KHZ44 => Self::KHZ44,
+            SoundRate::KHZ5D5 => Self::KHZ5D5,
+        }
+    }
+}
+
 impl From<SoundRate> for u8 {
     fn from(value: SoundRate) -> Self {
         value as u8
@@ -118,6 +146,24 @@ pub enum SoundSize {
     Bit16 = 1,
 }
 
+impl From<SoundSize> for SoundSizeCommon {
+    fn from(value: SoundSize) -> Self {
+        match value {
+            SoundSize::Bit16 => Self::Bit16,
+            SoundSize::Bit8 => Self::Bit8,
+        }
+    }
+}
+
+impl From<SoundSizeCommon> for SoundSize {
+    fn from(value: SoundSizeCommon) -> Self {
+        match value {
+            SoundSizeCommon::Bit16 => Self::Bit16,
+            SoundSizeCommon::Bit8 => Self::Bit8,
+        }
+    }
+}
+
 impl From<SoundSize> for u8 {
     fn from(value: SoundSize) -> Self {
         value as u8
@@ -143,6 +189,24 @@ pub enum SoundType {
     Mono = 0,
     #[default]
     Stereo = 1,
+}
+
+impl From<SoundType> for SoundTypeCommon {
+    fn from(value: SoundType) -> Self {
+        match value {
+            SoundType::Mono => Self::Mono,
+            SoundType::Stereo => Self::Stereo,
+        }
+    }
+}
+
+impl From<SoundTypeCommon> for SoundType {
+    fn from(value: SoundTypeCommon) -> Self {
+        match value {
+            SoundTypeCommon::Mono => Self::Mono,
+            SoundTypeCommon::Stereo => Self::Stereo,
+        }
+    }
 }
 
 impl From<SoundType> for u8 {
@@ -188,7 +252,7 @@ impl From<u8> for AACPacketType {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-pub struct AudioTagHeader {
+pub struct LegacyAudioTagHeader {
     pub sound_format: SoundFormat,
     pub sound_rate: SoundRate,
     pub sound_size: SoundSize,
@@ -196,7 +260,35 @@ pub struct AudioTagHeader {
     pub aac_packet_type: Option<AACPacketType>,
 }
 
-impl AudioTagHeader {
+impl DynamicSizedPacket for LegacyAudioTagHeader {
+    fn get_packet_bytes_count(&self) -> usize {
+        if matches!(self.sound_format, SoundFormat::AAC) && self.aac_packet_type.is_some() {
+            return 2;
+        }
+        1
+    }
+}
+
+impl TryFrom<&AudioFrameInfo> for LegacyAudioTagHeader {
+    type Error = FLVError;
+    fn try_from(value: &AudioFrameInfo) -> Result<Self, Self::Error> {
+        Ok(Self {
+            sound_format: value.codec_id.try_into()?,
+            sound_rate: value.sound_info.sound_rate.into(),
+            sound_size: value.sound_info.sound_size.into(),
+            sound_type: value.sound_info.sound_type.into(),
+            aac_packet_type: if value.codec_id != AudioCodecCommon::AAC {
+                None
+            } else if value.frame_type == FrameType::SequenceStart {
+                Some(AACPacketType::AACSequenceHeader)
+            } else {
+                Some(AACPacketType::AACRaw)
+            },
+        })
+    }
+}
+
+impl LegacyAudioTagHeader {
     #[inline]
     pub fn get_sound_format(&self) -> SoundFormat {
         self.sound_format
@@ -254,11 +346,8 @@ impl AudioTagHeader {
     }
 }
 
-impl AudioTagHeader {
-    pub fn write_to<W>(&self, writer: W) -> FLVResult<()>
-    where
-        W: io::Write,
-    {
-        writer::Writer::new(writer).write(self)
-    }
+#[derive(Debug)]
+pub enum AudioTagHeader {
+    Legacy(LegacyAudioTagHeader),
+    Enhanced(ExAudioTagHeader),
 }

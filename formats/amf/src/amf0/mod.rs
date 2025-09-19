@@ -4,11 +4,9 @@ use core::time;
 use std::io;
 
 pub use self::reader::Reader;
-pub use self::writer::Writer;
 use crate::amf3;
 use crate::errors::AmfResult;
 
-mod codec;
 mod reader;
 mod writer;
 
@@ -73,25 +71,11 @@ pub enum Value {
 }
 
 impl Value {
-    pub fn read_from<R>(reader: R) -> AmfResult<Option<Self>>
-    where
-        R: io::Read,
-    {
-        Reader::new(reader).read()
-    }
-
     pub fn read_all<R>(reader: R) -> AmfResult<Vec<Self>>
     where
         R: io::Read,
     {
         Reader::new(reader).read_all()
-    }
-
-    pub fn write_to<W>(&self, writer: W) -> AmfResult<()>
-    where
-        W: io::Write,
-    {
-        Writer::new(writer).write(self)
     }
 
     pub fn try_as_str(&self) -> Option<&str> {

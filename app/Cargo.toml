@@ -4,9 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-tokio = { version = "1.44.1", features = ["full"] }
+tokio = { version = "1.44.2", features = ["full"] }
 rtmp-server = { path = "../servers/rtmp" }
 http-server = { path = "../servers/http" }
+rtsp-server = { path = "../servers/rtsp" }
 rocket = { version = "0.5.1" }
 stream-center = { path = "../streamcenter" }
 time = { version = "0.3.37", features = ["macros"] }
@@ -29,3 +30,6 @@ clap = { version = "4.5.31", features = ["derive"] }
 [[bin]]
 name = "yam_server"
 path = "main.rs"
+
+[lints.clippy]
+uninlined_format_args = "allow"

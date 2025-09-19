@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
-use tokio_util::either::Either;
+use codec_common::audio::AudioCodecCommon;
 
 use crate::errors::FLVError;
 
 use super::{
-    audio_tag_header::{self, SoundRate, SoundSize, SoundType},
+    audio_tag_header::{self, AudioTagHeader, SoundRate, SoundSize, SoundType},
     enhanced::{
         AvMultiTrackType,
         ex_audio::ex_audio_header::{
@@ -13,27 +13,6 @@ use super::{
         },
     },
 };
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AudioCodecCommon {
-    LinearPCM,
-    ADPCM,
-    MP3,
-    LinearPCMLittleEndian,
-    NellyMoser16KHZ,
-    NellyMoser8KHZ,
-    NellyMoser,
-    G711ALawLogarithmicPCM,  // reserved
-    G711MULawLogarithmicPCM, // reserved
-    AAC,
-    Speex,
-    MP38KHZ, // reserved,
-    DeviceSpecific,
-    AC3,
-    EAC3,
-    OPUS,
-    FLAC,
-}
 
 impl TryInto<audio_tag_header::SoundFormat> for AudioCodecCommon {
     type Error = FLVError;
@@ -113,7 +92,7 @@ impl From<AudioFourCC> for AudioCodecCommon {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct LegacyAudioHeaderInfo {
     pub sound_rate: SoundRate,
     pub sound_size: SoundSize,
@@ -131,9 +110,9 @@ pub struct AudioTagHeaderWithoutMultiTrack {
     pub is_enhanced_rtmp: bool,
 }
 
-impl TryInto<audio_tag_header::AudioTagHeader> for AudioTagHeaderWithoutMultiTrack {
+impl TryInto<audio_tag_header::LegacyAudioTagHeader> for &AudioTagHeaderWithoutMultiTrack {
     type Error = FLVError;
-    fn try_into(self) -> Result<audio_tag_header::AudioTagHeader, Self::Error> {
+    fn try_into(self) -> Result<audio_tag_header::LegacyAudioTagHeader, Self::Error> {
         let legacy_info = self.legacy_info;
         if legacy_info.is_none() {
             return Err(FLVError::InconsistentHeader(
@@ -144,7 +123,7 @@ impl TryInto<audio_tag_header::AudioTagHeader> for AudioTagHeaderWithoutMultiTra
         let legacy_info = legacy_info.unwrap();
         let sound_format: audio_tag_header::SoundFormat = self.codec_id.try_into()?;
         let aac_packet_type: audio_tag_header::AACPacketType = self.packet_type.try_into()?;
-        Ok(audio_tag_header::AudioTagHeader {
+        Ok(audio_tag_header::LegacyAudioTagHeader {
             sound_format,
             sound_rate: legacy_info.sound_rate,
             sound_size: legacy_info.sound_size,
@@ -154,13 +133,16 @@ impl TryInto<audio_tag_header::AudioTagHeader> for AudioTagHeaderWithoutMultiTra
     }
 }
 
-impl TryInto<ExAudioTagHeader> for AudioTagHeaderWithoutMultiTrack {
+impl TryInto<ExAudioTagHeader> for &AudioTagHeaderWithoutMultiTrack {
     type Error = FLVError;
     fn try_into(self) -> Result<ExAudioTagHeader, Self::Error> {
         let mut tracks: HashMap<u8, AudioTrackInfo> = HashMap::new();
-        tracks.insert(0, AudioTrackInfo {
-            codec: self.codec_id.try_into()?,
-        });
+        tracks.insert(
+            0,
+            AudioTrackInfo {
+                codec: self.codec_id.try_into()?,
+            },
+        );
 
         Ok(ExAudioTagHeader {
             packet_type: self.packet_type,
@@ -173,8 +155,8 @@ impl TryInto<ExAudioTagHeader> for AudioTagHeaderWithoutMultiTrack {
     }
 }
 
-impl From<audio_tag_header::AudioTagHeader> for AudioTagHeaderWithoutMultiTrack {
-    fn from(value: audio_tag_header::AudioTagHeader) -> Self {
+impl From<&audio_tag_header::LegacyAudioTagHeader> for AudioTagHeaderWithoutMultiTrack {
+    fn from(value: &audio_tag_header::LegacyAudioTagHeader) -> Self {
         let packet_type = if let Some(packet_type) = value.aac_packet_type {
             packet_type.into()
         } else {
@@ -195,9 +177,9 @@ impl From<audio_tag_header::AudioTagHeader> for AudioTagHeaderWithoutMultiTrack 
     }
 }
 
-impl TryFrom<ExAudioTagHeader> for AudioTagHeaderWithoutMultiTrack {
+impl TryFrom<&ExAudioTagHeader> for AudioTagHeaderWithoutMultiTrack {
     type Error = FLVError;
-    fn try_from(value: ExAudioTagHeader) -> Result<Self, Self::Error> {
+    fn try_from(value: &ExAudioTagHeader) -> Result<Self, Self::Error> {
         let track_info = value.tracks.get(&0);
         if track_info.is_none() {
             return Err(FLVError::InconsistentHeader(format!(
@@ -228,16 +210,12 @@ impl AudioTagHeaderWithoutMultiTrack {
     }
 }
 
-impl TryFrom<Either<audio_tag_header::AudioTagHeader, ExAudioTagHeader>>
-    for AudioTagHeaderWithoutMultiTrack
-{
+impl TryFrom<&AudioTagHeader> for AudioTagHeaderWithoutMultiTrack {
     type Error = FLVError;
-    fn try_from(
-        value: Either<audio_tag_header::AudioTagHeader, ExAudioTagHeader>,
-    ) -> Result<Self, Self::Error> {
+    fn try_from(value: &AudioTagHeader) -> Result<Self, Self::Error> {
         match value {
-            Either::Left(header) => Ok(header.into()),
-            Either::Right(header) => Ok(header.try_into()?),
+            AudioTagHeader::Legacy(header) => Ok(header.into()),
+            AudioTagHeader::Enhanced(header) => Ok(header.try_into()?),
         }
     }
 }

@@ -23,7 +23,7 @@ pub enum FLVError {
     #[error("unknown avc packet type: {0}")]
     UnknownAVCPacketType(u8),
     #[error("amf meta error: {0:?}")]
-    AMFError(#[from] amf::errors::AmfError),
+    AMFError(#[from] amf_formats::errors::AmfError),
     #[error("unexpected value: {0}")]
     UnexpectedValue(String),
     #[error("unknown fourcc: {0}")]
@@ -44,6 +44,8 @@ pub enum FLVError {
     UnknownVideoCommandType(u8),
     #[error("unknown video packet type: {0}")]
     UnknownVideoPacketType(u8),
+    #[error("invalid onMetaData: {0}")]
+    InvalidOnMetaData(String),
 }
 
 pub type FLVResult<T> = Result<T, FLVError>;

@@ -1,0 +1,17 @@
+[package]
+name = "rtsp-formats"
+version = "0.1.0"
+edition = "2024"
+
+
+[dependencies]
+thiserror = "2.0.7"
+tokio-util = { version = "0.7.13", features = ["full"] }
+byteorder = "1.5.0"
+num = "0.4.3"
+url = "2.5.4"
+utils = { path = "../../utils" }
+sdp-formats = { path = "../sdp" }
+
+[lints.clippy]
+uninlined_format_args = "allow"

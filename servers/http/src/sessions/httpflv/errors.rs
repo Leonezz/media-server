@@ -1,6 +1,6 @@
 use std::io;
 
-use flv::errors::FLVError;
+use flv_formats::errors::FLVError;
 use stream_center::{errors::StreamCenterError, events::StreamCenterEvent};
 use thiserror::Error;
 

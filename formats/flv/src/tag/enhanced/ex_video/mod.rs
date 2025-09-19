@@ -1,6 +1,6 @@
 use ex_video_header::{ExVideoTagHeader, VideoPacketType};
 
-use crate::tag::video_tag_header::FrameType;
+use crate::tag::video_tag_header::FrameTypeFLV;
 
 pub mod ex_video_header;
 pub mod reader;
@@ -14,6 +14,6 @@ impl ExVideoTagHeader {
 
     #[inline]
     pub fn is_key_frame(&self) -> bool {
-        matches!(self.frame_type, FrameType::KeyFrame)
+        matches!(self.frame_type, FrameTypeFLV::KeyFrame)
     }
 }

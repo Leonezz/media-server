@@ -2,12 +2,12 @@
 mod tests {
     use core::time;
 
-    use crate::amf3::{self, Value, Writer};
-
+    use crate::amf3::{self, Value};
+    use utils::traits::writer::WriteTo;
     macro_rules! encode {
         ($value:expr) => {{
             let mut buf = Vec::new();
-            let res = Writer::new(&mut buf).write(&$value);
+            let res = (&$value).write_to(&mut buf);
             assert!(res.is_ok());
             buf
         }};
@@ -163,11 +163,8 @@ mod tests {
         };
 
         let mut buf: Vec<u8> = Vec::new();
-        amf3::Writer::new(&mut buf).write(&value).unwrap();
-        assert_eq!(
-            amf3::Reader::new(&mut &buf[..]).read().unwrap().unwrap(),
-            value
-        );
+        let _ = value.write_to(&mut buf);
+        assert_eq!(amf3::Reader::new(&mut &buf[..]).read().unwrap(), value);
     }
 
     #[test]
@@ -284,10 +281,7 @@ mod tests {
         };
         let buf = encode!(value);
 
-        assert_eq!(
-            amf3::Reader::new(&mut &buf[..]).read().unwrap().unwrap(),
-            value
-        );
+        assert_eq!(amf3::Reader::new(&mut &buf[..]).read().unwrap(), value);
     }
 
     #[test]
@@ -313,10 +307,7 @@ mod tests {
             ],
         };
         let buf = encode!(value);
-        assert_eq!(
-            amf3::Reader::new(&mut &buf[..]).read().unwrap().unwrap(),
-            value
-        );
+        assert_eq!(amf3::Reader::new(&mut &buf[..]).read().unwrap(), value);
 
         assert_eq!(
             encode!(Value::Dictionary {

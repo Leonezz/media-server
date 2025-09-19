@@ -1,6 +1,10 @@
 use std::{collections::HashMap, io};
 
-use errors::AmfResult;
+use errors::{AmfError, AmfResult};
+use utils::traits::{
+    reader::{ReadFrom, ReadRemainingFrom},
+    writer::WriteTo,
+};
 
 pub mod amf0;
 pub mod amf3;
@@ -32,15 +36,61 @@ pub enum Version {
     Amf3 = 3,
 }
 
-impl Value {
-    pub fn read_from<R>(reader: R, version: Version) -> AmfResult<Option<Self>>
-    where
-        R: io::Read,
-    {
-        match version {
-            Version::Amf0 => amf0::Value::read_from(reader).map(|v| v.map(Value::AMF0Value)),
-            Version::Amf3 => amf3::Value::read_from(reader).map(|v| v.map(Value::AMF3Value)),
+impl<R: io::Read> ReadRemainingFrom<Version, R> for Value {
+    type Error = AmfError;
+    fn read_remaining_from(header: Version, reader: &mut R) -> Result<Self, Self::Error> {
+        match header {
+            Version::Amf0 => amf0::Value::read_from(reader).map(Value::AMF0Value),
+            Version::Amf3 => amf3::Value::read_from(reader).map(Value::AMF3Value),
         }
+    }
+}
+
+impl Value {
+    pub fn read_string<R: io::Read>(reader: &mut R, version: Version) -> AmfResult<Option<String>> {
+        let value = Value::read_remaining_from(version, reader)?;
+        Ok(value.try_as_str().map(|v| v.to_owned()))
+    }
+
+    pub fn read_null<R: io::Read>(reader: &mut R, version: Version) -> AmfResult<Option<()>> {
+        let value = Value::read_remaining_from(version, reader)?;
+        match value {
+            Value::AMF0Value(value) => {
+                if matches!(value, amf0::Value::Null) {
+                    Ok(Some(()))
+                } else {
+                    Ok(None)
+                }
+            }
+            Value::AMF3Value(value) => {
+                if matches!(value, amf3::Value::Null) {
+                    Ok(Some(()))
+                } else {
+                    Ok(None)
+                }
+            }
+        }
+    }
+
+    pub fn read_number<R: io::Read>(reader: &mut R, version: Version) -> AmfResult<Option<f64>> {
+        let value = Value::read_remaining_from(version, reader)?;
+        Ok(value.try_as_f64())
+    }
+
+    pub fn read_object<R: io::Read>(
+        reader: &mut R,
+        version: Version,
+    ) -> AmfResult<Option<HashMap<String, Value>>> {
+        let value = Value::read_remaining_from(version, reader)?;
+        match value.try_into_pairs() {
+            Ok(iter) => Ok(Some(iter.collect::<HashMap<String, Value>>())),
+            _ => Ok(None),
+        }
+    }
+
+    pub fn read_bool<R: io::Read>(reader: &mut R, version: Version) -> AmfResult<Option<bool>> {
+        let value = Value::read_remaining_from(version, reader)?;
+        Ok(value.try_as_bool())
     }
 
     pub fn read_all<R>(reader: R, version: Version) -> AmfResult<Vec<Self>>
@@ -59,7 +109,7 @@ impl Value {
         }
     }
 
-    pub fn write_str<W>(value: &str, writer: W, version: Version) -> AmfResult<()>
+    pub fn write_str<W>(value: &str, writer: &mut W, version: Version) -> AmfResult<()>
     where
         W: io::Write,
     {
@@ -70,7 +120,7 @@ impl Value {
         Value::write_to(&value, writer)
     }
 
-    pub fn write_bool<W>(value: bool, writer: W, version: Version) -> AmfResult<()>
+    pub fn write_bool<W>(value: bool, writer: &mut W, version: Version) -> AmfResult<()>
     where
         W: io::Write,
     {
@@ -81,18 +131,19 @@ impl Value {
         Value::write_to(&value, writer)
     }
 
-    pub fn write_number<W>(value: f64, writer: W, version: Version) -> AmfResult<()>
-    where
-        W: io::Write,
-    {
+    pub fn write_number<W: io::Write, T: Into<f64>>(
+        value: T,
+        writer: &mut W,
+        version: Version,
+    ) -> AmfResult<()> {
         let value = match version {
-            Version::Amf0 => Value::AMF0Value(amf0::Value::Number(value)),
-            Version::Amf3 => Value::AMF3Value(amf3::Value::Double(value)),
+            Version::Amf0 => Value::AMF0Value(amf0::Value::Number(value.into())),
+            Version::Amf3 => Value::AMF3Value(amf3::Value::Double(value.into())),
         };
         Value::write_to(&value, writer)
     }
 
-    pub fn write_null<W>(writer: W, version: Version) -> AmfResult<()>
+    pub fn write_null<W>(writer: &mut W, version: Version) -> AmfResult<()>
     where
         W: io::Write,
     {
@@ -102,9 +153,21 @@ impl Value {
         }
     }
 
+    pub fn write_nullable_object<W: io::Write, T: Into<HashMap<String, Value>>>(
+        value: Option<T>,
+        writer: &mut W,
+        version: Version,
+    ) -> AmfResult<()> {
+        match value {
+            Some(obj) => Self::write_key_value_pairs(obj.into(), writer, version)?,
+            None => Self::write_null(writer, version)?,
+        }
+        Ok(())
+    }
+
     pub fn write_key_value_pairs<W>(
         value: HashMap<String, Value>,
-        writer: W,
+        writer: &mut W,
         version: Version,
     ) -> AmfResult<()>
     where
@@ -158,16 +221,6 @@ impl Value {
                 // otherwise we go back to amf0
                 Value::write_key_value_pairs(value, writer, Version::Amf0)
             }
-        }
-    }
-
-    pub fn write_to<W>(&self, writer: W) -> AmfResult<()>
-    where
-        W: io::Write,
-    {
-        match *self {
-            Value::AMF0Value(ref v) => v.write_to(writer),
-            Value::AMF3Value(ref v) => v.write_to(writer),
         }
     }
 
@@ -294,6 +347,16 @@ impl AmfComplexObject for HashMap<String, Value> {
         match self.get(key).cloned() {
             Some(v) => v.try_into_pairs().ok(),
             None => None,
+        }
+    }
+}
+
+impl<W: io::Write> WriteTo<W> for Value {
+    type Error = AmfError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        match self {
+            Value::AMF0Value(v) => v.write_to(writer),
+            Value::AMF3Value(v) => v.write_to(writer),
         }
     }
 }

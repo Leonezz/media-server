@@ -1,17 +1,17 @@
-use std::{
-    backtrace::Backtrace,
-    collections::HashMap,
-    io::{self, Cursor, Read},
-    sync::Arc,
-    time::SystemTime,
+use super::{
+    config::RtmpSessionConfig,
+    consts::{response_code, response_level},
+    errors::RtmpServerResult,
 };
-
-use ::stream_center::{
-    events::StreamCenterEvent,
-    frame_info::{AggregateMeta, AudioMeta, VideoMeta},
-    stream_source::{StreamIdentifier, StreamType},
+use crate::{chunk_stream::RtmpChunkStream, errors::RtmpServerError};
+use ::stream_center::{events::StreamCenterEvent, stream_source::StreamIdentifier};
+use codec_common::video::{H264VideoConfig, VideoConfig};
+use flv_formats::tag::{
+    FLVTag,
+    flv_tag_body::FLVTagBodyWithFilter,
+    flv_tag_header::{FLVTagHeader, FLVTagType},
 };
-use flv::tag::{FLVTagType, on_meta_data::OnMetaData};
+use num::ToPrimitive;
 use rtmp_formats::{
     chunk::{
         ChunkMessage, ChunkMessageCommonHeader, RtmpChunkMessageBody, errors::ChunkMessageError,
@@ -26,88 +26,47 @@ use rtmp_formats::{
     protocol_control::SetPeerBandWidthLimitType,
     user_control::UserControlEvent,
 };
+use server_utils::{
+    runtime_handle::{PlayHandle, PublishHandle, SessionRuntime},
+    stream_properities::StreamProperties,
+};
+use std::{
+    backtrace::Backtrace,
+    collections::HashMap,
+    io::{self, Cursor, Read},
+    sync::Arc,
+    time::SystemTime,
+};
 use stream_center::{
     events::SubscribeResponse,
-    frame_info::{MediaMessageRuntimeStat, ScriptMeta},
     gop::MediaFrame,
+    stream_center::StreamCenter,
+    stream_source::{PlayProtocol, PublishProtocol},
 };
 use tokio::{
     net::TcpStream,
     sync::{
         RwLock,
         mpsc::{self},
-        oneshot,
     },
 };
 use tokio_util::{
-    bytes::{Buf, BytesMut},
+    bytes::{Buf, Bytes},
     either::Either,
 };
 use url::Url;
-use utils::system::time::get_timestamp_ns;
-use uuid::Uuid;
-
-use crate::{chunk_stream::RtmpChunkStream, errors::RtmpServerError};
-
-use super::{
-    config::RtmpSessionConfig,
-    consts::{response_code, response_level},
-    errors::RtmpServerResult,
+use utils::{
+    system::time::get_timestamp_ns,
+    traits::reader::{ReadFrom, ReadRemainingFrom},
 };
-
-#[derive(Debug, Default)]
-pub struct SessionStat {
-    video_frame_cnt: u64,
-    audio_frame_cnt: u64,
-    script_frame_cnt: u64,
-    aggregate_frame_cnt: u64,
-
-    failed_video_frame_cnt: u64,
-    failed_audio_frame_cnt: u64,
-    failed_meta_frame_cnt: u64,
-    failed_aggregate_frame_cnt: u64,
-}
-
-#[derive(Debug)]
-struct PlayHandle {
-    stream_data_consumer: mpsc::Receiver<MediaFrame>,
-    stream_type: StreamType,
-    play_id: Uuid,
-    receive_audio: bool,
-    receive_video: bool,
-    buffer_length: Option<u32>,
-    stat: SessionStat,
-}
-
-#[derive(Debug)]
-struct PublishHandle {
-    stream_data_producer: mpsc::Sender<MediaFrame>,
-    no_data_since: Option<SystemTime>,
-    stat: SessionStat,
-}
-
-#[derive(Debug)]
-enum SessionRuntime {
-    Play(Arc<RwLock<PlayHandle>>),
-    Publish(PublishHandle),
-    Unknown,
-}
-
-#[derive(Debug, Default)]
-struct StreamProperties {
-    stream_name: String,
-    app: String,
-
-    stream_type: StreamType,
-
-    stream_context: HashMap<String, String>,
-}
+use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct RtmpSession {
     chunk_stream: RtmpChunkStream,
     runtime_handle: SessionRuntime,
     stream_properties: StreamProperties,
+    video_nalu_size_length: Option<u8>,
     connect_info: ConnectCommandRequestObject,
     total_wrote_bytes: usize,
     config: RtmpSessionConfig,
@@ -129,6 +88,7 @@ impl RtmpSession {
                 config.write_timeout_ms,
             ),
             stream_properties: StreamProperties::default(),
+            video_nalu_size_length: None,
             connect_info: Default::default(),
             runtime_handle: SessionRuntime::Unknown,
             total_wrote_bytes: 0,
@@ -169,7 +129,9 @@ impl RtmpSession {
                         if let SessionRuntime::Publish(handle) = &self.runtime_handle {
                             let current_time = SystemTime::now();
                             if current_time
-                                .duration_since(handle.no_data_since.unwrap_or(current_time))
+                                .duration_since(
+                                    handle.read().await.no_data_since.unwrap_or(current_time),
+                                )
                                 .expect("stop time must be before")
                                 .as_secs()
                                 > 10
@@ -214,20 +176,9 @@ impl RtmpSession {
         match &self.runtime_handle {
             SessionRuntime::Play(play_handle) => {
                 let play_id = play_handle.read().await.play_id;
-                self.unsubscribe_from_stream_center(
-                    play_id,
-                    &self.stream_properties.stream_name,
-                    &self.stream_properties.app,
-                )
-                .await?
+                self.unsubscribe_from_stream_center(play_id).await?
             }
-            SessionRuntime::Publish(_publish_handle) => {
-                self.unpublish_from_stream_center(
-                    &self.stream_properties.stream_name,
-                    &self.stream_properties.app,
-                )
-                .await?
-            }
+            SessionRuntime::Publish(_publish_handle) => self.unpublish_from_stream_center().await?,
             _ => {}
         }
         Ok(())
@@ -238,22 +189,17 @@ impl RtmpSession {
             SessionRuntime::Play(handle) => {
                 let handle = handle.read().await;
                 tracing::info!(
-                    "play stats: stream_type: {}, play_id: {}, receive_audio: {}, receive_video: {}, buffer_length: {:?}, stat: {:?}, total_bytes written: {}",
-                    handle.stream_type,
+                    "play stats: play_id: {}, receive_audio: {}, receive_video: {}, buffer_length: {:?}, total_bytes written: {}",
                     handle.play_id,
                     handle.receive_audio,
                     handle.receive_video,
                     handle.buffer_length,
-                    handle.stat,
                     self.total_wrote_bytes
                 )
             }
             SessionRuntime::Publish(handle) => {
-                tracing::info!(
-                    "publish stats: no_data_since: {:?}, stat: {:?}",
-                    handle.no_data_since,
-                    handle.stat
-                );
+                let handle = handle.read().await;
+                tracing::info!("publish stats: no_data_since: {:?}", handle.no_data_since,);
             }
             _ => {}
         }
@@ -274,71 +220,27 @@ impl RtmpSession {
                     return Err(RtmpServerError::StreamIsGone);
                 }
                 _len => {
-                    for message in &mut messages {
-                        match message {
-                            MediaFrame::Video {
-                                runtime_stat,
-                                pts,
-                                header,
-                                payload,
-                            } => {
-                                runtime_stat.play_time_ns = get_timestamp_ns().unwrap_or(0);
-                                let timestamp =
-                                    *pts + if let Some(cts) = header.composition_time {
-                                        cts as u64
-                                    } else {
-                                        0
-                                    } + if let Some(cts_nano) = header.timestamp_nano {
-                                        cts_nano as u64
-                                    } else {
-                                        0
-                                    };
-
-                                let res = self.chunk_stream.write_tag(message).await;
-                                if res.is_err() {
-                                    tracing::error!(
-                                        "write video message to rtmp chunk failed, err: {:?}",
-                                        res
-                                    );
-                                    handle.stat.failed_video_frame_cnt += 1;
-                                } else {
-                                    handle.stat.video_frame_cnt += 1;
+                    for message in &messages {
+                        if let MediaFrame::VideoConfig {
+                            timestamp_nano: _,
+                            config,
+                        } = message
+                        {
+                            match config.as_ref() {
+                                VideoConfig::H264(H264VideoConfig {
+                                    sps: _,
+                                    pps: _,
+                                    sps_ext: _,
+                                    avc_decoder_configuration_record,
+                                }) => {
+                                    self.video_nalu_size_length = avc_decoder_configuration_record
+                                        .as_ref()
+                                        .map(|v| v.length_size_minus_one.checked_add(1).unwrap());
                                 }
-                                res?
-                            }
-                            MediaFrame::Audio {
-                                runtime_stat,
-                                pts,
-                                header: _,
-                                payload,
-                            } => {
-                                runtime_stat.play_time_ns = get_timestamp_ns().unwrap_or(0);
-
-                                let res = self.chunk_stream.write_tag(message).await;
-                                if res.is_err() {
-                                    tracing::error!(
-                                        "write audio message to rtmp chunk failed, err: {:?}",
-                                        res
-                                    );
-                                    handle.stat.failed_audio_frame_cnt += 1;
-                                } else {
-                                    handle.stat.audio_frame_cnt += 1;
-                                }
-                                res?
-                            }
-                            MediaFrame::Script {
-                                runtime_stat,
-                                pts,
-                                payload,
-                                on_meta_data: _,
-                            } => {
-                                runtime_stat.play_time_ns = get_timestamp_ns().unwrap_or(0);
-
-                                self.chunk_stream.write_tag(message).await?;
-                                //TODO -
-                                handle.stat.script_frame_cnt += 1;
                             }
                         }
+                        let tag = message.to_flv_tag(self.video_nalu_size_length.unwrap_or(4))?;
+                        self.chunk_stream.write_tag(tag).await?;
                         // message.log_runtime_stat();
                     }
                 }
@@ -375,12 +277,42 @@ impl RtmpSession {
             RtmpUserMessageBody::C2SCommand(command) => {
                 self.process_user_command(command, header).await?
             }
-            RtmpUserMessageBody::MetaData { payload } => self.process_meta(header, payload).await?,
-            RtmpUserMessageBody::Aggregate { payload } => {
-                self.process_aggregate(header, payload).await?
-            }
-            RtmpUserMessageBody::Audio { payload } => self.process_audio(header, payload).await?,
-            RtmpUserMessageBody::Video { payload } => self.process_video(header, payload).await?,
+            RtmpUserMessageBody::MetaData { payload } => match &self.runtime_handle {
+                SessionRuntime::Publish(publish_handle) => {
+                    self.process_meta(publish_handle.clone(), header, payload)
+                        .await?
+                }
+                _ => {
+                    unreachable!()
+                }
+            },
+            RtmpUserMessageBody::Aggregate { payload } => match &self.runtime_handle {
+                SessionRuntime::Publish(publish_handle) => {
+                    self.process_aggregate(publish_handle.clone(), header, payload)
+                        .await?
+                }
+                _ => {
+                    unreachable!()
+                }
+            },
+            RtmpUserMessageBody::Audio { payload } => match &self.runtime_handle {
+                SessionRuntime::Publish(publish_handle) => {
+                    self.process_audio(publish_handle.clone(), header, payload)
+                        .await?
+                }
+                _ => {
+                    unreachable!()
+                }
+            },
+            RtmpUserMessageBody::Video { payload } => match &self.runtime_handle {
+                SessionRuntime::Publish(publish_handle) => {
+                    self.process_video(publish_handle.clone(), header, payload)
+                        .await?
+                }
+                _ => {
+                    unreachable!()
+                }
+            },
             RtmpUserMessageBody::S2Command(command) => {
                 tracing::error!("got unexpected s2c command: {:?}", command);
             }
@@ -393,279 +325,279 @@ impl RtmpSession {
 
     async fn process_audio(
         &mut self,
+        publish_handle: Arc<RwLock<PublishHandle>>,
         header: ChunkMessageCommonHeader,
-        audio: BytesMut,
+        audio: Bytes,
     ) -> RtmpServerResult<()> {
-        match &mut self.runtime_handle {
-            SessionRuntime::Publish(handle) => {
-                handle.no_data_since = None;
-                let media_frames = Self::chunked_rtmp_frame_to_media_frame(
-                    &header,
-                    RtmpUserMessageBody::Audio { payload: audio },
-                )?;
-                for media_frame in media_frames {
-                    let res = handle
-                        .stream_data_producer
-                        .send(media_frame)
-                        .await
-                        .map_err(|err| {
-                            tracing::error!("send audio data to stream center failed: {:?}", err);
-                            RtmpServerError::ChannelSendFailed {
-                                backtrace: Backtrace::capture(),
-                            }
-                        });
-                    if res.is_err() {
-                        handle.stat.failed_audio_frame_cnt += 1;
-                    } else {
-                        handle.stat.audio_frame_cnt += 1;
+        let mut handle = publish_handle.write().await;
+        handle.no_data_since = None;
+        let media_frames = self.chunked_rtmp_frame_to_media_frame(
+            &header,
+            RtmpUserMessageBody::Audio { payload: audio },
+            None,
+        )?;
+        for media_frame in media_frames {
+            let res = handle
+                .stream_data_producer
+                .send(media_frame)
+                .await
+                .map_err(|err| {
+                    tracing::error!("send audio data to stream center failed: {:?}", err);
+                    RtmpServerError::ChannelSendFailed {
+                        backtrace: Backtrace::capture(),
                     }
-                    res?;
-                }
-            }
-            _ => {
-                tracing::error!(
-                    "got audio data while stream not published, length: {}",
-                    audio.len()
-                );
-            }
-        };
+                });
+            res?;
+        }
         Ok(())
     }
 
     async fn process_video(
         &mut self,
+        publish_handle: Arc<RwLock<PublishHandle>>,
         header: ChunkMessageCommonHeader,
-        video: BytesMut,
+        video: Bytes,
     ) -> RtmpServerResult<()> {
-        match &mut self.runtime_handle {
-            SessionRuntime::Publish(handle) => {
-                handle.no_data_since = None;
-                let media_frames = Self::chunked_rtmp_frame_to_media_frame(
-                    &header,
-                    RtmpUserMessageBody::Video { payload: video },
-                )?;
-                for media_frame in media_frames {
-                    let res = handle
-                        .stream_data_producer
-                        .send(media_frame)
-                        .await
-                        .map_err(|err| {
-                            tracing::error!("send video to stream center failed: {:?}", err);
-                            RtmpServerError::ChannelSendFailed {
-                                backtrace: Backtrace::capture(),
-                            }
-                        });
-                    if res.is_err() {
-                        handle.stat.failed_video_frame_cnt += 1;
-                    } else {
-                        handle.stat.video_frame_cnt += 1;
+        let mut handle = publish_handle.write().await;
+        handle.no_data_since = None;
+        let media_frames = self.chunked_rtmp_frame_to_media_frame(
+            &header,
+            RtmpUserMessageBody::Video { payload: video },
+            None,
+        )?;
+        for media_frame in media_frames {
+            let res = handle
+                .stream_data_producer
+                .send(media_frame)
+                .await
+                .map_err(|err| {
+                    tracing::error!("send video to stream center failed: {:?}", err);
+                    RtmpServerError::ChannelSendFailed {
+                        backtrace: Backtrace::capture(),
                     }
-                    res?;
-                }
-            }
-            _ => {
-                tracing::error!(
-                    "got video data while stream not published, length: {}",
-                    video.len()
-                );
-            }
-        };
+                });
+            res?;
+        }
+
         Ok(())
     }
 
     async fn process_meta(
         &mut self,
+        publish_handle: Arc<RwLock<PublishHandle>>,
         header: ChunkMessageCommonHeader,
-        payload: BytesMut,
+        payload: Bytes,
     ) -> RtmpServerResult<()> {
-        match &mut self.runtime_handle {
-            SessionRuntime::Publish(handle) => {
-                handle.no_data_since = None;
-                let media_frames = Self::chunked_rtmp_frame_to_media_frame(
-                    &header,
-                    RtmpUserMessageBody::MetaData { payload },
-                )?;
+        let mut handle = publish_handle.write().await;
+        handle.no_data_since = None;
+        let media_frames = self.chunked_rtmp_frame_to_media_frame(
+            &header,
+            RtmpUserMessageBody::MetaData { payload },
+            None,
+        )?;
 
-                for media_frame in media_frames {
-                    let res = handle
-                        .stream_data_producer
-                        .send(media_frame)
-                        .await
-                        .map_err(|err| {
-                            tracing::error!("send meta to stream center failed: {:?}", err);
-                            RtmpServerError::ChannelSendFailed {
-                                backtrace: Backtrace::capture(),
-                            }
-                        });
-                    if res.is_err() {
-                        handle.stat.failed_meta_frame_cnt += 1;
-                    } else {
-                        handle.stat.script_frame_cnt += 1;
+        for media_frame in media_frames {
+            let res = handle
+                .stream_data_producer
+                .send(media_frame)
+                .await
+                .map_err(|err| {
+                    tracing::error!("send meta to stream center failed: {:?}", err);
+                    RtmpServerError::ChannelSendFailed {
+                        backtrace: Backtrace::capture(),
                     }
-                    res?;
-                }
-            }
-            _ => {
-                tracing::error!(
-                    "got meta data while stream not published, value: {:?}",
-                    payload
-                );
-            }
-        };
+                });
+            res?;
+        }
+
         Ok(())
     }
 
     async fn process_aggregate(
         &mut self,
+        publish_handle: Arc<RwLock<PublishHandle>>,
         header: ChunkMessageCommonHeader,
-        aggregate: BytesMut,
+        aggregate: Bytes,
     ) -> RtmpServerResult<()> {
-        match &mut self.runtime_handle {
-            SessionRuntime::Publish(handle) => {
-                handle.no_data_since = None;
-                let media_frames = Self::chunked_rtmp_frame_to_media_frame(
-                    &header,
-                    RtmpUserMessageBody::Aggregate { payload: aggregate },
-                )?;
-                for media_frame in media_frames {
-                    let res = handle
-                        .stream_data_producer
-                        .send(media_frame)
-                        .await
-                        .map_err(|_err| RtmpServerError::ChannelSendFailed {
-                            backtrace: Backtrace::capture(),
-                        });
+        let mut handle = publish_handle.write().await;
+        handle.no_data_since = None;
+        let media_frames = self.chunked_rtmp_frame_to_media_frame(
+            &header,
+            RtmpUserMessageBody::Aggregate { payload: aggregate },
+            None,
+        )?;
+        for media_frame in media_frames {
+            let res = handle
+                .stream_data_producer
+                .send(media_frame)
+                .await
+                .map_err(|_err| RtmpServerError::ChannelSendFailed {
+                    backtrace: Backtrace::capture(),
+                });
+            res?;
+        }
 
-                    if res.is_err() {
-                        handle.stat.failed_aggregate_frame_cnt += 1;
-                    } else {
-                        handle.stat.aggregate_frame_cnt += 1;
-                    }
-                    res?;
-                }
-            }
-            _ => {
-                tracing::error!(
-                    "got aggregate data while stream not published, length: {}",
-                    aggregate.len()
-                );
-            }
-        };
         Ok(())
     }
 
     fn chunked_rtmp_frame_to_media_frame(
+        &mut self,
         header: &ChunkMessageCommonHeader,
         frame: RtmpUserMessageBody,
+        timestamp_delta_nano: Option<u64>,
     ) -> RtmpServerResult<Vec<MediaFrame>> {
-        let mut runtime_stat = MediaMessageRuntimeStat {
-            read_time_ns: header.runtime_stat.read_time_ns,
-            session_process_time_ns: header.runtime_stat.process_time_ns,
-            publish_stream_source_time_ns: get_timestamp_ns().unwrap_or(0),
-            ..Default::default()
-        };
-
-        match frame {
-            RtmpUserMessageBody::Audio { mut payload } => {
-                runtime_stat.stream_source_received_time_ns = get_timestamp_ns().unwrap_or(0);
-
-                let mut cursor = Cursor::new(&mut payload);
-                let tag_header =
-                    flv::tag::audio_tag_header::AudioTagHeader::read_from(&mut cursor)?;
-
-                runtime_stat.stream_source_parse_time_ns = get_timestamp_ns().unwrap_or(0);
-
-                Ok(vec![MediaFrame::Audio {
-                    runtime_stat,
-                    pts: header.timestamp as u64,
-                    header: tag_header.try_into()?,
-                    payload,
-                }])
+        let flv_tags = match frame {
+            RtmpUserMessageBody::Audio { payload } => {
+                let flv_tag_header = FLVTagHeader {
+                    tag_type: FLVTagType::Audio,
+                    data_size: payload.len().to_u32().unwrap(),
+                    timestamp: header
+                        .timestamp
+                        .checked_add(
+                            timestamp_delta_nano
+                                .unwrap_or(0)
+                                .checked_div(1_000_000)
+                                .and_then(|v| v.to_u32())
+                                .unwrap(),
+                        )
+                        .unwrap(),
+                    filter_enabled: false,
+                };
+                vec![(flv_tag_header, payload)]
             }
-            RtmpUserMessageBody::Video { mut payload } => {
-                runtime_stat.stream_source_received_time_ns = get_timestamp_ns().unwrap_or(0);
-
-                let mut cursor = Cursor::new(&mut payload);
-                let tag_header =
-                    flv::tag::video_tag_header::VideoTagHeader::read_from(&mut cursor)?;
-
-                runtime_stat.stream_source_parse_time_ns = get_timestamp_ns().unwrap_or(0);
-
-                Ok(vec![MediaFrame::Video {
-                    runtime_stat,
-                    pts: header.timestamp as u64,
-                    header: tag_header.try_into()?,
-                    payload,
-                }])
+            RtmpUserMessageBody::Video { payload } => {
+                let flv_tag_header = FLVTagHeader {
+                    tag_type: FLVTagType::Video,
+                    data_size: payload.len().to_u32().unwrap(),
+                    timestamp: header
+                        .timestamp
+                        .checked_add(
+                            timestamp_delta_nano
+                                .unwrap_or(0)
+                                .checked_div(1_000_000)
+                                .and_then(|v| v.to_u32())
+                                .unwrap(),
+                        )
+                        .unwrap(),
+                    filter_enabled: false,
+                };
+                vec![(flv_tag_header, payload)]
             }
-            RtmpUserMessageBody::MetaData { ref payload } => {
-                runtime_stat.stream_source_received_time_ns = get_timestamp_ns().unwrap_or(0);
-                runtime_stat.stream_source_parse_time_ns = get_timestamp_ns().unwrap_or(0);
-                let mut cursor = Cursor::new(payload);
-                let on_meta_data: Option<OnMetaData> =
-                    OnMetaData::read_from(&mut cursor, amf::Version::Amf0);
 
-                tracing::trace!("got script tag, onMetaData: {:?}", on_meta_data);
-
-                Ok(vec![MediaFrame::Script {
-                    runtime_stat,
-                    pts: header.timestamp as u64,
-                    payload: payload.clone(),
-                    on_meta_data: Box::new(on_meta_data),
-                }])
+            RtmpUserMessageBody::MetaData { payload } => {
+                let flv_tag_header = FLVTagHeader {
+                    tag_type: FLVTagType::Script,
+                    data_size: payload.len().to_u32().unwrap(),
+                    timestamp: header
+                        .timestamp
+                        .checked_add(
+                            timestamp_delta_nano
+                                .unwrap_or(0)
+                                .checked_div(1_000_000)
+                                .and_then(|v| v.to_u32())
+                                .unwrap(),
+                        )
+                        .unwrap(),
+                    filter_enabled: false,
+                };
+                vec![(flv_tag_header, payload)]
             }
             RtmpUserMessageBody::Aggregate { ref payload } => {
-                let aggregate_chunks = Self::parse_aggregate_frame(&header, &payload)?;
-                let mut res = vec![];
-                for chunk in aggregate_chunks {
-                    res.extend(Self::chunked_rtmp_frame_to_media_frame(header, chunk)?);
-                }
-                Ok(res)
+                return self.parse_aggregate_frame(header, payload);
             }
             _ => {
                 todo!()
             }
+        };
+        let mut result = vec![];
+        for (tag_header, payload) in flv_tags {
+            let flv_tag_body =
+                FLVTagBodyWithFilter::read_remaining_from(&tag_header, &mut payload.reader())?;
+            let flv_tag = FLVTag {
+                tag_header,
+                body_with_filter: flv_tag_body,
+            };
+            result.push(MediaFrame::from_flv_tag(
+                flv_tag,
+                self.video_nalu_size_length.unwrap_or(4),
+            )?);
         }
+        for item in &result {
+            if let MediaFrame::VideoConfig {
+                timestamp_nano: _,
+                config,
+            } = item
+            {
+                match config.as_ref() {
+                    VideoConfig::H264(H264VideoConfig {
+                        sps: _,
+                        pps: _,
+                        sps_ext: _,
+                        avc_decoder_configuration_record,
+                    }) => {
+                        if let Some(record) = avc_decoder_configuration_record {
+                            self.video_nalu_size_length =
+                                Some(record.length_size_minus_one.checked_add(1).unwrap());
+                        } else {
+                            unimplemented!()
+                        }
+                    }
+                }
+            }
+        }
+        Ok(result)
     }
 
     pub fn parse_aggregate_frame(
+        &mut self,
         header: &ChunkMessageCommonHeader,
-        payload: &BytesMut,
-    ) -> RtmpServerResult<Vec<RtmpUserMessageBody>> {
+        payload: &Bytes,
+    ) -> RtmpServerResult<Vec<MediaFrame>> {
         let mut cursor = Cursor::new(payload);
-        let mut timestamp_delta = None;
+        let mut timestamp_delta_nano = None;
         let mut result = vec![];
         while cursor.has_remaining() {
-            let flv_tag_header = flv::tag::FLVTag::read_tag_header_from(&mut cursor)?;
-            let mut body_bytes = BytesMut::with_capacity(flv_tag_header.data_size as usize);
-
-            body_bytes.resize(flv_tag_header.data_size as usize, 0);
+            let flv_tag_header = FLVTagHeader::read_from(cursor.by_ref())?;
+            let mut body_bytes = vec![0; flv_tag_header.data_size.to_usize().unwrap()];
             cursor.read_exact(&mut body_bytes)?;
-
             // skip prev tag size
             cursor.advance(4);
-
-            if timestamp_delta.is_none() {
-                timestamp_delta = Some(header.timestamp as u64 - (flv_tag_header.timestamp as u64));
+            if timestamp_delta_nano.is_none() {
+                timestamp_delta_nano = Some(
+                    header
+                        .timestamp
+                        .checked_mul(1_000_000)
+                        .unwrap()
+                        .to_u64()
+                        .unwrap()
+                        .checked_sub(
+                            flv_tag_header
+                                .timestamp
+                                .checked_mul(1_000_000)
+                                .unwrap()
+                                .to_u64()
+                                .unwrap(),
+                        )
+                        .unwrap(),
+                );
             }
 
-            match flv_tag_header.tag_type {
-                FLVTagType::Audio => {
-                    result.push(RtmpUserMessageBody::Audio {
-                        payload: body_bytes,
-                    });
-                }
-                FLVTagType::Video => {
-                    result.push(RtmpUserMessageBody::Video {
-                        payload: body_bytes,
-                    });
-                }
-                FLVTagType::Script => {
-                    result.push(RtmpUserMessageBody::MetaData {
-                        payload: body_bytes,
-                    });
-                }
-            }
+            let rtmp_message = match flv_tag_header.tag_type {
+                FLVTagType::Audio => RtmpUserMessageBody::Audio {
+                    payload: body_bytes.into(),
+                },
+                FLVTagType::Video => RtmpUserMessageBody::Video {
+                    payload: body_bytes.into(),
+                },
+                FLVTagType::Script => RtmpUserMessageBody::MetaData {
+                    payload: body_bytes.into(),
+                },
+            };
+
+            let frames =
+                self.chunked_rtmp_frame_to_media_frame(header, rtmp_message, timestamp_delta_nano)?;
+            assert!(frames.len() == 1);
+            result.extend(frames);
         }
         Ok(result)
     }
@@ -753,8 +685,7 @@ impl RtmpSession {
     }
 
     async fn process_publish_command(&mut self, request: PublishCommand) -> RtmpServerResult<()> {
-        let stream_type: StreamType = request.publishing_type.try_into()?;
-        self.publish_to_stream_center(&request.publishing_name, stream_type)
+        self.publish_to_stream_center(&request.publishing_name)
             .await?;
 
         self.chunk_stream.chunk_writer().write_on_status_response(
@@ -766,7 +697,11 @@ impl RtmpSession {
         )?;
         self.chunk_stream.flush_chunk().await?;
 
-        tracing::info!("process publish command success");
+        tracing::info!(
+            "process publish command success, stream_type={}, stream_name={}",
+            request.publishing_type,
+            request.publishing_name,
+        );
         Ok(())
     }
 
@@ -780,7 +715,7 @@ impl RtmpSession {
         let mut tc_url_arg = HashMap::new();
         tc_url_arg.insert(
             "tcUrl".to_string(),
-            amf::string(new_tc_url, self.connect_info.object_encoding),
+            amf_formats::string(new_tc_url, self.connect_info.object_encoding),
         );
         self.chunk_stream.chunk_writer().write_on_status_response(
             response_level::STATUS,
@@ -793,56 +728,15 @@ impl RtmpSession {
         Ok(())
     }
 
-    async fn unpublish_from_stream_center(
-        &self,
-        stream_name: &str,
-        app: &str,
-    ) -> RtmpServerResult<()> {
-        let (tx, rx) = oneshot::channel();
-        self.stream_center_event_sender
-            .send(StreamCenterEvent::Unpublish {
-                stream_id: StreamIdentifier {
-                    stream_name: stream_name.to_string(),
-                    app: app.to_string(),
-                },
-                result_sender: tx,
-            })
-            .map_err(|err| {
-                tracing::error!(
-                    "send unpublish event to stream center failed, {:?}. stream_name: {}, app: {}",
-                    err,
-                    stream_name,
-                    app
-                );
-                RtmpServerError::ChannelSendFailed {
-                    backtrace: Backtrace::capture(),
-                }
-            })?;
-
-        match rx.await {
-            Err(_err) => {
-                tracing::error!("channel closed while trying to receive unpublish result");
-                return Err(RtmpServerError::ChannelSendFailed {
-                    backtrace: Backtrace::capture(),
-                });
-            }
-            Ok(Err(err)) => {
-                tracing::error!(
-                    "stream unpublish from stream center failed, {:?}. stream_name: {}, app: {}",
-                    err,
-                    stream_name,
-                    app
-                );
-            }
-            Ok(Ok(())) => {
-                tracing::info!(
-                    "unpublish from stream center success, stream_name: {}, app: {}",
-                    stream_name,
-                    app
-                );
-            }
-        }
-
+    async fn unpublish_from_stream_center(&self) -> RtmpServerResult<()> {
+        StreamCenter::unpublish(
+            &self.stream_center_event_sender,
+            &StreamIdentifier {
+                stream_name: self.stream_properties.stream_name.to_owned(),
+                app: self.stream_properties.app.to_owned(),
+            },
+        )
+        .await?;
         Ok(())
     }
 
@@ -851,12 +745,7 @@ impl RtmpSession {
         request: DeleteStreamCommand,
     ) -> RtmpServerResult<()> {
         tracing::info!("process delete stream command, request: {:?}", request);
-        let _ = self
-            .unpublish_from_stream_center(
-                &self.stream_properties.stream_name.clone(),
-                &self.stream_properties.app.clone(),
-            )
-            .await;
+        let _ = self.unpublish_from_stream_center().await;
 
         self.chunk_stream.chunk_writer().write_on_status_response(
             response_level::STATUS,
@@ -872,11 +761,7 @@ impl RtmpSession {
         Ok(())
     }
 
-    async fn publish_to_stream_center(
-        &mut self,
-        stream_name: &str,
-        stream_type: StreamType,
-    ) -> RtmpServerResult<()> {
+    async fn publish_to_stream_center(&mut self, stream_name: &str) -> RtmpServerResult<()> {
         if let SessionRuntime::Publish(_) = self.runtime_handle {
             return Ok(());
         }
@@ -888,62 +773,20 @@ impl RtmpSession {
         }
 
         self.stream_properties.stream_name = stream_name.to_string();
-        self.stream_properties.stream_type = stream_type;
-
-        let (tx, rx) = oneshot::channel();
-        self.stream_center_event_sender
-            .send(StreamCenterEvent::Publish {
-                stream_type: self.stream_properties.stream_type,
-                stream_id: StreamIdentifier {
-                    stream_name: self.stream_properties.stream_name.clone(),
-                    app: self.stream_properties.app.clone(),
-                },
-                context: self.stream_properties.stream_context.clone(),
-                result_sender: tx,
-            })
-            .map_err(|err| {
-                tracing::error!(
-                    "send publish event to stream center failed, {:?}. stream_name: {}, app: {}",
-                    err,
-                    stream_name,
-                    self.stream_properties.app.clone(),
-                );
-                RtmpServerError::ChannelSendFailed {
-                    backtrace: Backtrace::capture(),
-                }
-            })?;
-
-        match rx.await {
-            Err(_err) => {
-                tracing::error!("channel closed while trying to receive publish result");
-                return Err(RtmpServerError::ChannelSendFailed {
-                    backtrace: Backtrace::capture(),
-                });
-            }
-            Ok(Err(err)) => {
-                tracing::error!(
-                    "publish to stream center failed, {:?}. stream_name: {},  app: {}, stream_type: {}",
-                    err,
-                    self.stream_properties.stream_name,
-                    self.stream_properties.app,
-                    self.stream_properties.stream_type,
-                );
-                return Err(err.into());
-            }
-            Ok(Ok(sender)) => {
-                self.runtime_handle = SessionRuntime::Publish(PublishHandle {
-                    stream_data_producer: sender,
-                    no_data_since: None,
-                    stat: Default::default(),
-                });
-                tracing::info!(
-                    "publish to stream center success, stream_name: {}, app: {}",
-                    self.stream_properties.stream_name,
-                    self.stream_properties.app
-                );
-            }
-        }
-
+        let media_sender = StreamCenter::publish(
+            &self.stream_center_event_sender,
+            PublishProtocol::RTMP,
+            &StreamIdentifier {
+                stream_name: stream_name.to_owned(),
+                app: self.stream_properties.app.clone(),
+            },
+            &self.stream_properties.stream_context,
+        )
+        .await?;
+        self.runtime_handle = SessionRuntime::Publish(Arc::new(RwLock::new(PublishHandle {
+            stream_data_producer: media_sender,
+            no_data_since: None,
+        })));
         Ok(())
     }
 
@@ -971,17 +814,11 @@ impl RtmpSession {
                     Some(stream_name) => {
                         // ignore the result
                         let res = if command_name == "FCUnpublish" {
-                            let _res = self
-                                .unpublish_from_stream_center(
-                                    &self.stream_properties.stream_name.clone(),
-                                    &self.stream_properties.app.clone(),
-                                )
-                                .await;
+                            let _res = self.unpublish_from_stream_center().await;
                             // we do not care the unpublish result
                             Ok(())
                         } else {
-                            self.publish_to_stream_center(stream_name, StreamType::default())
-                                .await
+                            self.publish_to_stream_center(stream_name).await
                         };
 
                         self.chunk_stream.chunk_writer().write_call_response(
@@ -1006,120 +843,31 @@ impl RtmpSession {
         Ok(())
     }
 
-    async fn subscribe_from_stream_center(
-        &self,
-        stream_name: &str,
-        app: &str,
-        context: HashMap<String, String>,
-    ) -> RtmpServerResult<SubscribeResponse> {
-        let (tx, rx) = oneshot::channel();
-        self.stream_center_event_sender
-            .send(StreamCenterEvent::Subscribe {
-                stream_id: StreamIdentifier {
-                    stream_name: stream_name.to_string(),
-                    app: app.to_string(),
-                },
-                context,
-                result_sender: tx,
-            })
-            .map_err(|err| {
-                tracing::error!(
-                    "send subscribe event to stream center failed, {:?}. stream_name: {}, app: {}",
-                    err,
-                    stream_name,
-                    app
-                );
-                RtmpServerError::ChannelSendFailed {
-                    backtrace: Backtrace::capture(),
-                }
-            })?;
-
-        match rx.await {
-            Err(_err) => {
-                tracing::error!(
-                    "channel closed while trying receive subscribe result, stream_name: {}, app: {}",
-                    stream_name,
-                    app
-                );
-                Err(RtmpServerError::ChannelSendFailed {
-                    backtrace: Backtrace::capture(),
-                })
-            }
-            Ok(Err(err)) => {
-                tracing::error!(
-                    "subscribe from stream center failed, {:?}, stream_name: {}, app: {}",
-                    err,
-                    stream_name,
-                    app
-                );
-                Err(err.into())
-            }
-            Ok(Ok(response)) => {
-                tracing::info!(
-                    "subscribe from stream center success, stream_name: {}, app: {}",
-                    stream_name,
-                    app
-                );
-                Ok(response)
-            }
-        }
+    async fn subscribe_from_stream_center(&self) -> RtmpServerResult<SubscribeResponse> {
+        StreamCenter::subscribe(
+            &self.stream_center_event_sender,
+            PlayProtocol::RTMP,
+            &StreamIdentifier {
+                stream_name: self.stream_properties.stream_name.to_owned(),
+                app: self.stream_properties.app.to_owned(),
+            },
+            &self.stream_properties.stream_context,
+        )
+        .await
+        .map_err(|err| err.into())
     }
 
-    async fn unsubscribe_from_stream_center(
-        &self,
-        uuid: Uuid,
-        stream_name: &str,
-        app: &str,
-    ) -> RtmpServerResult<()> {
-        let (tx, rx) = oneshot::channel();
-        self.stream_center_event_sender
-            .send(StreamCenterEvent::Unsubscribe {
-                stream_id: StreamIdentifier {
-                    stream_name: stream_name.to_string(),
-                    app: app.to_string(),
-                },
-                uuid,
-                result_sender: tx,
-            })
-            .map_err(|err| {
-                tracing::error!(
-                    "send unsubscribe event to stream center failed, {:?}. stream_name: {}, app: {}, uuid: {}",
-                    err,
-                    stream_name,
-                    app,
-                    uuid,
-                );
-                RtmpServerError::ChannelSendFailed {
-                    backtrace: Backtrace::capture(),
-                }
-            })?;
-
-        match rx.await {
-            Err(_err) => {
-                tracing::error!("channel closed while trying to receive unsubscribe result");
-                return Err(RtmpServerError::ChannelSendFailed {
-                    backtrace: Backtrace::capture(),
-                });
-            }
-            Ok(Err(err)) => {
-                tracing::error!(
-                    "unsubscribe from stream center failed, uuid: {}, stream_name: {}, app: {}",
-                    uuid,
-                    stream_name,
-                    app
-                );
-                return Err(err.into());
-            }
-            Ok(Ok(())) => {
-                tracing::info!(
-                    "unsubscribe from stream center success, uuid: {}, stream_name: {}, app: {}",
-                    uuid,
-                    stream_name,
-                    app
-                );
-            }
-        }
-        Ok(())
+    async fn unsubscribe_from_stream_center(&self, uuid: Uuid) -> RtmpServerResult<()> {
+        StreamCenter::unsubscribe(
+            &self.stream_center_event_sender,
+            uuid,
+            &StreamIdentifier {
+                stream_name: self.stream_properties.stream_name.clone(),
+                app: self.stream_properties.app.clone(),
+            },
+        )
+        .await
+        .map_err(|err| err.into())
     }
 
     async fn process_play_request(
@@ -1162,24 +910,12 @@ impl RtmpSession {
         let reset = request.reset; // this should be ignored
 
         self.stream_properties.stream_name = stream_name.to_string();
-        let subscribe_result = self
-            .subscribe_from_stream_center(
-                stream_name,
-                &self.stream_properties.app.clone(),
-                self.stream_properties.stream_context.clone(),
-            )
-            .await;
+        let subscribe_result = self.subscribe_from_stream_center().await;
 
         self.chunk_stream
             .chunk_writer()
             .write_set_chunk_size(self.config.chunk_size)?;
         self.chunk_stream.flush_chunk().await?;
-        if self.stream_properties.stream_type == StreamType::Record {
-            self.chunk_stream
-                .chunk_writer()
-                .write_stream_ids_recorded(header.message_stream_id)?; // I bet the stream_id is useless
-            self.chunk_stream.flush_chunk().await?;
-        }
 
         self.chunk_stream
             .chunk_writer()
@@ -1199,12 +935,10 @@ impl RtmpSession {
             Ok(response) => {
                 self.runtime_handle = SessionRuntime::Play(Arc::new(RwLock::new(PlayHandle {
                     stream_data_consumer: response.media_receiver,
-                    stream_type: response.stream_type,
                     receive_audio: response.has_audio,
                     receive_video: response.has_video,
                     buffer_length: None,
                     play_id: response.subscribe_id,
-                    stat: Default::default(),
                 })));
                 if reset {
                     self.chunk_stream.chunk_writer().write_on_status_response(

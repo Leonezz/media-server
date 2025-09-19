@@ -1,7 +1,5 @@
 //! @see: 7.1.7. User Control Message Events
-use std::io;
-
-use crate::chunk::errors::{ChunkMessageError, ChunkMessageResult};
+use crate::chunk::errors::ChunkMessageError;
 
 pub mod consts;
 mod errors;
@@ -32,22 +30,6 @@ pub enum UserControlEvent {
     PingResponse {
         timestamp: u32,
     },
-}
-
-impl UserControlEvent {
-    pub fn read_from<R>(inner: R) -> ChunkMessageResult<UserControlEvent>
-    where
-        R: io::Read,
-    {
-        reader::Reader::new(inner).read()
-    }
-
-    pub fn write_to<W>(&self, inner: W) -> ChunkMessageResult<()>
-    where
-        W: io::Write,
-    {
-        writer::Writer::new(inner).write(self)
-    }
 }
 
 #[repr(u16)]

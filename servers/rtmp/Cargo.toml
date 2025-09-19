@@ -5,20 +5,25 @@ edition = "2024"
 
 [dependencies]
 rtmp-formats = { path = "../../formats/rtmp" }
-amf = { path = "../../formats/amf" }
+amf-formats = { path = "../../formats/amf" }
+flv-formats = { path = "../../formats/flv" }
 utils = { path = "../../utils" }
-flv = { path = "../../formats/flv" }
-thiserror = "2.0.7"
-tokio = { version = "1.44.1", features = ["full"] }
-tokio-util = { version = "0.7.14", features = ["full"] }
+codec-common = { path = "../../codec/common" }
+codec-h264 = { path = "../../codec/h264" }
 stream-center = { path = "../../streamcenter" }
 unified-io = { path = "../../unifiedio" }
+server-utils = { path = "../utils" }
 
+thiserror = "2.0.7"
+tokio = { version = "1.44.2", features = ["full"] }
+tokio-util = { version = "0.7.14", features = ["full"] }
 serde_json = "1.0.133"
 serde = { version = "1.0.216", features = ["derive"] }
 scope-guard = "1.2.0"
 url = "2.5.4"
 tracing = "0.1.41"
+num = "0.4.3"
+
 [dependencies.uuid]
 version = "1.11.0"
 features = [
@@ -26,3 +31,6 @@ features = [
   "fast-rng",          # Use a faster (but still sufficiently random) RNG
   "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
 ]
+
+[lints.clippy]
+uninlined_format_args = "allow"

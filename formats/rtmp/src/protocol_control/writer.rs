@@ -1,4 +1,4 @@
-use crate::chunk::errors::{ChunkMessageError, ChunkMessageResult};
+use crate::chunk::errors::ChunkMessageError;
 
 use super::{
     AbortMessage, Acknowledgement, ProtocolControlMessage, SetChunkSize, SetPeerBandwidth,
@@ -6,65 +6,64 @@ use super::{
 };
 use byteorder::{BigEndian, WriteBytesExt};
 use std::io;
+use utils::traits::writer::WriteTo;
 
-pub struct Writer<W> {
-    inner: W,
-}
-
-impl<W> Writer<W>
-where
-    W: io::Write,
-{
-    pub fn new(inner: W) -> Self {
-        Self { inner }
-    }
-
-    pub fn write(&mut self, message: &ProtocolControlMessage) -> ChunkMessageResult<()> {
-        match message {
-            ProtocolControlMessage::SetChunkSize(m) => self.write_set_chunk_size_message(m),
-            ProtocolControlMessage::Abort(m) => self.write_abort_message(m),
-            ProtocolControlMessage::Ack(m) => self.write_acknowledgement_message(m),
-            ProtocolControlMessage::WindowAckSize(m) => self.write_window_ack_size_message(m),
-            ProtocolControlMessage::SetPeerBandwidth(m) => self.write_set_peer_bandwidth_message(m),
+impl<W: io::Write> WriteTo<W> for ProtocolControlMessage {
+    type Error = ChunkMessageError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        match self {
+            ProtocolControlMessage::SetChunkSize(m) => m.write_to(writer),
+            ProtocolControlMessage::Abort(m) => m.write_to(writer),
+            ProtocolControlMessage::Ack(m) => m.write_to(writer),
+            ProtocolControlMessage::WindowAckSize(m) => m.write_to(writer),
+            ProtocolControlMessage::SetPeerBandwidth(m) => m.write_to(writer),
         }
     }
+}
 
-    fn write_set_chunk_size_message(&mut self, message: &SetChunkSize) -> ChunkMessageResult<()> {
-        if (message.chunk_size as i32) < 0 {
+impl<W: io::Write> WriteTo<W> for SetChunkSize {
+    type Error = ChunkMessageError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        if (self.chunk_size as i32) < 0 {
             return Err(ChunkMessageError::InvalidMessage(
                 "invalid set chunk size message, the first bit of chunk size is not 0".to_owned(),
             ));
         }
 
-        self.inner
-            .write_u32::<BigEndian>(message.chunk_size.min(MAX_CHUNK_SIZE))?;
+        writer.write_u32::<BigEndian>(self.chunk_size.min(MAX_CHUNK_SIZE))?;
         Ok(())
     }
+}
 
-    fn write_abort_message(&mut self, message: &AbortMessage) -> ChunkMessageResult<()> {
-        self.inner.write_u32::<BigEndian>(message.chunk_stream_id)?;
+impl<W: io::Write> WriteTo<W> for AbortMessage {
+    type Error = ChunkMessageError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        writer.write_u32::<BigEndian>(self.chunk_stream_id)?;
         Ok(())
     }
+}
 
-    fn write_acknowledgement_message(
-        &mut self,
-        message: &Acknowledgement,
-    ) -> ChunkMessageResult<()> {
-        self.inner.write_u32::<BigEndian>(message.sequence_number)?;
+impl<W: io::Write> WriteTo<W> for Acknowledgement {
+    type Error = ChunkMessageError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        writer.write_u32::<BigEndian>(self.sequence_number)?;
         Ok(())
     }
+}
 
-    fn write_window_ack_size_message(&mut self, message: &WindowAckSize) -> ChunkMessageResult<()> {
-        self.inner.write_u32::<BigEndian>(message.size)?;
+impl<W: io::Write> WriteTo<W> for WindowAckSize {
+    type Error = ChunkMessageError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        writer.write_u32::<BigEndian>(self.size)?;
         Ok(())
     }
+}
 
-    fn write_set_peer_bandwidth_message(
-        &mut self,
-        message: &SetPeerBandwidth,
-    ) -> ChunkMessageResult<()> {
-        self.inner.write_u32::<BigEndian>(message.size)?;
-        self.inner.write_u8(message.limit_type as u8)?;
+impl<W: io::Write> WriteTo<W> for SetPeerBandwidth {
+    type Error = ChunkMessageError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        writer.write_u32::<BigEndian>(self.size)?;
+        writer.write_u8(self.limit_type as u8)?;
         Ok(())
     }
 }

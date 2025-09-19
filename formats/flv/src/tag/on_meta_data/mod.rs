@@ -1,17 +1,16 @@
 use std::{collections::HashMap, iter::zip};
 
-use amf::AmfComplexObject;
+use amf_formats::{AmfComplexObject, Value};
+use codec_common::{audio::AudioCodecCommon, video::VideoCodecCommon};
 
 use super::{
     audio_tag_header::SoundFormat,
-    audio_tag_header_info::AudioCodecCommon,
     enhanced::{ex_audio::ex_audio_header::AudioFourCC, ex_video::ex_video_header::VideoFourCC},
     video_tag_header::CodecID,
-    video_tag_header_info::VideoCodecCommon,
 };
+
 pub mod reader;
 pub mod writer;
-
 #[derive(Debug, Clone)]
 pub struct ScriptKeyframeInfo {
     _file_position: f64,
@@ -73,8 +72,8 @@ pub struct OnMetaData {
     pub width: Option<f64>,
     /// "audioTrackIdInfoMap" and "videoTrackIdInfoMap" are way too complicated, sucks
     /// @see Enhanced RTMP v2-2024-10-22-b1 p15
-    pub audio_track_id_info_map: Option<HashMap<String, amf::Value>>,
-    pub video_track_id_info_map: Option<HashMap<String, amf::Value>>,
+    pub audio_track_id_info_map: Option<HashMap<String, amf_formats::Value>>,
+    pub video_track_id_info_map: Option<HashMap<String, amf_formats::Value>>,
 
     /// @see: http://www.cnblogs.com/musicfans/archive/2012/11/07/2819291.html
     /// "keyframes": {
@@ -84,12 +83,12 @@ pub struct OnMetaData {
     pub keyframes: Option<Vec<ScriptKeyframeInfo>>,
 }
 
-impl From<HashMap<String, amf::Value>> for OnMetaData {
-    fn from(value: HashMap<String, amf::Value>) -> Self {
+impl From<HashMap<String, amf_formats::Value>> for OnMetaData {
+    fn from(value: HashMap<String, amf_formats::Value>) -> Self {
         let extract_keyframe_info = || match value.extract_object_field("keyframes") {
             None => None,
             Some(pairs) => {
-                let mut map: HashMap<String, amf::Value> = HashMap::new();
+                let mut map: HashMap<String, amf_formats::Value> = HashMap::new();
                 for (k, v) in pairs {
                     map.insert(k, v);
                 }
@@ -156,7 +155,7 @@ impl From<HashMap<String, amf::Value>> for OnMetaData {
             width: value.extract_number_field("width"),
             audio_track_id_info_map: value.extract_object_field("audioTrackIdInfoMap").map(
                 |pairs| {
-                    let mut map: HashMap<String, amf::Value> = HashMap::new();
+                    let mut map: HashMap<String, amf_formats::Value> = HashMap::new();
                     for (k, v) in pairs {
                         map.insert(k, v);
                     }
@@ -165,7 +164,7 @@ impl From<HashMap<String, amf::Value>> for OnMetaData {
             ),
             video_track_id_info_map: value.extract_object_field("videoTrackIdInfoMap").map(
                 |pairs| {
-                    let mut map: HashMap<String, amf::Value> = HashMap::new();
+                    let mut map: HashMap<String, amf_formats::Value> = HashMap::new();
                     for (k, v) in pairs {
                         map.insert(k, v);
                     }
@@ -174,5 +173,153 @@ impl From<HashMap<String, amf::Value>> for OnMetaData {
             ),
             keyframes: extract_keyframe_info(),
         }
+    }
+}
+
+impl From<&OnMetaData> for Vec<(String, amf_formats::amf0::Value)> {
+    fn from(value: &OnMetaData) -> Self {
+        let mut result = vec![];
+        if let Some(audio_codec) = value.audio_codec_id {
+            let audio_codec_four_cc: AudioFourCC =
+                audio_codec.try_into().unwrap_or(AudioFourCC::AAC);
+            let audio_codec_number: u32 = audio_codec_four_cc.into();
+            result.push((
+                "audiocodecid".to_string(),
+                amf_formats::amf0::number(audio_codec_number),
+            ));
+        }
+        if let Some(audio_data_rata) = value.audio_data_rate {
+            result.push((
+                "audiodatarate".to_string(),
+                amf_formats::amf0::number(audio_data_rata),
+            ));
+        }
+        if let Some(audio_delay) = value.audio_delay {
+            result.push((
+                "audiodelay".to_string(),
+                amf_formats::amf0::number(audio_delay),
+            ));
+        }
+        if let Some(audio_sample_rate) = value.audio_sample_rate {
+            result.push((
+                "audiosamplerate".to_string(),
+                amf_formats::amf0::number(audio_sample_rate),
+            ));
+        }
+        if let Some(audio_sample_size) = value.audio_sample_size {
+            result.push((
+                "audiosamplesize".to_string(),
+                amf_formats::amf0::number(audio_sample_size),
+            ));
+        }
+        if let Some(can_seek_to_end) = value.can_seek_to_end {
+            result.push((
+                "canSeekToEnd".to_string(),
+                amf_formats::amf0::bool(can_seek_to_end),
+            ));
+        }
+        if let Some(creation_date) = &value.creation_date {
+            result.push((
+                "creationdate".to_string(),
+                amf_formats::amf0::string(creation_date),
+            ));
+        }
+        if let Some(duration) = value.duration {
+            result.push(("duration".to_string(), amf_formats::amf0::number(duration)));
+        }
+        if let Some(file_size) = value.file_size {
+            result.push(("filesize".to_string(), amf_formats::amf0::number(file_size)));
+        }
+        if let Some(frame_rate) = value.frame_rate {
+            result.push((
+                "framerate".to_string(),
+                amf_formats::amf0::number(frame_rate),
+            ));
+        }
+        if let Some(height) = value.height {
+            result.push(("height".to_string(), amf_formats::amf0::number(height)));
+        }
+        if let Some(stereo) = value.stereo {
+            result.push(("stereo".to_string(), amf_formats::amf0::bool(stereo)));
+        }
+        if let Some(video_codec) = value.video_codec_id {
+            let video_four_cc: VideoFourCC = video_codec.try_into().unwrap_or(VideoFourCC::AVC);
+            let video_codec_num: u32 = video_four_cc.into();
+            result.push((
+                "videocodecid".to_string(),
+                amf_formats::amf0::number(video_codec_num),
+            ));
+        }
+        if let Some(video_data_rate) = value.video_data_rate {
+            result.push((
+                "videodatarate".to_string(),
+                amf_formats::amf0::number(video_data_rate),
+            ));
+        }
+        if let Some(width) = value.width {
+            result.push(("width".to_string(), amf_formats::amf0::number(width)));
+        }
+        if let Some(audio_track_id_info_map) = &value.audio_track_id_info_map {
+            result.push((
+                "audioTrackIdInfoMap".to_string(),
+                amf_formats::amf0::object(audio_track_id_info_map.clone().into_iter().map(
+                    |(k, v)| {
+                        (
+                            k,
+                            match v {
+                                Value::AMF0Value(value) => value,
+                                Value::AMF3Value(value) => amf_formats::amf0::Value::AVMPlus(value),
+                            },
+                        )
+                    },
+                )),
+            ));
+        }
+        if let Some(video_track_id_info_map) = &value.video_track_id_info_map {
+            result.push((
+                "videoTrackIdInfoMap".to_string(),
+                amf_formats::amf0::object(video_track_id_info_map.clone().into_iter().map(
+                    |(k, v)| {
+                        (
+                            k,
+                            match v {
+                                Value::AMF0Value(value) => value,
+                                Value::AMF3Value(value) => amf_formats::amf0::Value::AVMPlus(value),
+                            },
+                        )
+                    },
+                )),
+            ));
+        }
+        if let Some(key_frames) = &value.keyframes {
+            result.push((
+                "keyframes".to_string(),
+                amf_formats::amf0::Value::Object {
+                    name: None,
+                    entries: vec![
+                        (
+                            "filepositions".to_string(),
+                            amf_formats::amf0::Value::StrictArray(
+                                key_frames
+                                    .iter()
+                                    .map(|item| amf_formats::amf0::number(item._file_position))
+                                    .collect(),
+                            ),
+                        ),
+                        (
+                            "times".to_string(),
+                            amf_formats::amf0::Value::StrictArray(
+                                key_frames
+                                    .iter()
+                                    .map(|item| amf_formats::amf0::number(item._time))
+                                    .collect(),
+                            ),
+                        ),
+                    ],
+                },
+            ));
+        }
+
+        result
     }
 }

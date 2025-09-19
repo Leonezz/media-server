@@ -1,6 +1,7 @@
 use std::backtrace::Backtrace;
 
 use errors::{ChunkMessageError, ChunkMessageResult};
+use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
 
 use crate::{
     message::{RtmpMessageType, RtmpUserMessageBody},
@@ -32,6 +33,16 @@ pub struct ChunkBasicHeader {
     chunk_stream_id: Csid, // 6 bits / 1 byte / 2 bytes
 }
 
+impl DynamicSizedPacket for ChunkBasicHeader {
+    fn get_packet_bytes_count(&self) -> usize {
+        match self.header_type {
+            ChunkBasicHeaderType::Type1 => 1,
+            ChunkBasicHeaderType::Type2 => 2,
+            ChunkBasicHeaderType::Type3 => 3,
+        }
+    }
+}
+
 impl ChunkBasicHeader {
     pub fn new(fmt: u8, csid: Csid) -> ChunkMessageResult<Self> {
         let header_type = match csid {
@@ -51,14 +62,6 @@ impl ChunkBasicHeader {
             fmt,
             chunk_stream_id: csid,
         })
-    }
-
-    pub fn get_header_length(&self) -> usize {
-        match self.header_type {
-            ChunkBasicHeaderType::Type1 => 1,
-            ChunkBasicHeaderType::Type2 => 2,
-            ChunkBasicHeaderType::Type3 => 3,
-        }
     }
 }
 
@@ -124,8 +127,8 @@ pub enum ChunkMessageHeader {
     Type3(ChunkMessageHeaderType3),
 }
 
-impl ChunkMessageHeader {
-    pub fn get_header_length(&self) -> usize {
+impl DynamicSizedPacket for ChunkMessageHeader {
+    fn get_packet_bytes_count(&self) -> usize {
         match self {
             ChunkMessageHeader::Type0(_) => 11,
             ChunkMessageHeader::Type1(_) => 7,

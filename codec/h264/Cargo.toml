@@ -1,0 +1,19 @@
+[package]
+name = "codec-h264"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+utils = { path = "../../utils" }
+thiserror = { version = "2.0.7" }
+byteorder = "1.5.0"
+tokio-util = { version = "0.7.13", features = ["full"] }
+tracing = "0.1.41"
+bitstream-io = "4.0.0"
+num = "0.4.3"
+serde_json = "1.0.133"
+serde = { version = "1.0.216", features = ["derive"] }
+codec-bitstream = { path = "../bitstream" }
+
+[lints.clippy]
+uninlined_format_args = "allow"

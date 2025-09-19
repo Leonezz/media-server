@@ -1,0 +1,27 @@
+[package]
+name = "rtp-formats"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+thiserror = { version = "2.0.7" }
+byteorder = "1.5.0"
+tokio = { version = "1.42.2", features = ["full"] }
+tokio-util = { version = "0.7.13", features = ["full"] }
+tracing = "0.1.41"
+num = "0.4.3"
+utils = { path = "../../utils" }
+codec-h264 = { path = "../../codec/h264" }
+codec-aac = { path = "../../codec/aac" }
+codec-bitstream = { path = "../../codec/bitstream" }
+codec-common = { path = "../../codec/common" }
+stream-center = { path = "../../streamcenter" }
+itertools = "0.14.0"
+bitstream-io = "4.0.0"
+futures = "0.3.31"
+unified-io = { path = "../../unifiedio" }
+base64 = "0.22.1"
+scopeguard = "1.1"
+
+[lints.clippy]
+uninlined_format_args = "allow"

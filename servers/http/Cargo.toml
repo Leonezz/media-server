@@ -6,12 +6,14 @@ edition = "2024"
 [dependencies]
 utils = { path = "../../utils" }
 stream-center = { path = "../../streamcenter" }
-flv = { path = "../../formats/flv" }
-
+flv-formats = { path = "../../formats/flv" }
+codec-common = { path = "../../codec/common" }
+server-utils = { path = "../utils" }
 thiserror = "2.0.7"
-tokio = { version = "1.44.1", features = ["full"] }
+tokio = { version = "1.44.2", features = ["full"] }
 tokio-util = "0.7.14"
 byteorder = "1.5.0"
+num = "0.4.3"
 
 rocket = { version = "0.5.1", features = ["json"] }
 figment = { version = "0.10", features = ["env", "toml", "json"] }
@@ -20,7 +22,6 @@ tracing = "0.1.41"
 serde_json = "1.0.133"
 serde = { version = "1.0.216", features = ["derive"] }
 
-
 [dependencies.uuid]
 version = "1.11.0"
 features = [
@@ -28,3 +29,5 @@ features = [
   "fast-rng",          # Use a faster (but still sufficiently random) RNG
   "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
 ]
+[lints.clippy]
+uninlined_format_args = "allow"

@@ -13,7 +13,7 @@ pub enum RtmpServerError {
     #[error("chunk message read failed: {0:?}")]
     ChunkMessageReadFailed(#[from] ChunkMessageError),
     #[error("flv tag demux error: {0}")]
-    FlvDemuxError(#[from] flv::errors::FLVError),
+    FlvDemuxError(#[from] flv_formats::errors::FLVError),
     #[error("stream center operation error")]
     StreamCenterError(#[from] StreamCenterError),
     #[error("channel send data failed, {backtrace}")]
@@ -22,6 +22,10 @@ pub enum RtmpServerError {
     InvalidStreamParam(String),
     #[error("stream is gone")]
     StreamIsGone,
+    #[error("video codec demux failed: {0}")]
+    VideoCodecDemuxFailed(String),
+    #[error("video codec mux failed: {0}")]
+    VideoCodecMuxFailed(String),
 }
 
 pub type RtmpServerResult<T> = Result<T, RtmpServerError>;

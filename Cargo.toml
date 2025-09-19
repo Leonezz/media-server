@@ -1,3 +1,12 @@
 [workspace]
-members = ['formats/*', "servers/*", "unifiedio", 'app', 'utils', "streamcenter"]
+members = [
+    'codec/*',
+    'formats/*',
+    "servers/*",
+    "unifiedio",
+    'app',
+    'utils',
+    "streamcenter",
+    "debug_tools",
+]
 resolver = "3"

@@ -1,13 +1,18 @@
 use std::{collections::HashMap, io::Cursor};
 
-use rocket::{FromForm, Request, Response, State, get, http::ContentType, response::Responder};
+use rocket::{
+    FromForm, Request, Response, State, get,
+    http::{ContentType, Header},
+    response::Responder,
+};
+use server_utils::stream_properities::StreamProperties;
 use tokio::sync::mpsc::{self, UnboundedReceiver};
 use tokio_util::bytes::BytesMut;
 
 use crate::{
     errors::{HttpServerError, HttpServerResult},
     server::HttpServerContext,
-    sessions::httpflv::session::{HttpFlvSession, HttpFlvSessionConfig, StreamProperties},
+    sessions::httpflv::session::{HttpFlvSession, HttpFlvSessionConfig},
 };
 
 use super::ext::FlvStreamName;
@@ -53,6 +58,7 @@ impl<'r> Responder<'r, 'r> for HttpFlvStream {
     fn respond_to(self, _: &'r Request<'_>) -> rocket::response::Result<'r> {
         Response::build()
             .header(ContentType::new("video", "x-flv"))
+            .header(Header::new("Access-Control-Allow-Origin", "*"))
             .streamed_body(self)
             .ok()
     }
@@ -124,7 +130,6 @@ pub(crate) async fn serve(
         StreamProperties {
             app: app.to_string(),
             stream_name: stream.to_string(),
-            stream_type: Default::default(),
             stream_context: ctx_params,
         },
         response_sender,

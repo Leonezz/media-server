@@ -1,52 +1,34 @@
 use std::io;
 
-use super::{C1S1Packet, C2S2Packet, Version, errors::HandshakeResult};
+use super::{C0S0Packet, C1S1Packet, C2S2Packet, errors::HandshakeError};
 use byteorder::{BigEndian, WriteBytesExt};
+use utils::traits::writer::WriteTo;
 
-pub struct Writer<W> {
-    inner: W,
-}
-
-impl<W> Writer<W> {
-    pub fn into_inner(self) -> W {
-        self.inner
-    }
-
-    pub fn inner(&self) -> &W {
-        &self.inner
-    }
-
-    pub fn inner_mut(&mut self) -> &mut W {
-        &mut self.inner
+impl<W: io::Write> WriteTo<W> for C0S0Packet {
+    type Error = HandshakeError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        writer.write_u8(self.version.into())?;
+        Ok(())
     }
 }
 
-impl<W> Writer<W>
-where
-    W: io::Write,
-{
-    pub fn new(inner: W) -> Self {
-        Self { inner }
-    }
-    pub fn write_c0s0(&mut self, version: Version) -> HandshakeResult<()> {
-        self.inner.write_u8(version.into())?;
+impl<W: io::Write> WriteTo<W> for C1S1Packet {
+    type Error = HandshakeError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        // timestamp overflows u32
+        writer.write_u32::<BigEndian>(self.timestamp.as_millis() as u32)?;
+        writer.write_u32::<BigEndian>(0)?;
+        writer.write_all(&self.random_bytes)?;
         Ok(())
     }
+}
 
-    pub fn write_c1s1(&mut self, packet: C1S1Packet) -> HandshakeResult<()> {
-        self.inner
-            .write_u32::<BigEndian>(packet.timestamp.as_millis() as u32)?;
-        self.inner.write_u32::<BigEndian>(0)?;
-        self.inner.write_all(&packet.random_bytes)?;
-        Ok(())
-    }
-
-    pub fn write_c2s2(&mut self, packet: C2S2Packet) -> HandshakeResult<()> {
-        self.inner
-            .write_u32::<BigEndian>(packet.timestamp.as_millis() as u32)?;
-        self.inner
-            .write_u32::<BigEndian>(packet.timestamp2.as_millis() as u32)?;
-        self.inner.write_all(&packet.random_echo)?;
+impl<W: io::Write> WriteTo<W> for C2S2Packet {
+    type Error = HandshakeError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        writer.write_u32::<BigEndian>(self.timestamp.as_millis() as u32)?;
+        writer.write_u32::<BigEndian>(self.timestamp2.as_millis() as u32)?;
+        writer.write_all(&self.random_echo)?;
         Ok(())
     }
 }

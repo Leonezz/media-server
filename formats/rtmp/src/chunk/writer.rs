@@ -5,15 +5,15 @@ use std::{
     collections::HashMap,
     io::{Cursor, Read, Write},
 };
-use tokio::{
-    io::{AsyncWrite, BufWriter},
-    net::TcpStream,
-};
+use tokio::io::AsyncWrite;
 use tokio_util::{
-    bytes::{Buf, BytesMut},
+    bytes::{Buf, Bytes},
     either::Either,
 };
-use utils::system::time::get_timestamp_ms;
+use utils::{
+    system::time::get_timestamp_ms,
+    traits::{dynamic_sized_packet::DynamicSizedPacket, writer::WriteTo},
+};
 
 use crate::{
     commands::{
@@ -22,6 +22,7 @@ use crate::{
         OnStatusCommand, PauseCommand, Play2Command, PlayCommand, PublishCommand,
         ReceiveAudioCommand, ReceiveVideoCommand, RtmpC2SCommands, RtmpS2CCommands, SeekCommand,
         consts::s2c_command_names::{self, ON_STATUS},
+        writer::RtmpCommandWriteWrapper,
     },
     message::{RtmpMessageType, RtmpUserMessageBody},
     protocol_control::{
@@ -91,7 +92,7 @@ impl Writer {
     pub fn write(
         &mut self,
         mut value: ChunkMessage,
-        version: amf::Version,
+        version: amf_formats::Version,
     ) -> ChunkMessageResult<()> {
         // self.transparent_write(basic_header, message_header, value.chunk_data)?;
         let mut bytes = Vec::with_capacity(4096);
@@ -99,7 +100,7 @@ impl Writer {
             RtmpChunkMessageBody::ProtocolControl(message) => message.write_to(&mut bytes),
             RtmpChunkMessageBody::UserControl(message) => message.write_to(&mut bytes),
             RtmpChunkMessageBody::RtmpUserMessage(message) => {
-                message.write_c2s_to(&mut bytes, version)
+                RtmpCommandWriteWrapper::new(message.as_ref(), version).write_to(&mut bytes)
             }
         }?;
 
@@ -115,8 +116,8 @@ impl Writer {
                 self.inner.write_all(&bytes)?;
 
                 self.bytes_written += bytes.len()
-                    + basic_header.get_header_length()
-                    + message_header.get_header_length();
+                    + basic_header.get_packet_bytes_count()
+                    + message_header.get_packet_bytes_count();
             }
             Some(len) => {
                 self.write_basic_header(&basic_header)?;
@@ -133,8 +134,8 @@ impl Writer {
                 self.inner.write_all(&tmp_buf)?;
 
                 self.bytes_written += bytes_to_write
-                    + basic_header.get_header_length()
-                    + message_header.get_header_length();
+                    + basic_header.get_packet_bytes_count()
+                    + message_header.get_packet_bytes_count();
 
                 while cursor_buf.has_remaining() {
                     let bytes_to_write = min(cursor_buf.remaining(), len as usize);
@@ -155,7 +156,7 @@ impl Writer {
                     }
                     self.inner.reserve(bytes_to_write);
                     self.inner.write_all(&tmp_buf)?;
-                    self.bytes_written += bytes_to_write + basic_header.get_header_length();
+                    self.bytes_written += bytes_to_write + basic_header.get_packet_bytes_count();
                 }
             }
         }
@@ -177,7 +178,7 @@ impl Writer {
                     }),
                 ),
             },
-            amf::Version::Amf0,
+            amf_formats::Version::Amf0,
         )?;
         self.bytes_written = 0;
         Ok(())
@@ -194,7 +195,7 @@ impl Writer {
                     ProtocolControlMessage::Abort(AbortMessage { chunk_stream_id }),
                 ),
             },
-            amf::Version::Amf0,
+            amf_formats::Version::Amf0,
         )
     }
 
@@ -212,7 +213,7 @@ impl Writer {
                     ProtocolControlMessage::Ack(Acknowledgement { sequence_number }),
                 ),
             },
-            amf::Version::Amf0,
+            amf_formats::Version::Amf0,
         )
     }
 
@@ -232,7 +233,7 @@ impl Writer {
                     }),
                 ),
             },
-            amf::Version::Amf0,
+            amf_formats::Version::Amf0,
         )
     }
 
@@ -254,7 +255,7 @@ impl Writer {
                     }),
                 ),
             },
-            amf::Version::Amf0,
+            amf_formats::Version::Amf0,
         )
     }
 
@@ -283,7 +284,7 @@ impl Writer {
                     UserControlEvent::StreamBegin { stream_id },
                 ),
             },
-            amf::Version::Amf0,
+            amf_formats::Version::Amf0,
         )
     }
 
@@ -295,7 +296,7 @@ impl Writer {
                     UserControlEvent::StreamEOF { stream_id },
                 ),
             },
-            amf::Version::Amf0,
+            amf_formats::Version::Amf0,
         )
     }
 
@@ -307,7 +308,7 @@ impl Writer {
                     UserControlEvent::StreamDry { stream_id },
                 ),
             },
-            amf::Version::Amf0,
+            amf_formats::Version::Amf0,
         )
     }
 
@@ -326,7 +327,7 @@ impl Writer {
                     },
                 ),
             },
-            amf::Version::Amf0,
+            amf_formats::Version::Amf0,
         )
     }
 
@@ -338,7 +339,7 @@ impl Writer {
                     UserControlEvent::StreamIdsRecorded { stream_id },
                 ),
             },
-            amf::Version::Amf0,
+            amf_formats::Version::Amf0,
         )
     }
 
@@ -350,7 +351,7 @@ impl Writer {
                     UserControlEvent::PingRequest { timestamp },
                 ),
             },
-            amf::Version::Amf0,
+            amf_formats::Version::Amf0,
         )
     }
 
@@ -362,7 +363,7 @@ impl Writer {
                     UserControlEvent::PingResponse { timestamp },
                 ),
             },
-            amf::Version::Amf0,
+            amf_formats::Version::Amf0,
         )
     }
 
@@ -406,19 +407,25 @@ impl Writer {
         code: &str,
         level: &str,
         description: &str,
-        encoding: amf::Version,
+        encoding: amf_formats::Version,
     ) -> ChunkMessageResult<()> {
         let mut properties = HashMap::new();
-        properties.insert("fmsVer".into(), amf::string(fmsver, encoding));
-        properties.insert("capabilities".into(), amf::number(capabilities, encoding));
+        properties.insert("fmsVer".into(), amf_formats::string(fmsver, encoding));
+        properties.insert(
+            "capabilities".into(),
+            amf_formats::number(capabilities, encoding),
+        );
 
         let mut information = HashMap::new();
-        information.insert("level".into(), amf::string(level, encoding));
-        information.insert("code".into(), amf::string(code, encoding));
-        information.insert("description".into(), amf::string(description, encoding));
+        information.insert("level".into(), amf_formats::string(level, encoding));
+        information.insert("code".into(), amf_formats::string(code, encoding));
+        information.insert(
+            "description".into(),
+            amf_formats::string(description, encoding),
+        );
         information.insert(
             "objectEncoding".into(),
-            amf::number(encoding as u8, encoding),
+            amf_formats::number(encoding as u8, encoding),
         );
         self.write(
             ChunkMessage {
@@ -446,7 +453,7 @@ impl Writer {
                     RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::Call(message)),
                 )),
             },
-            amf::Version::Amf0,
+            amf_formats::Version::Amf0,
         )
     }
 
@@ -454,8 +461,8 @@ impl Writer {
         &mut self,
         success: bool,
         transaction_id: f64,
-        command_object: Option<HashMap<String, amf::Value>>,
-        response: Option<HashMap<String, amf::Value>>,
+        command_object: Option<HashMap<String, amf_formats::Value>>,
+        response: Option<HashMap<String, amf_formats::Value>>,
     ) -> ChunkMessageResult<()> {
         self.write(
             ChunkMessage {
@@ -473,7 +480,7 @@ impl Writer {
                     })),
                 )),
             },
-            amf::Version::Amf0,
+            amf_formats::Version::Amf0,
         )
     }
 
@@ -488,7 +495,7 @@ impl Writer {
                     RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::CreateStream(message)),
                 )),
             },
-            amf::Version::Amf0,
+            amf_formats::Version::Amf0,
         )
     }
 
@@ -496,7 +503,7 @@ impl Writer {
         &mut self,
         success: bool,
         transaction_id: f64,
-        command_object: Option<HashMap<String, amf::Value>>,
+        command_object: Option<HashMap<String, amf_formats::Value>>,
         stream_id: f64,
     ) -> ChunkMessageResult<()> {
         self.write(
@@ -513,7 +520,7 @@ impl Writer {
                     )),
                 )),
             },
-            amf::Version::Amf0,
+            amf_formats::Version::Amf0,
         )
     }
 
@@ -525,7 +532,7 @@ impl Writer {
                     RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::Play(message)),
                 )),
             },
-            amf::Version::Amf0,
+            amf_formats::Version::Amf0,
         )
     }
 
@@ -537,7 +544,7 @@ impl Writer {
                     RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::Play2(message)),
                 )),
             },
-            amf::Version::Amf0,
+            amf_formats::Version::Amf0,
         )
     }
 
@@ -552,7 +559,7 @@ impl Writer {
                     RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::DeleteStream(message)),
                 )),
             },
-            amf::Version::Amf0,
+            amf_formats::Version::Amf0,
         )
     }
 
@@ -567,7 +574,7 @@ impl Writer {
                     RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::ReceiveAudio(message)),
                 )),
             },
-            amf::Version::Amf0,
+            amf_formats::Version::Amf0,
         )
     }
 
@@ -582,7 +589,7 @@ impl Writer {
                     RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::ReceiveVideo(message)),
                 )),
             },
-            amf::Version::Amf0,
+            amf_formats::Version::Amf0,
         )
     }
 
@@ -594,7 +601,7 @@ impl Writer {
                     RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::Publish(message)),
                 )),
             },
-            amf::Version::Amf0,
+            amf_formats::Version::Amf0,
         )
     }
 
@@ -606,7 +613,7 @@ impl Writer {
                     RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::Seek(message)),
                 )),
             },
-            amf::Version::Amf0,
+            amf_formats::Version::Amf0,
         )
     }
 
@@ -618,7 +625,7 @@ impl Writer {
                     RtmpUserMessageBody::C2SCommand(RtmpC2SCommands::Pause(message)),
                 )),
             },
-            amf::Version::Amf0,
+            amf_formats::Version::Amf0,
         )
     }
 
@@ -627,13 +634,16 @@ impl Writer {
         level: &str,
         code: &str,
         description: &str,
-        encoding: amf::Version,
-        additional: Option<HashMap<String, amf::Value>>,
+        encoding: amf_formats::Version,
+        additional: Option<HashMap<String, amf_formats::Value>>,
     ) -> ChunkMessageResult<()> {
         let mut info_object = HashMap::new();
-        info_object.insert("level".into(), amf::string(level, encoding));
-        info_object.insert("code".into(), amf::string(code, encoding));
-        info_object.insert("description".into(), amf::string(description, encoding));
+        info_object.insert("level".into(), amf_formats::string(level, encoding));
+        info_object.insert("code".into(), amf_formats::string(code, encoding));
+        info_object.insert(
+            "description".into(),
+            amf_formats::string(description, encoding),
+        );
         if let Some(additional) = additional {
             info_object.extend(additional);
         }
@@ -648,7 +658,7 @@ impl Writer {
                     })),
                 )),
             },
-            amf::Version::Amf0,
+            amf_formats::Version::Amf0,
         )
     }
 
@@ -666,7 +676,7 @@ impl Writer {
         })
     }
 
-    pub fn write_meta(&mut self, meta: BytesMut, timestamp: u32) -> ChunkMessageResult<()> {
+    pub fn write_meta(&mut self, meta: Bytes, timestamp: u32) -> ChunkMessageResult<()> {
         self.write(
             ChunkMessage {
                 header: ChunkMessageCommonHeader {
@@ -683,11 +693,11 @@ impl Writer {
                     RtmpUserMessageBody::MetaData { payload: meta },
                 )),
             },
-            amf::Version::Amf0,
+            amf_formats::Version::Amf0,
         )
     }
 
-    pub fn write_audio(&mut self, message: BytesMut, timestamp: u32) -> ChunkMessageResult<()> {
+    pub fn write_audio(&mut self, message: Bytes, timestamp: u32) -> ChunkMessageResult<()> {
         self.write(
             ChunkMessage {
                 header: ChunkMessageCommonHeader {
@@ -704,11 +714,11 @@ impl Writer {
                     RtmpUserMessageBody::Audio { payload: message },
                 )),
             },
-            amf::Version::Amf0,
+            amf_formats::Version::Amf0,
         )
     }
 
-    pub fn write_video(&mut self, message: BytesMut, timestamp: u32) -> ChunkMessageResult<()> {
+    pub fn write_video(&mut self, message: Bytes, timestamp: u32) -> ChunkMessageResult<()> {
         self.write(
             ChunkMessage {
                 header: ChunkMessageCommonHeader {
@@ -725,7 +735,7 @@ impl Writer {
                     RtmpUserMessageBody::Video { payload: message },
                 )),
             },
-            amf::Version::Amf0,
+            amf_formats::Version::Amf0,
         )
     }
 

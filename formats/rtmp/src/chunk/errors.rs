@@ -32,7 +32,7 @@ pub enum ChunkMessageError {
     #[error("unknown amf version: {0}")]
     UnknownAmfVersion(u8),
     #[error("error while read or write meta data message: {0}")]
-    MetaDataError(#[from] amf::errors::AmfError),
+    MetaDataError(#[from] amf_formats::errors::AmfError),
     #[error("get system time failed: {0}, this is wired")]
     SystemTimeError(#[from] SystemTimeError),
     #[error("not error, just not a full chunk message")]

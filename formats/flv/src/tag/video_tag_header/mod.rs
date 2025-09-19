@@ -1,6 +1,11 @@
-use std::io;
-
-use crate::errors::{FLVError, FLVResult};
+use super::enhanced::ex_video::ex_video_header::ExVideoTagHeader;
+use crate::errors::FLVError;
+use codec_common::{
+    FrameType,
+    video::{VideoCodecCommon, VideoFrameInfo},
+};
+use num::ToPrimitive;
+use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
 
 pub mod reader;
 pub mod writer;
@@ -14,7 +19,7 @@ pub mod writer;
 /// 5 = video info/command frame
 #[repr(u8)]
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
-pub enum FrameType {
+pub enum FrameTypeFLV {
     #[default]
     KeyFrame = 1,
     InterFrame = 2,
@@ -23,13 +28,24 @@ pub enum FrameType {
     CommandFrame = 5,
 }
 
-impl From<FrameType> for u8 {
+impl From<FrameType> for FrameTypeFLV {
     fn from(value: FrameType) -> Self {
+        match value {
+            FrameType::CodedFrames => Self::InterFrame,
+            FrameType::KeyFrame => Self::KeyFrame,
+            FrameType::SequenceEnd => Self::InterFrame,
+            FrameType::SequenceStart => Self::KeyFrame,
+        }
+    }
+}
+
+impl From<FrameTypeFLV> for u8 {
+    fn from(value: FrameTypeFLV) -> Self {
         value as u8
     }
 }
 
-impl TryFrom<u8> for FrameType {
+impl TryFrom<u8> for FrameTypeFLV {
     type Error = FLVError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
@@ -150,8 +166,8 @@ impl TryFrom<u8> for VideoCommand {
     }
 }
 #[derive(Debug, Clone, Copy, Default)]
-pub struct VideoTagHeader {
-    pub frame_type: FrameType,
+pub struct LegacyVideoTagHeader {
+    pub frame_type: FrameTypeFLV,
     pub codec_id: CodecID,
     pub avc_packet_type: Option<AVCPacketType>,
     pub video_command: Option<VideoCommand>,
@@ -165,9 +181,58 @@ pub struct VideoTagHeader {
     pub composition_time: Option<u32>,
 }
 
-impl VideoTagHeader {
+impl DynamicSizedPacket for LegacyVideoTagHeader {
+    fn get_packet_bytes_count(&self) -> usize {
+        let mut result = 1;
+        if self.frame_type == FrameTypeFLV::CommandFrame && self.video_command.is_some() {
+            result += 1;
+        }
+        if self.codec_id == CodecID::AVC
+            || self.codec_id == CodecID::HEVC
+            || self.codec_id == CodecID::AV1
+        {
+            result += 4
+        }
+        result
+    }
+}
+
+impl TryFrom<&VideoFrameInfo> for LegacyVideoTagHeader {
+    type Error = FLVError;
+    fn try_from(value: &VideoFrameInfo) -> Result<Self, Self::Error> {
+        let packet_type = if value.codec_id == VideoCodecCommon::AVC
+            || value.codec_id == VideoCodecCommon::HEVC
+            || value.codec_id == VideoCodecCommon::AV1
+        {
+            match value.frame_type {
+                FrameType::CodedFrames => Some(AVCPacketType::NALU),
+                FrameType::KeyFrame => Some(AVCPacketType::NALU),
+                FrameType::SequenceEnd => Some(AVCPacketType::EndOfSequence),
+                FrameType::SequenceStart => Some(AVCPacketType::SequenceHeader),
+            }
+        } else {
+            None
+        };
+        let cts = value
+            .timestamp
+            .pts_ms()
+            .checked_sub(value.timestamp.dts_ms())
+            .unwrap()
+            .to_u32()
+            .unwrap();
+        Ok(Self {
+            frame_type: value.frame_type.into(),
+            codec_id: value.codec_id.try_into()?,
+            avc_packet_type: packet_type,
+            video_command: None,
+            composition_time: Some(cts),
+        })
+    }
+}
+
+impl LegacyVideoTagHeader {
     #[inline]
-    pub fn get_frame_type(&self) -> FrameType {
+    pub fn get_frame_type(&self) -> FrameTypeFLV {
         self.frame_type
     }
 
@@ -183,7 +248,7 @@ impl VideoTagHeader {
 
     #[inline]
     pub fn is_key_frame(&self) -> bool {
-        self.frame_type == FrameType::KeyFrame
+        self.frame_type == FrameTypeFLV::KeyFrame
     }
 
     #[inline]
@@ -203,11 +268,8 @@ impl VideoTagHeader {
     }
 }
 
-impl VideoTagHeader {
-    pub fn write_to<W>(&self, writer: W) -> FLVResult<()>
-    where
-        W: io::Write,
-    {
-        writer::Writer::new(writer).write(self)
-    }
+#[derive(Debug)]
+pub enum VideoTagHeader {
+    Legacy(LegacyVideoTagHeader),
+    Enhanced(ExVideoTagHeader),
 }

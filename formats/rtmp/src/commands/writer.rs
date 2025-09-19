@@ -1,8 +1,10 @@
-use amf::{self, Value as AmfValue};
-use std::{collections::HashMap, io};
+use amf_formats;
+use num::ToPrimitive;
+use std::io;
 use tokio_util::either::Either;
+use utils::traits::writer::WriteTo;
 
-use crate::chunk::errors::ChunkMessageResult;
+use crate::chunk::errors::ChunkMessageError;
 
 use super::{
     CallCommandRequest, CallCommandResponse, ConnectCommandRequest, ConnectCommandResponse,
@@ -11,245 +13,320 @@ use super::{
     ReceiveVideoCommand, RtmpC2SCommands, RtmpS2CCommands, SeekCommand,
     consts::{c2s_command_names, s2c_command_names},
 };
-pub struct Writer<W> {
-    inner: W,
-    amf_version: amf::Version,
+
+pub struct RtmpCommandWriteWrapper<'a, T>(pub &'a T, pub amf_formats::Version);
+
+impl<'a, T> RtmpCommandWriteWrapper<'a, T> {
+    pub fn new(inner: &'a T, version: amf_formats::Version) -> Self {
+        Self(inner, version)
+    }
 }
 
-impl<W> Writer<W>
-where
-    W: io::Write,
-{
-    pub fn new(inner: W, amf_version: amf::Version) -> Self {
-        Self { inner, amf_version }
-    }
-
-    pub fn write_c2s_command(&mut self, command: &RtmpC2SCommands) -> ChunkMessageResult<()> {
-        match command {
-            RtmpC2SCommands::Connect(command) => self.write_c2s_connect_command(command),
-            RtmpC2SCommands::Call(command) => self.write_c2s_call_command(command),
-            RtmpC2SCommands::CreateStream(command) => self.write_c2s_create_stream_command(command),
-            RtmpC2SCommands::Play(command) => self.write_c2s_play_command(command),
-            RtmpC2SCommands::Play2(command) => self.write_c2s_play2_command(command),
-            RtmpC2SCommands::DeleteStream(command) => self.write_c2s_delete_stream_command(command),
-            RtmpC2SCommands::ReceiveAudio(command) => self.write_c2s_receive_audio_command(command),
-            RtmpC2SCommands::ReceiveVideo(command) => self.write_c2s_receive_video_command(command),
-            RtmpC2SCommands::Publish(command) => self.write_c2s_publish_command(command),
-            RtmpC2SCommands::Seek(command) => self.write_c2s_seek_command(command),
-            RtmpC2SCommands::Pause(command) => self.write_c2s_pause_command(command),
-        }
-    }
-
-    pub fn write_s2c_command(&mut self, command: &RtmpS2CCommands) -> ChunkMessageResult<()> {
-        match command {
-            RtmpS2CCommands::Connect(command) => self.write_s2c_connect_command(command),
-            RtmpS2CCommands::CreateStream(command) => self.write_s2c_create_stream_command(command),
-            RtmpS2CCommands::Call(command) => self.write_s2c_call_command(command),
-            RtmpS2CCommands::OnStatus(command) => self.write_s2c_on_status_command(command),
-        }
-    }
-
-    fn write_c2s_connect_command(
-        &mut self,
-        command: &ConnectCommandRequest,
-    ) -> ChunkMessageResult<()> {
-        self.write_amf_str(c2s_command_names::CONNECT)?;
-        self.write_amf_number(1)?;
-        self.write_amf_object_or_null(Some(command.command_object.clone()))?;
-        self.write_amf_object_or_null(command.optional_user_arguments.clone())?;
-        Ok(())
-    }
-
-    fn write_s2c_connect_command(
-        &mut self,
-        command: &ConnectCommandResponse,
-    ) -> ChunkMessageResult<()> {
-        let command_name = if command.success {
-            s2c_command_names::RESULT
-        } else {
-            s2c_command_names::ERROR
-        };
-        self.write_amf_str(command_name)?;
-        self.write_amf_number(1)?;
-        self.write_amf_object_or_null(command.properties.clone())?;
-        if command.information.is_some() {
-            match command.information.clone().expect("this cannot be none") {
-                Either::Left(any) => any.write_to(&mut self.inner)?,
-                Either::Right(object) => self.write_amf_object_or_null(Some(object))?,
+impl<'a, W: io::Write> WriteTo<W> for RtmpCommandWriteWrapper<'a, RtmpC2SCommands> {
+    type Error = ChunkMessageError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        let (value, amf_version) = (self.0, self.1);
+        match value {
+            RtmpC2SCommands::Connect(command) => {
+                RtmpCommandWriteWrapper::new(command, amf_version).write_to(writer)
+            }
+            RtmpC2SCommands::Call(command) => {
+                RtmpCommandWriteWrapper::new(command, amf_version).write_to(writer)
+            }
+            RtmpC2SCommands::CreateStream(command) => {
+                RtmpCommandWriteWrapper::new(command, amf_version).write_to(writer)
+            }
+            RtmpC2SCommands::Play(command) => {
+                RtmpCommandWriteWrapper::new(command, amf_version).write_to(writer)
+            }
+            RtmpC2SCommands::Play2(command) => {
+                RtmpCommandWriteWrapper::new(command, amf_version).write_to(writer)
+            }
+            RtmpC2SCommands::DeleteStream(command) => {
+                RtmpCommandWriteWrapper::new(command, amf_version).write_to(writer)
+            }
+            RtmpC2SCommands::ReceiveAudio(command) => {
+                RtmpCommandWriteWrapper::new(command, amf_version).write_to(writer)
+            }
+            RtmpC2SCommands::ReceiveVideo(command) => {
+                RtmpCommandWriteWrapper::new(command, amf_version).write_to(writer)
+            }
+            RtmpC2SCommands::Publish(command) => {
+                RtmpCommandWriteWrapper::new(command, amf_version).write_to(writer)
+            }
+            RtmpC2SCommands::Seek(command) => {
+                RtmpCommandWriteWrapper::new(command, amf_version).write_to(writer)
+            }
+            RtmpC2SCommands::Pause(command) => {
+                RtmpCommandWriteWrapper::new(command, amf_version).write_to(writer)
             }
         }
+    }
+}
+
+impl<'a, W: io::Write> WriteTo<W> for RtmpCommandWriteWrapper<'a, ConnectCommandRequest> {
+    type Error = ChunkMessageError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        let (value, amf_version) = (self.0, self.1);
+        amf_formats::Value::write_str(c2s_command_names::CONNECT, writer, amf_version)?;
+        amf_formats::Value::write_number(1, writer, amf_version)?;
+        amf_formats::Value::write_nullable_object(
+            Some(value.command_object.clone()),
+            writer,
+            amf_version,
+        )?;
+        amf_formats::Value::write_nullable_object(
+            value.optional_user_arguments.clone(),
+            writer,
+            amf_version,
+        )?;
+
         Ok(())
     }
+}
 
-    fn write_c2s_call_command(&mut self, command: &CallCommandRequest) -> ChunkMessageResult<()> {
-        self.write_amf_str(&command.procedure_name)?;
-        self.write_amf_number(command.transaction_id)?;
-        self.write_amf_object_or_null(command.command_object.clone())?;
+impl<'a, W: io::Write> WriteTo<W> for RtmpCommandWriteWrapper<'a, CallCommandRequest> {
+    type Error = ChunkMessageError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        let (command, version) = (self.0, self.1);
+        amf_formats::Value::write_str(&command.procedure_name, writer, version)?;
+        amf_formats::Value::write_number(command.transaction_id, writer, version)?;
+        amf_formats::Value::write_nullable_object(command.command_object.clone(), writer, version)?;
+
         if command.optional_arguments.is_some() {
             match command
                 .optional_arguments
                 .clone()
                 .expect("this cannot be none")
             {
-                Either::Left(any) => any.write_to(&mut self.inner)?,
-                Either::Right(object) => self.write_amf_object_or_null(Some(object))?,
+                Either::Left(any) => any.write_to(writer)?,
+                Either::Right(object) => {
+                    amf_formats::Value::write_nullable_object(Some(object), writer, version)?
+                }
             }
         }
         Ok(())
     }
+}
 
-    fn write_s2c_call_command(&mut self, command: &CallCommandResponse) -> ChunkMessageResult<()> {
-        self.write_amf_str(&command.command_name)?;
-        self.write_amf_number(command.transaction_id)?;
-        self.write_amf_object_or_null(command.command_object.clone())?;
-        self.write_amf_object_or_null(command.response.clone())?;
+impl<'a, W: io::Write> WriteTo<W> for RtmpCommandWriteWrapper<'a, CreateStreamCommandRequest> {
+    type Error = ChunkMessageError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        let (command, version) = (self.0, self.1);
+        amf_formats::Value::write_str(c2s_command_names::CREATE_STREAM, writer, version)?;
+        amf_formats::Value::write_number(command.transaction_id, writer, version)?;
+        amf_formats::Value::write_nullable_object(command.command_object.clone(), writer, version)?;
         Ok(())
     }
+}
 
-    fn write_c2s_create_stream_command(
-        &mut self,
-        command: &CreateStreamCommandRequest,
-    ) -> ChunkMessageResult<()> {
-        self.write_amf_str(c2s_command_names::CREATE_STREAM)?;
-        self.write_amf_number(command.transaction_id)?;
-        self.write_amf_object_or_null(command.command_object.clone())?;
+impl<'a, W: io::Write> WriteTo<W> for RtmpCommandWriteWrapper<'a, PlayCommand> {
+    type Error = ChunkMessageError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        let (command, version) = (self.0, self.1);
+        amf_formats::Value::write_str(c2s_command_names::PLAY, writer, version)?;
+        amf_formats::Value::write_number(0, writer, version)?;
+        amf_formats::Value::write_null(writer, version)?;
+        amf_formats::Value::write_str(&command.stream_name, writer, version)?;
+        amf_formats::Value::write_number(command.start.to_f64().unwrap(), writer, version)?;
+        amf_formats::Value::write_number(command.duration.to_f64().unwrap(), writer, version)?;
+        amf_formats::Value::write_bool(command.reset, writer, version)?;
         Ok(())
     }
+}
 
-    fn write_s2c_create_stream_command(
-        &mut self,
-        command: &CreateStreamCommandResponse,
-    ) -> ChunkMessageResult<()> {
-        if command.success {
-            self.write_amf_str(s2c_command_names::RESULT)?;
+impl<'a, W: io::Write> WriteTo<W> for RtmpCommandWriteWrapper<'a, Play2Command> {
+    type Error = ChunkMessageError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        let (command, version) = (self.0, self.1);
+        amf_formats::Value::write_str(c2s_command_names::PLAY2, writer, version)?;
+        amf_formats::Value::write_number(0, writer, version)?;
+        amf_formats::Value::write_null(writer, version)?;
+        amf_formats::Value::write_nullable_object(
+            Some(command.parameters.clone()),
+            writer,
+            version,
+        )?;
+        Ok(())
+    }
+}
+
+impl<'a, W: io::Write> WriteTo<W> for RtmpCommandWriteWrapper<'a, DeleteStreamCommand> {
+    type Error = ChunkMessageError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        let (command, version) = (self.0, self.1);
+        amf_formats::Value::write_str(c2s_command_names::DELETE_STREAM, writer, version)?;
+        amf_formats::Value::write_number(0, writer, version)?;
+        amf_formats::Value::write_null(writer, version)?;
+        amf_formats::Value::write_number(command.stream_id, writer, version)?;
+        Ok(())
+    }
+}
+
+impl<'a, W: io::Write> WriteTo<W> for RtmpCommandWriteWrapper<'a, ReceiveAudioCommand> {
+    type Error = ChunkMessageError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        let (command, version) = (self.0, self.1);
+        amf_formats::Value::write_str(c2s_command_names::RECEIVE_AUDIO, writer, version)?;
+        amf_formats::Value::write_number(0, writer, version)?;
+        amf_formats::Value::write_null(writer, version)?;
+        amf_formats::Value::write_bool(command.bool_flag, writer, version)?;
+        Ok(())
+    }
+}
+
+impl<'a, W: io::Write> WriteTo<W> for RtmpCommandWriteWrapper<'a, ReceiveVideoCommand> {
+    type Error = ChunkMessageError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        let (command, version) = (self.0, self.1);
+        amf_formats::Value::write_str(c2s_command_names::RECEIVE_VIDEO, writer, version)?;
+        amf_formats::Value::write_number(0, writer, version)?;
+        amf_formats::Value::write_null(writer, version)?;
+        amf_formats::Value::write_bool(command.bool_flag, writer, version)?;
+        Ok(())
+    }
+}
+
+impl<'a, W: io::Write> WriteTo<W> for RtmpCommandWriteWrapper<'a, PublishCommand> {
+    type Error = ChunkMessageError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        let (command, version) = (self.0, self.1);
+        amf_formats::Value::write_str(c2s_command_names::PUBLISH, writer, version)?;
+        amf_formats::Value::write_number(0, writer, version)?;
+        amf_formats::Value::write_null(writer, version)?;
+        amf_formats::Value::write_str(&command.publishing_name, writer, version)?;
+        amf_formats::Value::write_str(&command.publishing_type, writer, version)?;
+        Ok(())
+    }
+}
+
+impl<'a, W: io::Write> WriteTo<W> for RtmpCommandWriteWrapper<'a, SeekCommand> {
+    type Error = ChunkMessageError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        let (command, version) = (self.0, self.1);
+        amf_formats::Value::write_str(c2s_command_names::SEEK, writer, version)?;
+        amf_formats::Value::write_number(0, writer, version)?;
+        amf_formats::Value::write_null(writer, version)?;
+        amf_formats::Value::write_number(
+            command
+                .milliseconds
+                .to_f64()
+                .expect("milliseconds overflow f64"),
+            writer,
+            version,
+        )?;
+        Ok(())
+    }
+}
+
+impl<'a, W: io::Write> WriteTo<W> for RtmpCommandWriteWrapper<'a, PauseCommand> {
+    type Error = ChunkMessageError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        let (command, version) = (self.0, self.1);
+        amf_formats::Value::write_str(c2s_command_names::PAUSE, writer, version)?;
+        amf_formats::Value::write_number(0, writer, version)?;
+        amf_formats::Value::write_null(writer, version)?;
+        amf_formats::Value::write_bool(command.pause_flag, writer, version)?;
+        amf_formats::Value::write_number(
+            command
+                .milliseconds
+                .to_f64()
+                .expect("milliseconds overflow f64"),
+            writer,
+            version,
+        )?;
+        Ok(())
+    }
+}
+
+impl<'a, W: io::Write> WriteTo<W> for RtmpCommandWriteWrapper<'a, RtmpS2CCommands> {
+    type Error = ChunkMessageError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        let (command, version) = (self.0, self.1);
+        match command {
+            RtmpS2CCommands::Connect(command) => {
+                RtmpCommandWriteWrapper::new(command, version).write_to(writer)
+            }
+            RtmpS2CCommands::CreateStream(command) => {
+                RtmpCommandWriteWrapper::new(command, version).write_to(writer)
+            }
+            RtmpS2CCommands::Call(command) => {
+                RtmpCommandWriteWrapper::new(command, version).write_to(writer)
+            }
+            RtmpS2CCommands::OnStatus(command) => {
+                RtmpCommandWriteWrapper::new(command, version).write_to(writer)
+            }
+        }
+    }
+}
+
+impl<'a, W: io::Write> WriteTo<W> for RtmpCommandWriteWrapper<'a, ConnectCommandResponse> {
+    type Error = ChunkMessageError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        let (command, version) = (self.0, self.1);
+        let command_name = if command.success {
+            s2c_command_names::RESULT
         } else {
-            self.write_amf_str(s2c_command_names::ERROR)?;
+            s2c_command_names::ERROR
         };
-        self.write_amf_number(command.transaction_id)?;
-        self.write_amf_object_or_null(command.command_object.clone())?;
-        self.write_amf_number(command.stream_id)?;
-        Ok(())
-    }
-
-    fn write_s2c_on_status_command(&mut self, command: &OnStatusCommand) -> ChunkMessageResult<()> {
-        self.write_amf_str(s2c_command_names::ON_STATUS)?;
-        self.write_amf_number(0)?;
-        self.write_amf_null()?;
-        self.write_amf_object_or_null(Some(command.info_object.clone()))?;
-        Ok(())
-    }
-
-    fn write_c2s_play_command(&mut self, command: &PlayCommand) -> ChunkMessageResult<()> {
-        self.write_amf_str(c2s_command_names::PLAY)?;
-        self.write_amf_number(0)?;
-        self.write_amf_null()?;
-        self.write_amf_str(&command.stream_name)?;
-        self.write_amf_number(command.start as f64)?;
-        self.write_amf_number(command.duration as f64)?;
-        self.write_amf_bool(command.reset)?;
-        Ok(())
-    }
-
-    fn write_c2s_play2_command(&mut self, command: &Play2Command) -> ChunkMessageResult<()> {
-        self.write_amf_str(c2s_command_names::PLAY2)?;
-        self.write_amf_number(0)?;
-        self.write_amf_null()?;
-        self.write_amf_object_or_null(Some(command.parameters.clone()))?;
-        Ok(())
-    }
-
-    fn write_c2s_delete_stream_command(
-        &mut self,
-        command: &DeleteStreamCommand,
-    ) -> ChunkMessageResult<()> {
-        self.write_amf_str(c2s_command_names::DELETE_STREAM)?;
-        self.write_amf_number(0)?;
-        self.write_amf_null()?;
-        self.write_amf_number(command.stream_id)?;
-        Ok(())
-    }
-
-    fn write_c2s_receive_audio_command(
-        &mut self,
-        command: &ReceiveAudioCommand,
-    ) -> ChunkMessageResult<()> {
-        self.write_amf_str(c2s_command_names::RECEIVE_AUDIO)?;
-        self.write_amf_number(0)?;
-        self.write_amf_null()?;
-        self.write_amf_bool(command.bool_flag)?;
-        Ok(())
-    }
-
-    fn write_c2s_receive_video_command(
-        &mut self,
-        command: &ReceiveVideoCommand,
-    ) -> ChunkMessageResult<()> {
-        self.write_amf_str(c2s_command_names::RECEIVE_VIDEO)?;
-        self.write_amf_number(0)?;
-        self.write_amf_null()?;
-        self.write_amf_bool(command.bool_flag)?;
-        Ok(())
-    }
-
-    fn write_c2s_publish_command(&mut self, command: &PublishCommand) -> ChunkMessageResult<()> {
-        self.write_amf_str(c2s_command_names::PUBLISH)?;
-        self.write_amf_number(0)?;
-        self.write_amf_null()?;
-        self.write_amf_str(&command.publishing_name)?;
-        self.write_amf_str(&command.publishing_type)?;
-        Ok(())
-    }
-
-    fn write_c2s_seek_command(&mut self, command: &SeekCommand) -> ChunkMessageResult<()> {
-        self.write_amf_str(c2s_command_names::SEEK)?;
-        self.write_amf_number(0)?;
-        self.write_amf_null()?;
-        self.write_amf_number(command.milliseconds as f64)?;
-        Ok(())
-    }
-
-    fn write_c2s_pause_command(&mut self, command: &PauseCommand) -> ChunkMessageResult<()> {
-        self.write_amf_str(c2s_command_names::PAUSE)?;
-        self.write_amf_number(0)?;
-        self.write_amf_null()?;
-        self.write_amf_bool(command.pause_flag)?;
-        self.write_amf_number(command.milliseconds as f64)?;
-        Ok(())
-    }
-
-    fn write_amf_str(&mut self, value: &str) -> ChunkMessageResult<()> {
-        AmfValue::write_str(value, self.inner.by_ref(), self.amf_version)?;
-        Ok(())
-    }
-
-    fn write_amf_bool(&mut self, value: bool) -> ChunkMessageResult<()> {
-        AmfValue::write_bool(value, self.inner.by_ref(), self.amf_version)?;
-        Ok(())
-    }
-
-    fn write_amf_number<T>(&mut self, value: T) -> ChunkMessageResult<()>
-    where
-        T: Into<f64>,
-    {
-        AmfValue::write_number(value.into(), self.inner.by_ref(), self.amf_version)?;
-        Ok(())
-    }
-
-    fn write_amf_object_or_null<T>(&mut self, value: Option<T>) -> ChunkMessageResult<()>
-    where
-        T: Into<HashMap<String, AmfValue>>,
-    {
-        match value {
-            Some(obj) => {
-                AmfValue::write_key_value_pairs(obj.into(), self.inner.by_ref(), self.amf_version)?
+        amf_formats::Value::write_str(command_name, writer, version)?;
+        amf_formats::Value::write_number(1, writer, version)?;
+        amf_formats::Value::write_nullable_object(command.properties.clone(), writer, version)?;
+        if let Some(info) = &command.information {
+            match info {
+                Either::Left(any) => any.write_to(writer)?,
+                Either::Right(object) => amf_formats::Value::write_nullable_object(
+                    Some(object.clone()),
+                    writer,
+                    version,
+                )?,
             }
-            None => self.write_amf_null()?,
         }
         Ok(())
     }
+}
 
-    fn write_amf_null(&mut self) -> ChunkMessageResult<()> {
-        AmfValue::write_null(self.inner.by_ref(), self.amf_version)?;
+impl<'a, W: io::Write> WriteTo<W> for RtmpCommandWriteWrapper<'a, CreateStreamCommandResponse> {
+    type Error = ChunkMessageError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        let (command, version) = (self.0, self.1);
+        let command_name = if command.success {
+            s2c_command_names::RESULT
+        } else {
+            s2c_command_names::ERROR
+        };
+        amf_formats::Value::write_str(command_name, writer, version)?;
+        amf_formats::Value::write_number(command.transaction_id, writer, version)?;
+        amf_formats::Value::write_nullable_object(command.command_object.clone(), writer, version)?;
+        amf_formats::Value::write_number(command.stream_id, writer, version)?;
+        Ok(())
+    }
+}
+
+impl<'a, W: io::Write> WriteTo<W> for RtmpCommandWriteWrapper<'a, CallCommandResponse> {
+    type Error = ChunkMessageError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        let (command, version) = (self.0, self.1);
+        amf_formats::Value::write_str(&command.command_name, writer, version)?;
+        amf_formats::Value::write_number(command.transaction_id, writer, version)?;
+        amf_formats::Value::write_nullable_object(command.command_object.clone(), writer, version)?;
+        amf_formats::Value::write_nullable_object(command.response.clone(), writer, version)?;
+        Ok(())
+    }
+}
+
+impl<'a, W: io::Write> WriteTo<W> for RtmpCommandWriteWrapper<'a, OnStatusCommand> {
+    type Error = ChunkMessageError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        let (command, version) = (self.0, self.1);
+        amf_formats::Value::write_str(s2c_command_names::ON_STATUS, writer, version)?;
+        amf_formats::Value::write_number(0, writer, version)?;
+        amf_formats::Value::write_null(writer, version)?;
+        amf_formats::Value::write_nullable_object(
+            Some(command.info_object.clone()),
+            writer,
+            version,
+        )?;
         Ok(())
     }
 }

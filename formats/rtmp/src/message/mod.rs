@@ -1,12 +1,9 @@
-use std::{backtrace::Backtrace, fmt::Debug, io};
+use std::{backtrace::Backtrace, fmt::Debug};
 
-use tokio_util::bytes::BytesMut;
+use tokio_util::bytes::Bytes;
 
 use crate::{
-    chunk::{
-        ChunkMessageCommonHeader,
-        errors::{ChunkMessageError, ChunkMessageResult},
-    },
+    chunk::errors::ChunkMessageError,
     commands::{RtmpC2SCommands, RtmpS2CCommands},
 };
 
@@ -49,11 +46,11 @@ pub mod writer;
 pub enum RtmpUserMessageBody {
     C2SCommand(RtmpC2SCommands),
     S2Command(RtmpS2CCommands),
-    MetaData { payload: BytesMut },
+    MetaData { payload: Bytes },
     SharedObject(/*TODO */),
-    Audio { payload: BytesMut },
-    Video { payload: BytesMut },
-    Aggregate { payload: BytesMut },
+    Audio { payload: Bytes },
+    Video { payload: Bytes },
+    Aggregate { payload: Bytes },
 }
 
 impl Debug for RtmpUserMessageBody {
@@ -116,36 +113,5 @@ impl TryFrom<u8> for RtmpMessageType {
                 backtrace: Backtrace::capture(),
             }),
         }
-    }
-}
-
-impl RtmpUserMessageBody {
-    pub fn read_c2s_from<R>(
-        inner: R,
-        version: amf::Version,
-        header: &ChunkMessageCommonHeader,
-    ) -> ChunkMessageResult<RtmpUserMessageBody>
-    where
-        R: io::Read,
-    {
-        reader::Reader::new(inner).read_c2s(version, header)
-    }
-
-    pub fn read_s2c_from<R>(
-        _inner: R,
-        _version: amf::Version,
-        _header: &ChunkMessageCommonHeader,
-    ) -> ChunkMessageResult<RtmpUserMessageBody>
-    where
-        R: io::Read,
-    {
-        todo!()
-    }
-
-    pub fn write_c2s_to<W>(&self, inner: W, version: amf::Version) -> ChunkMessageResult<()>
-    where
-        W: io::Write,
-    {
-        writer::Writer::new(inner).write(self, version)
     }
 }

@@ -5,7 +5,10 @@ use std::{
     io::{Cursor, Read},
 };
 use tokio_util::bytes::{Buf, BytesMut};
-use utils::system::time::get_timestamp_ns;
+use utils::{
+    system::time::get_timestamp_ns,
+    traits::reader::{ReadFrom, ReadRemainingFrom},
+};
 
 use crate::{
     chunk::errors::ChunkMessageError,
@@ -120,40 +123,28 @@ impl Reader {
         let message_body = match common_header.message_type_id.try_into()? {
             ChunkMessageType::ProtocolControl(message_type) => {
                 RtmpChunkMessageBody::ProtocolControl(
-                    protocol_control::ProtocolControlMessage::read_from(&bytes[..], message_type)?,
+                    protocol_control::ProtocolControlMessage::read_remaining_from(
+                        message_type,
+                        &mut bytes.reader(),
+                    )?,
                 )
             }
             ChunkMessageType::UserControl => RtmpChunkMessageBody::UserControl(
-                user_control::UserControlEvent::read_from(&bytes[..])?,
+                user_control::UserControlEvent::read_from(&mut bytes.reader())?,
             ),
             ChunkMessageType::RtmpUserMessage(message_type) => {
-                if c2s {
-                    RtmpChunkMessageBody::RtmpUserMessage(Box::new(
-                        message::RtmpUserMessageBody::read_c2s_from(
-                            bytes.reader(),
-                            match message_type {
-                                RtmpMessageType::AMF3Command
-                                | RtmpMessageType::AMF3Data
-                                | RtmpMessageType::AMF3SharedObject => amf::Version::Amf3,
-                                _ => amf::Version::Amf0,
-                            },
-                            &common_header,
-                        )?,
-                    ))
-                } else {
-                    RtmpChunkMessageBody::RtmpUserMessage(Box::new(
-                        message::RtmpUserMessageBody::read_s2c_from(
-                            bytes.reader(),
-                            match message_type {
-                                RtmpMessageType::AMF3Command
-                                | RtmpMessageType::AMF3Data
-                                | RtmpMessageType::AMF3SharedObject => amf::Version::Amf3,
-                                _ => amf::Version::Amf0,
-                            },
-                            &common_header,
-                        )?,
-                    ))
-                }
+                let amf_version = match message_type {
+                    RtmpMessageType::AMF3Command
+                    | RtmpMessageType::AMF3Data
+                    | RtmpMessageType::AMF3SharedObject => amf_formats::Version::Amf3,
+                    _ => amf_formats::Version::Amf0,
+                };
+                RtmpChunkMessageBody::RtmpUserMessage(Box::new(
+                    message::RtmpUserMessageBody::read_remaining_from(
+                        (amf_version, c2s, &common_header),
+                        &mut bytes.reader(),
+                    )?,
+                ))
             }
         };
 

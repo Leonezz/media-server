@@ -10,7 +10,6 @@ mod writer_test;
 use crate::errors::AmfResult;
 
 pub use self::reader::Reader;
-pub use self::writer::Writer;
 
 /// @see: 3.1 Overview
 mod amf3_marker {
@@ -103,25 +102,11 @@ pub struct Amf3Trait {
 }
 
 impl Value {
-    pub fn read_from<R>(reader: R) -> AmfResult<Option<Self>>
-    where
-        R: io::Read,
-    {
-        Reader::new(reader).read()
-    }
-
     pub fn read_all<R>(reader: R) -> AmfResult<Vec<Self>>
     where
         R: io::Read,
     {
         Reader::new(reader).read_all()
-    }
-
-    pub fn write_to<W>(&self, writer: W) -> AmfResult<()>
-    where
-        W: io::Write,
-    {
-        Writer::new(writer).write(self)
     }
 
     pub fn try_as_str(&self) -> Option<&str> {

@@ -2,6 +2,7 @@ use std::env;
 
 use clap::Parser;
 use http_server::{config::HttpServerConfig, server::HttpServer};
+use rtsp_server::server::RtspServer;
 use stream_center::stream_center;
 use time::macros::format_description;
 use tokio::signal;
@@ -62,14 +63,15 @@ async fn app_run(config: AppConfig) {
         )))
         // Use a more compact, abbreviated log format
         .compact()
+        .with_ansi(false)
         // Display source code file paths
         .with_file(true)
         // Display source code line numbers
         .with_line_number(true)
         // Display the thread name an event was recorded on
-        .with_thread_names(true)
+        // .with_thread_names(true)
         // display the event's target (module path)
-        .with_target(true)
+        .with_target(false)
         .with_env_filter(EnvFilter::from_env("LOG_LEVEL"))
         .with_writer(log_writer)
         // Build the subscriber
@@ -130,6 +132,30 @@ async fn app_run(config: AppConfig) {
             let msg = format!(
                 "http server is started with config: {:?}",
                 config.http_server
+            );
+            tracing::info!(msg);
+            println!("{}", msg);
+        }
+    }
+
+    if config.rtsp_server.enable {
+        let rtsp_server = RtspServer::new(
+            stream_center.get_event_sender(),
+            rtsp_server::config::RtspServerConfig {
+                address: config.rtsp_server.address,
+                port: config.rtsp_server.port,
+            },
+        );
+        tokio::spawn(async move {
+            if let Err(err) = rtsp_server.run().await {
+                tracing::error!("rtsp server thread exit with err: {:?}", err);
+            }
+        });
+
+        {
+            let msg = format!(
+                "rtsp server is started with config: {:?}",
+                config.rtsp_server
             );
             tracing::info!(msg);
             println!("{}", msg);

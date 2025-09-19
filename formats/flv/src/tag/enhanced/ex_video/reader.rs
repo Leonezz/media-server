@@ -1,13 +1,14 @@
 use std::{
     collections::HashMap,
-    io::{Cursor, Read, Seek, SeekFrom},
+    io::{self, Cursor},
 };
 
 use byteorder::{BigEndian, ReadBytesExt};
-use tokio_util::bytes::{Buf, BytesMut};
+use num::ToPrimitive;
+use utils::traits::reader::ReadRemainingFrom;
 
 use crate::{
-    errors::FLVResult,
+    errors::FLVError,
     tag::{
         enhanced::{
             AvMultiTrackType,
@@ -15,20 +16,18 @@ use crate::{
                 VideoFourCC, VideoModEx, VideoPacketModExType, VideoPacketType, VideoTrackInfo,
             },
         },
-        video_tag_header::{FrameType, VideoCommand},
+        video_tag_header::{FrameTypeFLV, VideoCommand},
     },
 };
 
 use super::ex_video_header::ExVideoTagHeader;
 
-impl ExVideoTagHeader {
-    pub fn read_from(
-        reader: &mut Cursor<&mut BytesMut>,
-        first_byte: u8,
-    ) -> FLVResult<ExVideoTagHeader> {
-        assert!(((first_byte >> 7) & 0b1) == 0b1);
-        let video_frame_type: FrameType = ((first_byte >> 4) & 0b111).try_into()?;
-        let mut video_packet_type: VideoPacketType = (first_byte & 0b1111).try_into()?;
+impl<R: io::Read> ReadRemainingFrom<u8, R> for ExVideoTagHeader {
+    type Error = FLVError;
+    fn read_remaining_from(header: u8, reader: &mut R) -> Result<Self, Self::Error> {
+        assert!(((header >> 7) & 0b1) == 0b1);
+        let video_frame_type: FrameTypeFLV = ((header >> 4) & 0b111).try_into()?;
+        let mut video_packet_type: VideoPacketType = (header & 0b1111).try_into()?;
         let mut timestamp_nano = None;
         while video_packet_type == VideoPacketType::ModEx {
             let mut mod_ex_data_size: u32 = reader.read_u8()? as u32 + 1;
@@ -54,7 +53,7 @@ impl ExVideoTagHeader {
         let mut video_four_cc: VideoFourCC = VideoFourCC::HEVC; // this default value will never be used
 
         if video_packet_type != VideoPacketType::Metadata
-            && video_frame_type == FrameType::CommandFrame
+            && video_frame_type == FrameTypeFLV::CommandFrame
         {
             video_command = Some(reader.read_u8()?.try_into()?);
         } else if video_packet_type == VideoPacketType::Multitrack {
@@ -98,20 +97,21 @@ impl ExVideoTagHeader {
                 composition_time = Some(reader.read_u24::<BigEndian>()?);
             }
 
-            tracks.insert(track_id, VideoTrackInfo {
-                codec: video_four_cc,
-                composition_time,
-            });
+            tracks.insert(
+                track_id,
+                VideoTrackInfo {
+                    codec: video_four_cc,
+                    composition_time,
+                },
+            );
 
             match track_data_size {
                 None => {
                     break;
                 }
                 Some(size) => {
-                    if reader.remaining() < size as usize {
-                        break;
-                    }
-                    reader.seek(SeekFrom::Current(size as i64))?;
+                    let mut buf = vec![0; size.to_usize().unwrap()];
+                    reader.read_exact(&mut buf)?;
                 }
             }
         }

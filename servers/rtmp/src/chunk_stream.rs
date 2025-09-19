@@ -4,6 +4,8 @@ use std::{
     time::Duration,
 };
 
+use flv_formats::tag::{FLVTag, flv_tag_header::FLVTagType};
+use num::ToPrimitive;
 use rtmp_formats::{
     chunk::{self, ChunkMessage, RtmpChunkMessageBody, errors::ChunkMessageError},
     handshake,
@@ -12,13 +14,13 @@ use rtmp_formats::{
         SetPeerBandWidthLimitType, SetPeerBandwidth, WindowAckSize,
     },
 };
-use stream_center::gop::MediaFrame;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, BufWriter},
     net::TcpStream,
     time,
 };
 use tokio_util::bytes::{Buf, BytesMut};
+use utils::traits::writer::WriteTo;
 
 use crate::errors::{RtmpServerError, RtmpServerResult};
 
@@ -36,6 +38,7 @@ pub struct RtmpChunkStream {
     ack_window_size_write: Option<SetPeerBandwidth>,
     acknowledged_sequence_number: Option<u32>,
     total_wrote_bytes: u64,
+    read_buffer_capacity: usize,
 }
 
 impl RtmpChunkStream {
@@ -50,6 +53,7 @@ impl RtmpChunkStream {
             chunk_reader: chunk::reader::Reader::new(),
             chunk_writer: chunk::writer::Writer::new(),
             read_buffer: BytesMut::with_capacity(read_buffer_capacity as usize),
+            read_buffer_capacity: read_buffer_capacity as usize,
             // write_buffer: BytesMut::with_capacity(write_buffer_capacity as usize),
             stream: BufWriter::new(io),
             read_timeout_ms,
@@ -100,6 +104,7 @@ impl RtmpChunkStream {
                 }
             }
 
+            self.read_buffer.reserve(self.read_buffer_capacity);
             match tokio::time::timeout(
                 time::Duration::from_millis(self.read_timeout_ms),
                 self.stream.read_buf(&mut self.read_buffer),
@@ -118,7 +123,12 @@ impl RtmpChunkStream {
                         }
                     }
                 }
-                Ok(Err(err)) => return Err(err.into()),
+                Ok(Err(err)) => {
+                    return {
+                        tracing::error!("io error: {}", err);
+                        Err(err.into())
+                    };
+                }
                 Err(err) => {
                     return Err(RtmpServerError::Io(io::Error::new(
                         io::ErrorKind::TimedOut,
@@ -178,33 +188,22 @@ impl RtmpChunkStream {
         Ok(())
     }
 
-    pub async fn write_tag(&mut self, tag: &MediaFrame) -> RtmpServerResult<()> {
-        match tag {
-            MediaFrame::Audio {
-                runtime_stat: _,
-                pts,
-                header: _,
-                payload,
-            } => {
+    pub async fn write_tag(&mut self, tag: FLVTag) -> RtmpServerResult<()> {
+        let mut payload_bytes = BytesMut::zeroed(tag.tag_header.data_size.to_usize().unwrap());
+        let mut writer: Cursor<&mut [u8]> = io::Cursor::new(payload_bytes.as_mut());
+        tag.body_with_filter.write_to(&mut writer)?;
+        match tag.tag_header.tag_type {
+            FLVTagType::Audio => {
                 self.chunk_writer
-                    .write_audio(payload.clone(), *pts as u32)?;
+                    .write_audio(payload_bytes.freeze(), tag.tag_header.timestamp)?;
             }
-            MediaFrame::Video {
-                runtime_stat: _,
-                pts,
-                header: _,
-                payload,
-            } => {
+            FLVTagType::Video => {
                 self.chunk_writer
-                    .write_video(payload.clone(), *pts as u32)?;
+                    .write_video(payload_bytes.freeze(), tag.tag_header.timestamp)?;
             }
-            MediaFrame::Script {
-                runtime_stat: _,
-                pts,
-                on_meta_data: _,
-                payload,
-            } => {
-                self.chunk_writer.write_meta(payload.clone(), *pts as u32)?;
+            FLVTagType::Script => {
+                self.chunk_writer
+                    .write_meta(payload_bytes.freeze(), tag.tag_header.timestamp)?;
             }
         }
         self.flush_chunk().await?;

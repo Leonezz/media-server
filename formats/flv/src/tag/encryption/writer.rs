@@ -1,37 +1,33 @@
 use byteorder::{BigEndian, WriteBytesExt};
+use utils::traits::writer::WriteTo;
 
 use std::io;
 
-use crate::errors::FLVResult;
+use crate::errors::FLVError;
 
 use super::{EncryptionFilterParams, EncryptionTagHeader, SelectiveEncryptionFilterParams};
-impl EncryptionTagHeader {
-    pub fn write_to<W>(&self, mut writer: W) -> FLVResult<()>
-    where
-        W: io::Write,
-    {
+
+impl<W: io::Write> WriteTo<W> for EncryptionTagHeader {
+    type Error = FLVError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         writer.write_u8(self.num_filters)?;
-        amf::amf0::Value::String(self.filter_name.clone()).write_to(writer.by_ref())?;
+        amf_formats::amf0::Value::write_string(writer, &self.filter_name)?;
         writer.write_u24::<BigEndian>(self.length)?;
         Ok(())
     }
 }
 
-impl EncryptionFilterParams {
-    pub fn write_to<W>(&self, mut writer: W) -> FLVResult<()>
-    where
-        W: io::Write,
-    {
+impl<W: io::Write> WriteTo<W> for EncryptionFilterParams {
+    type Error = FLVError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         writer.write_all(&self.iv)?;
         Ok(())
     }
 }
 
-impl SelectiveEncryptionFilterParams {
-    pub fn write_to<W>(&self, mut writer: W) -> FLVResult<()>
-    where
-        W: io::Write,
-    {
+impl<W: io::Write> WriteTo<W> for SelectiveEncryptionFilterParams {
+    type Error = FLVError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         if let Some(iv) = self.iv {
             writer.write_u8(0b1000_0000)?;
             writer.write_all(&iv)?;

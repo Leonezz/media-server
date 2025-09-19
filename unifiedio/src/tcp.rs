@@ -1,69 +1,76 @@
-use std::task::Poll;
+use std::{net::SocketAddr, task::Poll};
 
-use tokio::{
-    io::{AsyncRead, AsyncWrite},
-    net::TcpStream,
+use futures::{Sink, SinkExt, Stream, StreamExt, ready};
+use std::pin::Pin;
+use tokio::net::TcpStream;
+use tokio_util::{
+    bytes::Bytes,
+    codec::{BytesCodec, Framed},
 };
 
 use crate::UnifiedIO;
 
 #[derive(Debug)]
 pub struct TcpIO {
-    inner: TcpStream,
+    inner: Framed<TcpStream, BytesCodec>,
+    local_addr: SocketAddr,
+    peer_addr: SocketAddr,
 }
 
 impl TcpIO {
     pub fn new(inner: TcpStream) -> Self {
-        Self { inner }
+        Self {
+            local_addr: inner.local_addr().unwrap(),
+            peer_addr: inner.peer_addr().unwrap(),
+            inner: Framed::new(inner, BytesCodec::new()),
+        }
     }
 }
 
 impl UnifiedIO for TcpIO {
-    fn get_underlying_io(&self) -> crate::UnderlyingIO {
+    fn get_underlying_io_type(&self) -> crate::UnderlyingIO {
         crate::UnderlyingIO::TCP {
-            local_addr: self.inner.local_addr().ok(),
-            peer_addr: self.inner.peer_addr().ok(),
+            local_addr: Some(self.local_addr),
+            peer_addr: Some(self.peer_addr),
         }
     }
 }
 
-impl AsyncRead for TcpIO {
-    fn poll_read(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        match self.inner.poll_read_ready(cx) {
-            Poll::Ready(Ok(())) => match self.inner.try_read_buf(buf) {
-                Ok(_) => Poll::Ready(Ok(())),
-                Err(err) => Poll::Ready(Err(err)),
-            },
-            Poll::Ready(Err(err)) => Poll::Ready(Err(err)),
-            Poll::Pending => Poll::Pending,
-        }
+impl Sink<Bytes> for TcpIO {
+    type Error = std::io::Error;
+    fn start_send(mut self: std::pin::Pin<&mut Self>, item: Bytes) -> Result<(), Self::Error> {
+        self.inner.start_send_unpin(item)
     }
-}
-
-impl AsyncWrite for TcpIO {
-    fn poll_write(
-        self: std::pin::Pin<&mut Self>,
+    fn poll_ready(
+        mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
-        buf: &[u8],
-    ) -> Poll<Result<usize, std::io::Error>> {
-        tokio::io::AsyncWrite::poll_write(std::pin::Pin::new(&mut self.get_mut().inner), cx, buf)
+    ) -> Poll<Result<(), Self::Error>> {
+        <tokio_util::codec::Framed<tokio::net::TcpStream, tokio_util::codec::BytesCodec> as futures::SinkExt<Bytes>>::poll_ready_unpin(&mut self.inner, cx)
     }
-
+    fn poll_close(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
+        <tokio_util::codec::Framed<tokio::net::TcpStream, tokio_util::codec::BytesCodec> as futures::SinkExt<Bytes>>::poll_close_unpin(&mut self.inner, cx)
+    }
     fn poll_flush(
-        self: std::pin::Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
-    ) -> Poll<Result<(), std::io::Error>> {
-        tokio::io::AsyncWrite::poll_flush(std::pin::Pin::new(&mut self.get_mut().inner), cx)
+    ) -> Poll<Result<(), Self::Error>> {
+        <tokio_util::codec::Framed<tokio::net::TcpStream, tokio_util::codec::BytesCodec> as futures::SinkExt<Bytes>>::poll_flush_unpin(&mut self.inner, cx)
     }
+}
 
-    fn poll_shutdown(
-        self: std::pin::Pin<&mut Self>,
+impl Stream for TcpIO {
+    type Item = Result<Bytes, std::io::Error>;
+    fn poll_next(
+        mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
-    ) -> Poll<Result<(), std::io::Error>> {
-        tokio::io::AsyncWrite::poll_shutdown(std::pin::Pin::new(&mut self.get_mut().inner), cx)
+    ) -> Poll<Option<Self::Item>> {
+        match ready!(self.inner.poll_next_unpin(cx)) {
+            Some(Ok(bytes)) => Poll::Ready(Some(Ok(bytes.freeze()))),
+            Some(Err(e)) => Poll::Ready(Some(Err(e))),
+            None => Poll::Ready(None),
+        }
     }
 }

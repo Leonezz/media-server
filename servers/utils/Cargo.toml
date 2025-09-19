@@ -1,0 +1,22 @@
+[package]
+name = "server-utils"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+url = "2.5.4"
+thiserror = "2.0.7"
+tokio = { version = "1.44.2", features = ["full"] }
+flv-formats = { path = "../../formats/flv" }
+codec-common = { path = "../../codec/common" }
+stream-center = { path = "../../streamcenter" }
+[dependencies.uuid]
+version = "1.11.0"
+features = [
+    "v7",                # Lets you generate random UUIDs
+    "fast-rng",          # Use a faster (but still sufficiently random) RNG
+    "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
+]
+
+[lints.clippy]
+uninlined_format_args = "allow"
