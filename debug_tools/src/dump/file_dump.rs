@@ -1,12 +1,24 @@
-use std::io::{self, Write};
-
 use crate::dump::DumpTool;
+use std::{
+    fmt::Debug,
+    io::{self, Write},
+};
 
 pub struct FileDump {
     file: std::fs::File,
     writer: bitstream_io::BitWriter<Vec<u8>, bitstream_io::BigEndian>,
     bytes_written: usize,
     name: String,
+}
+
+impl Debug for FileDump {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "name: {}, bytes_written: {}",
+            self.name, self.bytes_written
+        )
+    }
 }
 
 impl FileDump {

@@ -84,5 +84,5 @@ pub fn rbsp_extract(sodb: &[u8]) -> Vec<u8> {
 }
 
 pub fn need_extract(rbsp: &[u8]) -> bool {
-    rbsp.windows(3).any(|v| v[0..3] == [0, 0, 3])
+    rbsp.windows(3).any(|v| v == [0, 0, 3])
 }

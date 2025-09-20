@@ -21,6 +21,8 @@ codec-bitstream = { path = "../codec/bitstream" }
 bitstream-io = "4.0.0"
 num = "0.4.3"
 
+debug-tools = { path = "../debug_tools" }
+
 [dependencies.uuid]
 version = "1.11.0"
 features = [

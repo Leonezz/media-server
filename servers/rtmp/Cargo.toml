@@ -24,6 +24,8 @@ url = "2.5.4"
 tracing = "0.1.41"
 num = "0.4.3"
 
+debug-tools = { path = "../../debug_tools" }
+
 [dependencies.uuid]
 version = "1.11.0"
 features = [
