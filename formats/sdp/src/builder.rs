@@ -1,10 +1,13 @@
 use crate::{
-    attributes::{SDPAttribute, SDPTrivialAttribute, fmtp::FormatParameters, rtpmap::RtpMap},
+    attributes::{
+        SDPAttribute, SDPTrivialAttribute, extension::SdpAttributeExtension,
+        fmtp::FormatParameters, rtpmap::RtpMap,
+    },
     session::{
-        SDPAddrType, SDPAddress, SDPBandWidthInformation, SDPConnectionInformation, SDPEmail,
-        SDPEncryptionKeys, SDPMediaDescription, SDPMediaProtocol, SDPMediaType, SDPNetType,
-        SDPPhoneNumber, SDPRangedPort, SDPRepeatTime, SDPSessionInformation, SDPSessionName,
-        SDPTimeInformation, SDPUri, SDPVersion, Sdp,
+        SDPAddrType, SDPAddress, SDPAttrManager, SDPBandWidthInformation, SDPConnectionInformation,
+        SDPEmail, SDPEncryptionKeys, SDPMediaDescription, SDPMediaProtocol, SDPMediaType,
+        SDPNetType, SDPPhoneNumber, SDPRangedPort, SDPRepeatTime, SDPSessionInformation,
+        SDPSessionName, SDPTimeInformation, SDPUri, SDPVersion, Sdp,
     },
 };
 
@@ -147,6 +150,11 @@ impl SdpBuilder {
         self
     }
 
+    pub fn attribute_extension<T: SdpAttributeExtension>(mut self, attr_ext: T) -> Self {
+        self.session_description.set_extension_attr(attr_ext);
+        self
+    }
+
     pub fn media_description(mut self, media: SDPMediaDescription) -> Self {
         self.session_description.media_description.push(media);
         self
@@ -218,6 +226,11 @@ impl SdpMediaBuilder {
 
     pub fn trivial_attribute(self, name: String, value: Option<String>) -> Self {
         self.attribute(SDPAttribute::Trivial(SDPTrivialAttribute { name, value }))
+    }
+
+    pub fn attribute_extension<T: SdpAttributeExtension>(mut self, attr_ext: T) -> Self {
+        self.media.set_extension_attr(attr_ext);
+        self
     }
 
     pub fn rtpmap(self, rtpmap: RtpMap) -> Self {

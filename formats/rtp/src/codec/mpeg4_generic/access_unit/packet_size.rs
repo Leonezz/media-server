@@ -1,9 +1,7 @@
+use super::{AccessUnit, AccessUnitFragment, AccessUnitSection};
+use crate::codec::mpeg4_generic::parameters::rfc3640::RtpMpeg4Fmtp;
 use tokio_util::either::Either;
 use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
-
-use crate::codec::mpeg4_generic::parameters::RtpMpeg4Fmtp;
-
-use super::{AccessUnit, AccessUnitFragment, AccessUnitSection};
 
 impl DynamicSizedPacket for AccessUnit {
     fn get_packet_bytes_count(&self) -> usize {
@@ -16,10 +14,7 @@ impl DynamicSizedPacket for AccessUnitFragment {
         self.body.len()
     }
 }
-pub struct AccessUnitSectionBytesCountWrapper<'a>(
-    pub &'a AccessUnitSection,
-    pub &'a RtpMpeg4Fmtp,
-);
+pub struct AccessUnitSectionBytesCountWrapper<'a>(pub &'a AccessUnitSection, pub &'a RtpMpeg4Fmtp);
 impl<'a> DynamicSizedPacket for AccessUnitSectionBytesCountWrapper<'a> {
     fn get_packet_bytes_count(&self) -> usize {
         match &self.0.access_units_or_fragment {

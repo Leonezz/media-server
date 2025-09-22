@@ -19,6 +19,8 @@ pub enum SDPError {
     SyntaxError(String),
     #[error("invalid attribute line: {0}")]
     InvalidAttributeLine(String),
+    #[error("invalid attribute extension: {0}")]
+    InvalidAttributeExtension(String),
 }
 
 pub type SDPResult<T> = Result<T, SDPError>;

@@ -1,20 +1,15 @@
-use std::io::{self, Read};
-
-use utils::traits::reader::ReadRemainingFrom;
-
+use super::RtpMpeg4GenericPacket;
 use crate::{
     codec::mpeg4_generic::{
         access_unit::AccessUnitSection, au_header::AuHeaderSection, auxiliary::AuxiliaryData,
-        errors::RtpMpeg4Error, parameters::RtpMpeg4Fmtp,
+        errors::RtpMpeg4Error, parameters::rfc3640::RtpMpeg4Fmtp,
     },
     header::RtpHeader,
 };
+use std::io::{self, Read};
+use utils::traits::reader::ReadRemainingFrom;
 
-use super::RtpMpeg4GenericPacket;
-
-impl<R: io::Read> ReadRemainingFrom<(&RtpMpeg4Fmtp, &RtpHeader), R>
-    for RtpMpeg4GenericPacket
-{
+impl<R: io::Read> ReadRemainingFrom<(&RtpMpeg4Fmtp, &RtpHeader), R> for RtpMpeg4GenericPacket {
     type Error = RtpMpeg4Error;
     fn read_remaining_from(
         header: (&RtpMpeg4Fmtp, &RtpHeader),

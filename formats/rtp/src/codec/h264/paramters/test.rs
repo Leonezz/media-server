@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use crate::codec::h264::paramters::{RtpH264Fmtp, packetization_mode::PacketizationMode};
+    use crate::codec::h264::paramters::{
+        packetization_mode::PacketizationMode, rfc6184::RtpH264Fmtp,
+    };
 
     #[test]
     fn test_simple() {

@@ -3,21 +3,20 @@ pub mod packetizer;
 pub mod reader;
 pub mod sequencer;
 pub mod writer;
-use tokio_util::bytes::{Buf, Bytes};
-use utils::traits::{reader::ReadRemainingFrom, writer::WriteTo};
-
 use super::{
     access_unit::AccessUnitSection, au_header::AuHeaderSection, auxiliary::AuxiliaryData,
-    errors::RtpMpeg4Error, parameters::RtpMpeg4Fmtp,
+    errors::RtpMpeg4Error,
 };
 use crate::{
     codec::mpeg4_generic::{
         au_header::writer::AuHeaderSectionWriteWrapper,
-        auxiliary::writer::AuxiliaryDataWriteWrapper,
+        auxiliary::writer::AuxiliaryDataWriteWrapper, parameters::rfc3640::RtpMpeg4Fmtp,
     },
     header::RtpHeader,
     packet::RtpTrivialPacket,
 };
+use tokio_util::bytes::{Buf, Bytes};
+use utils::traits::{reader::ReadRemainingFrom, writer::WriteTo};
 
 #[derive(Debug)]
 pub struct RtpMpeg4GenericPacket {
@@ -44,7 +43,7 @@ impl TryFrom<(RtpMpeg4GenericPacket, &RtpMpeg4Fmtp)> for RtpTrivialPacket {
         let mut payload = Vec::with_capacity(1500);
         let (packet, params) = value;
         if let Some(au_header) = packet.au_header_section.as_ref() {
-            AuHeaderSectionWriteWrapper(au_header, params).write_to(&mut payload);
+            AuHeaderSectionWriteWrapper(au_header, params).write_to(&mut payload)?;
         }
         if let Some(auxiliary) = packet.auxiliary_data_section.as_ref() {
             AuxiliaryDataWriteWrapper(auxiliary, params).write_to(&mut payload)?;

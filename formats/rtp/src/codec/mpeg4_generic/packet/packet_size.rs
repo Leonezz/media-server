@@ -3,7 +3,7 @@ use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
 use crate::codec::mpeg4_generic::{
     access_unit::packet_size::AccessUnitSectionBytesCountWrapper,
     au_header::packet_size::AuHeaderSectionBytesCountWrapper,
-    auxiliary::packet_size::AuxiliaryDataBytesCountWrapper, parameters::RtpMpeg4Fmtp,
+    auxiliary::packet_size::AuxiliaryDataBytesCountWrapper, parameters::rfc3640::RtpMpeg4Fmtp,
 };
 
 use super::RtpMpeg4GenericPacket;

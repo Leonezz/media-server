@@ -11,6 +11,17 @@ pub enum MediaDirection {
     Inactive,
 }
 
+impl MediaDirection {
+    pub fn to_str(&self) -> &str {
+        match self {
+            Self::SendRecv => "sendrecv",
+            Self::RecvOnly => "recvonly",
+            Self::SendOnly => "sendonly",
+            Self::Inactive => "inactive",
+        }
+    }
+}
+
 impl FromStr for MediaDirection {
     type Err = SDPError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -29,11 +40,6 @@ impl FromStr for MediaDirection {
 
 impl fmt::Display for MediaDirection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::SendRecv => f.write_str("sendrecv"),
-            Self::RecvOnly => f.write_str("recvonly"),
-            Self::SendOnly => f.write_str("sendonly"),
-            Self::Inactive => f.write_str("inactive"),
-        }
+        f.write_str(self.to_str())
     }
 }

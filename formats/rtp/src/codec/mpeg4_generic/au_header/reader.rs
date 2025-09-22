@@ -1,15 +1,12 @@
-use std::io;
-
-use bitstream_io::{BigEndian, BitRead2, BitReader};
-use num::ToPrimitive;
-use utils::traits::reader::ReadRemainingFrom;
-
+use super::{AuHeader, AuHeaderSection};
 use crate::codec::mpeg4_generic::{
     errors::{RtpMpeg4Error, RtpMpeg4Result},
-    parameters::RtpMpeg4Fmtp,
+    parameters::rfc3640::RtpMpeg4Fmtp,
 };
-
-use super::{AuHeader, AuHeaderSection};
+use bitstream_io::{BigEndian, BitRead2, BitReader};
+use num::ToPrimitive;
+use std::io;
+use utils::traits::reader::ReadRemainingFrom;
 
 impl AuHeader {
     pub fn read_remaining_from<R: BitRead2>(

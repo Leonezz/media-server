@@ -10,8 +10,11 @@ use futures::{SinkExt, StreamExt};
 use num::ToPrimitive;
 use rtp_formats::{
     codec::{
-        h264::paramters::{RtpH264Fmtp, RtpH264FmtpBuilder, packetization_mode::PacketizationMode},
-        mpeg4_generic::parameters::RtpMpeg4Fmtp,
+        h264::paramters::{
+            builder::RtpH264FmtpBuilder, packetization_mode::PacketizationMode,
+            rfc6184::RtpH264Fmtp,
+        },
+        mpeg4_generic::parameters::rfc3640::RtpMpeg4Fmtp,
     },
     payload_types::rtp_payload_type::{
         audio_get_rtp_clockrate, audio_get_rtp_encoding_name, get_audio_rtp_payload_type,
@@ -32,13 +35,13 @@ use rtsp_formats::{
     interleaved::RtspInterleavedPacket,
     request::RtspRequest,
     response::{RtspResponse, builder::RtspResponseBuilder},
-    sdp_extension::attribute::RtspSDPControl,
+    sdp_extension::control::RtspSDPControl,
 };
 use scopeguard::defer;
 use sdp_formats::{
     attributes::{SDPAttribute, fmtp::FormatParameters, rtpmap::RtpMap},
     builder::{SdpBuilder, SdpMediaBuilder},
-    session::{SDPAddrType, SDPMediaDescription, SDPMediaType, SDPNetType, Sdp},
+    session::{SDPAddrType, SDPAttrManager, SDPMediaDescription, SDPMediaType, SDPNetType, Sdp},
 };
 use server_utils::{
     runtime_handle::{PlayHandle, PublishHandle, SessionRuntime},
@@ -522,15 +525,7 @@ impl RtspSession {
         let mut response_builder = RtspResponse::builder();
 
         for media in &sdp.media_description {
-            let control = media.attributes.iter().find_map(|attr| {
-                if let SDPAttribute::Trivial(attr) = attr
-                    && attr.name == "control"
-                {
-                    RtspSDPControl::try_from(attr).ok()
-                } else {
-                    None
-                }
-            });
+            let control = media.get_extension_attr::<RtspSDPControl>();
             if control.is_none() {
                 tracing::warn!("media control attribute not found");
                 continue;
@@ -542,11 +537,11 @@ impl RtspSession {
             }
             let control = control.unwrap();
             let control_str = control.url_to_str();
-            if !request.uri().path().contains(control_str.as_str()) {
+            if !request.uri().path().contains(control_str) {
                 continue;
             }
 
-            if let Some(session) = self.media_sessions.read().await.get(control_str.as_str()) {
+            if let Some(session) = self.media_sessions.read().await.get(control_str) {
                 tracing::warn!("media session already exists: {:?}", session);
             }
 
@@ -561,7 +556,7 @@ impl RtspSession {
             let (media_frame_distributor_tx, media_frame_distributor_rx) =
                 tokio::sync::mpsc::channel::<MediaFrame>(1000);
             self.media_sessions.write().await.insert(
-                control_str.clone(),
+                control_str.to_owned(),
                 RtspMediaSessionHandler {
                     peer_addr: self.peer_addr,
                     uri: request.uri().clone(),
@@ -672,11 +667,11 @@ impl RtspSession {
             }
             let control = control.unwrap();
             let control_str = control.url_to_str();
-            if !request.uri().path().contains(control_str.as_str()) {
+            if !request.uri().path().contains(control_str) {
                 continue;
             }
 
-            if let Some(session) = self.media_sessions.read().await.get(control_str.as_str()) {
+            if let Some(session) = self.media_sessions.read().await.get(control_str) {
                 tracing::warn!("media session already exists: {:?}", session);
             }
 
@@ -690,7 +685,7 @@ impl RtspSession {
             );
 
             self.media_sessions.write().await.insert(
-                control_str.clone(),
+                control_str.to_owned(),
                 RtspMediaSessionHandler {
                     peer_addr: self.peer_addr,
                     uri: request.uri().clone(),
@@ -848,7 +843,7 @@ impl RtspRequestHandler for RtspSession {
             .origin_addr_type(SDPAddrType::IP4)
             .origin_unicast_address("0.0.0.0".to_string())
             .session_name(format!("{}", media_description.stream_id))
-            .attribute(SDPAttribute::Trivial((&RtspSDPControl::Asterisk).into()))
+            .attribute_extension(RtspSDPControl::Asterisk)
             .time_info(0, 0, vec![]);
 
         if media_description.has_audio
@@ -861,9 +856,7 @@ impl RtspRequestHandler for RtspSession {
                 .port(0.into())
                 .protocol(sdp_formats::session::SDPMediaProtocol::RtpAvp)
                 .media_format(payload_type.to_string())
-                .attribute(SDPAttribute::Trivial(
-                    (&RtspSDPControl::Relative("control=audio".to_owned())).into(),
-                ))
+                .attribute_extension(RtspSDPControl::Relative("control=audio".to_owned()))
                 .rtpmap(RtpMap {
                     payload_type,
                     encoding_name: audio_get_rtp_encoding_name(codec_id).unwrap().to_string(),
@@ -892,9 +885,7 @@ impl RtspRequestHandler for RtspSession {
                 .port(0.into())
                 .protocol(sdp_formats::session::SDPMediaProtocol::RtpAvp)
                 .media_format(payload_type.to_string())
-                .attribute(SDPAttribute::Trivial(
-                    (&RtspSDPControl::Relative("control=video".to_owned())).into(),
-                ))
+                .attribute_extension(RtspSDPControl::Relative("control=video".to_owned()))
                 .rtpmap(RtpMap {
                     payload_type,
                     encoding_name: video_get_rtp_encoding_name(codec_id).unwrap().to_string(),
@@ -903,13 +894,11 @@ impl RtspRequestHandler for RtspSession {
                 });
             match video_config {
                 codec_common::video::VideoConfig::H264(h264_config) => {
-                    let video_fmtp: RtpH264Fmtp = RtpH264FmtpBuilder::from(&h264_config)
+                    let mut video_fmtp: RtpH264Fmtp = RtpH264FmtpBuilder::from(&h264_config)
                         .packetization_mode(PacketizationMode::NonInterleaved)
                         .build();
-                    let fmtp = FormatParameters {
-                        fmt: payload_type,
-                        params: format!("{}", video_fmtp),
-                    };
+                    video_fmtp.fmt = payload_type;
+                    let fmtp = FormatParameters::from(video_fmtp);
                     video_sdp = video_sdp.fmtp(fmtp);
                 }
             }

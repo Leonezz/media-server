@@ -1,9 +1,8 @@
+use super::AuHeader;
 use crate::codec::mpeg4_generic::{
     errors::{RtpMpeg4Error, RtpMpeg4Result},
-    parameters::RtpMpeg4Fmtp,
+    parameters::rfc3640::RtpMpeg4Fmtp,
 };
-
-use super::AuHeader;
 
 #[derive(Debug, Default)]
 pub struct AuHeaderBuilder {

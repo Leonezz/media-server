@@ -1,5 +1,7 @@
-use super::RtpMpeg4Fmtp;
-use crate::codec::mpeg4_generic::{errors::RtpMpeg4Error, parameters::Mode};
+use crate::codec::mpeg4_generic::{
+    errors::RtpMpeg4Error,
+    parameters::{mode::Mode, rfc3640::RtpMpeg4Fmtp},
+};
 use std::{fmt::Display, str::FromStr};
 use tokio_util::bytes::Bytes;
 

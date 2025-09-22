@@ -1,9 +1,7 @@
+use super::{AuHeader, AuHeaderSection};
+use crate::codec::mpeg4_generic::parameters::rfc3640::RtpMpeg4Fmtp;
 use num::ToPrimitive;
 use utils::traits::dynamic_sized_packet::{DynamicSizedBitsPacket, DynamicSizedPacket};
-
-use crate::codec::mpeg4_generic::parameters::RtpMpeg4Fmtp;
-
-use super::{AuHeader, AuHeaderSection};
 
 pub struct AuHeaderBitsCountWrapper<'a>(pub &'a AuHeader, pub &'a RtpMpeg4Fmtp);
 impl<'a> DynamicSizedBitsPacket for AuHeaderBitsCountWrapper<'a> {
@@ -62,10 +60,7 @@ impl<'a> DynamicSizedBitsPacket for AuHeaderBitsCountWrapper<'a> {
     }
 }
 
-pub struct AuHeaderSectionBytesCountWrapper<'a>(
-    pub &'a AuHeaderSection,
-    pub &'a RtpMpeg4Fmtp,
-);
+pub struct AuHeaderSectionBytesCountWrapper<'a>(pub &'a AuHeaderSection, pub &'a RtpMpeg4Fmtp);
 
 impl<'a> DynamicSizedPacket for AuHeaderSectionBytesCountWrapper<'a> {
     fn get_packet_bytes_count(&self) -> usize {

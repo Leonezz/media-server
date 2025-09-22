@@ -2,7 +2,7 @@ use std::{fmt, str::FromStr};
 
 use crate::errors::RtspMessageError;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AbsoluteTimeFormat {
     year: u16,
     month: u8,
