@@ -1,18 +1,22 @@
 [package]
 name = "codec-bitstream"
-version = "0.1.0"
-edition = "2024"
+description = "bitstream utilities for codec utilities"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["lib"]
 
 [dependencies]
-utils = { path = "../../utils" }
-thiserror = { version = "2.0.7" }
-byteorder = "1.5.0"
-tokio-util = { version = "0.7.13", features = ["full"] }
-tracing = "0.1.41"
-bitstream-io = "4.0.0"
-num = "0.4.3"
-serde_json = "1.0.133"
-serde = { version = "1.0.216", features = ["derive"] }
+thiserror = { workspace = true }
+tokio-util = { workspace = true, features = ["full"] }
+byteorder = { workspace = true }
+tracing = { workspace = true }
+bitstream-io = { workspace = true }
+num = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 
-[lints.clippy]
-uninlined_format_args = "allow"
+utils = { workspace = true }

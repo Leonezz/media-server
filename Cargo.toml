@@ -1,12 +1,101 @@
+[package]
+name = "yams"
+description = "yet another media server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "yam_server"
+path = "src/media_server.rs"
+
 [workspace]
 members = [
-    'codec/*',
-    'formats/*',
+    ".",
+    "codec/*",
+    "formats/*",
     "servers/*",
     "unifiedio",
-    'app',
-    'utils',
+    "utils",
     "streamcenter",
     "debug_tools",
+    "yam_server",
 ]
-resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+authors = ["zhuwenq <zhuwenqa@outlook.com>"]
+repository = "https://github.com/leonezz/media-server"
+
+[workspace.dependencies]
+tokio = "1.47.1"
+tokio-util = "0.7.16"
+tracing = "0.1.41"
+clap = "4.5.48"
+thiserror = "2.0.16"
+serde = "1.0.226"
+serde_json = "1.0.145"
+config = "0.15.9"
+byteorder = "1.5.0"
+bitstream-io = "4.7.0"
+num = "0.4.3"
+uuid = "1.18.1"
+either = "1.15.0"
+hmac = "0.12.1"
+sha2 = "0.10.9"
+itertools = "0.14.0"
+futures = "0.3.31"
+base64 = "0.22.1"
+url = "2.5.7"
+chrono = "0.4.40"
+
+codec-aac = { path = "codec/aac" }
+codec-bitstream = { path = "codec/bitstream" }
+codec-common = { path = "codec/common" }
+codec-h264 = { path = "codec/h264" }
+
+debug-tools = { path = "debug_tools" }
+
+amf-formats = { path = "formats/amf" }
+flv-formats = { path = "formats/flv" }
+rtmp-formats = { path = "formats/rtmp" }
+rtp-formats = { path = "formats/rtp" }
+rtsp-formats = { path = "formats/rtsp" }
+sdp-formats = { path = "formats/sdp" }
+stun-formats = { path = "formats/stun" }
+webrtc-formats = { path = "formats/webrtc" }
+
+http-server = { path = "servers/http" }
+rtmp-server = { path = "servers/rtmp" }
+rtp-session = { path = "servers/rtp" }
+rtsp-server = { path = "servers/rtsp" }
+server-utils = { path = "servers/utils" }
+
+unified-io = { path = "unifiedio" }
+
+utils = { path = "utils" }
+
+stream-center = { path = "streamcenter" }
+
+[dependencies]
+tracing-subscriber = { version = "0.3.19", features = [
+    "time",
+    "local-time",
+    "fmt",
+    "std",
+    "env-filter",
+] }
+thiserror = "2.0.16"
+tokio = "1.47.1"
+tracing = "0.1.41"
+clap = "4.5.48"
+time = { version = "0.3.44", features = ["macros"] }
+tracing-appender = "0.2.3"
+serde = { version = "1.0.226", features = ["derive"] }
+config = "0.15.16"
+
+yam_server = { path = "yam_server" }

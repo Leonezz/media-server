@@ -7,17 +7,8 @@ use crate::{
     errors::RtpError,
     sequence_number::SequenceNumber,
 };
-use codec_common::{
-    FrameType, MediaFrameTimestamp,
-    audio::{AudioCodecCommon, AudioFrameInfo, SoundInfoCommon},
-    video::VideoFrameInfo,
-};
 use std::{cmp, collections::VecDeque};
-use stream_center::gop::MediaFrame;
-use tokio_util::bytes::{BufMut, BytesMut};
-use utils::traits::{
-    buffer::GenericSequencer, dynamic_sized_packet::DynamicSizedPacket, writer::WriteTo,
-};
+use utils::traits::buffer::GenericSequencer;
 
 #[derive(Debug)]
 pub enum RtpBufferVideoItem {
@@ -73,68 +64,6 @@ impl RtpBufferItem {
         match self {
             Self::Audio(_) => "audio".to_owned(),
             Self::Video(_) => "video".to_owned(),
-        }
-    }
-
-    pub fn to_media_frame(self, timestamp_base: u32, clock_rate: u64) -> MediaFrame {
-        let pts_nano = {
-            let timestamp_diff = self
-                .get_presentation_timestamp_ms()
-                .wrapping_sub(timestamp_base) as u64;
-            // Use 128-bit arithmetic to prevent overflow
-            let nano_ticks = (timestamp_diff as u128) * 1_000_000_000u128;
-            let result = nano_ticks / (clock_rate as u128);
-            result as u64 // Safe because result will be much smaller than u64::MAX
-        };
-        match self {
-            RtpBufferItem::Audio(audio) => match audio {
-                RtpBufferAudioItem::AAC(aac) => {
-                    let mut bytes = BytesMut::zeroed(aac.access_unit.get_packet_bytes_count());
-                    aac.access_unit
-                        .write_to(&mut bytes.as_mut().writer())
-                        .unwrap();
-                    MediaFrame::Audio {
-                        frame_info: AudioFrameInfo {
-                            codec_id: AudioCodecCommon::AAC,
-                            frame_type: FrameType::CodedFrames,
-                            sound_info: SoundInfoCommon {
-                                sound_rate: codec_common::audio::SoundRateCommon::KHZ44,
-                                sound_size: codec_common::audio::SoundSizeCommon::Bit16,
-                                sound_type: codec_common::audio::SoundTypeCommon::Stereo,
-                            },
-                            timestamp_nano: pts_nano,
-                        },
-                        payload: bytes.freeze(),
-                    }
-                }
-            },
-            RtpBufferItem::Video(video) => match video {
-                RtpBufferVideoItem::H264(h264) => {
-                    let is_idr = h264.is_idr;
-                    let mut nal_units = vec![];
-                    if is_idr {
-                        if let Some(sps) = h264.sps {
-                            nal_units.push(sps);
-                        }
-                        if let Some(pps) = h264.pps {
-                            nal_units.push(pps);
-                        }
-                    }
-                    nal_units.extend(h264.nal_units);
-                    MediaFrame::Video {
-                        frame_info: VideoFrameInfo {
-                            codec_id: codec_common::video::VideoCodecCommon::AVC,
-                            frame_type: if is_idr {
-                                FrameType::KeyFrame
-                            } else {
-                                FrameType::CodedFrames
-                            },
-                            timestamp: MediaFrameTimestamp::with_timestamp_nano(pts_nano),
-                        },
-                        payload: codec_common::video::VideoFrameUnit::H264 { nal_units },
-                    }
-                }
-            },
         }
     }
 }

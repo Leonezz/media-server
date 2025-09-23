@@ -1,33 +1,37 @@
 [package]
 name = "http-server"
-version = "0.1.0"
-edition = "2024"
+description = "server session for http-flv/webrtc/rest api endpoints"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["lib"]
 
 [dependencies]
-utils = { path = "../../utils" }
-stream-center = { path = "../../streamcenter" }
-flv-formats = { path = "../../formats/flv" }
-codec-common = { path = "../../codec/common" }
-server-utils = { path = "../utils" }
-thiserror = "2.0.7"
-tokio = { version = "1.44.2", features = ["full"] }
-tokio-util = "0.7.14"
-byteorder = "1.5.0"
-num = "0.4.3"
-
-rocket = { version = "0.5.1", features = ["json"] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tokio-util = { workspace = true }
+byteorder = { workspace = true }
+num = { workspace = true }
+axum = "0.8.4"
+futures = { workspace = true }
+tokio-stream = "0.1.17"
 figment = { version = "0.10", features = ["env", "toml", "json"] }
-base64 = "0.22.1"
-tracing = "0.1.41"
-serde_json = "1.0.133"
-serde = { version = "1.0.216", features = ["derive"] }
+base64 = { workspace = true }
+tracing = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+uuid = { workspace = true, features = ["v7", "fast-rng", "macro-diagnostics"] }
 
-[dependencies.uuid]
-version = "1.11.0"
-features = [
-  "v7",                # Lets you generate random UUIDs
-  "fast-rng",          # Use a faster (but still sufficiently random) RNG
-  "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
-]
-[lints.clippy]
-uninlined_format_args = "allow"
+utils = { workspace = true }
+stream-center = { workspace = true }
+flv-formats = { workspace = true }
+sdp-formats = { workspace = true }
+webrtc-formats = { workspace = true }
+codec-common = { workspace = true }
+server-utils = { workspace = true }
+
+[dev-dependencies]
+debug-tools = { workspace = true }

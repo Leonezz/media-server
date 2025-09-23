@@ -1,6 +1,6 @@
 [package]
-name = "sdp-formats"
-description = "encoder and decoder for sdp formats"
+name = "stun-formats"
+description = "encoder and decoder for stun protocol formats"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -12,8 +12,5 @@ crate-type = ["lib"]
 [dependencies]
 thiserror = { workspace = true }
 tracing = { workspace = true }
-url = { workspace = true }
-tokio-util = { workspace = true, features = ["full"] }
-itertools = { workspace = true }
-
 utils = { workspace = true }
+byteorder = { workspace = true }

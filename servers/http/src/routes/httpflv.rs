@@ -1,107 +1,50 @@
-use std::{collections::HashMap, io::Cursor};
-
-use rocket::{
-    FromForm, Request, Response, State, get,
-    http::{ContentType, Header},
-    response::Responder,
-};
+use futures::StreamExt;
 use server_utils::stream_properities::StreamProperties;
-use tokio::sync::mpsc::{self, UnboundedReceiver};
-use tokio_util::bytes::BytesMut;
+use std::{collections::HashMap, convert::Infallible};
+use tokio::sync::mpsc::{self};
 
 use crate::{
-    errors::{HttpServerError, HttpServerResult},
+    errors::HttpServerError,
     server::HttpServerContext,
     sessions::httpflv::session::{HttpFlvSession, HttpFlvSessionConfig},
 };
 
-use super::ext::FlvStreamName;
-
-pub struct HttpFlvStream {
-    receiver: UnboundedReceiver<BytesMut>,
-    bytes_buffer: Option<Cursor<BytesMut>>,
-}
-
-impl tokio::io::AsyncRead for HttpFlvStream {
-    fn poll_read(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        use std::pin::Pin;
-        use std::task::Poll;
-
-        if let Some(cursor) = self.bytes_buffer.as_mut() {
-            let available_data = cursor.get_ref().len() as u64 - cursor.position();
-            if available_data > 0 {
-                let to_read = buf.remaining().min(available_data as usize);
-                let start = cursor.position() as usize;
-                buf.put_slice(&cursor.get_ref()[start..start + to_read]);
-                cursor.set_position(cursor.position() + to_read as u64);
-                return Poll::Ready(Ok(()));
-            }
-        }
-
-        match Pin::new(&mut self.receiver).poll_recv(cx) {
-            Poll::Ready(Some(bytes)) => {
-                self.bytes_buffer = Some(Cursor::new(bytes));
-                self.poll_read(cx, buf)
-            }
-            Poll::Ready(None) => Poll::Ready(Ok(())),
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
-
-// Implement Responder for HttpFlvStream
-impl<'r> Responder<'r, 'r> for HttpFlvStream {
-    fn respond_to(self, _: &'r Request<'_>) -> rocket::response::Result<'r> {
-        Response::build()
-            .header(ContentType::new("video", "x-flv"))
-            .header(Header::new("Access-Control-Allow-Origin", "*"))
-            .streamed_body(self)
-            .ok()
-    }
-}
-
-#[derive(Debug, FromForm)]
+#[derive(Debug, serde::Deserialize)]
 pub struct HttpFlvPullRequest {
-    #[field(name = uncased("audioOnly"))]
-    #[field(name = uncased("audio_only"))]
-    #[field(name = uncased("audio-only"))]
+    #[serde(alias = "audioOnly")]
+    #[serde(alias = "audio_only")]
+    #[serde(alias = "audio-only")]
     audio_only: Option<bool>,
-    #[field(name = uncased("videoOnly"))]
-    #[field(name = uncased("video_only"))]
-    #[field(name = uncased("video-only"))]
+    #[serde(alias = "videoOnly")]
+    #[serde(alias = "video_only")]
+    #[serde(alias = "vudio-only")]
     video_only: Option<bool>,
-    #[field(name = uncased("backtrackGopCnt"))]
-    #[field(name = uncased("backtrack-gop-cnt"))]
-    #[field(name = uncased("backtrack_gop_cnt"))]
+    #[serde(alias = "backtrackGopCnt")]
+    #[serde(alias = "backtrack-gop-cnt")]
+    #[serde(alias = "backtrack_gop_cnt")]
     backtrack_gop_cnt: Option<usize>,
-    #[field(name = "ctx")]
+    #[serde(alias = "ctx")]
     _ctx: Option<String>,
 }
 
-#[get("/<app>/<stream>?<params..>")]
 pub(crate) async fn serve(
-    ctx: &State<HttpServerContext>,
-    app: &str,
-    stream: FlvStreamName<'_>,
-    params: HttpFlvPullRequest,
-) -> HttpServerResult<HttpFlvStream> {
-    let stream = stream.0;
+    axum::extract::State(ctx): axum::extract::State<HttpServerContext>,
+    axum::extract::Path((app, stream)): axum::extract::Path<(String, String)>,
+    axum::extract::Query(params): axum::extract::Query<HttpFlvPullRequest>,
+) -> impl axum::response::IntoResponse {
     tracing::info!(
         "get http flv pull request, app: {}, stream: {}, params: {:?}",
         app,
         stream,
         params
     );
-    if app.is_empty() {
+    if app.is_empty() || stream.is_empty() || !stream.ends_with(".flv") {
         return Err(HttpServerError::BadRequest(format!(
             "bad app and stream, app: {}, stream: {}",
             app, stream
         )));
     }
+    let stream = stream.strip_suffix(".flv").unwrap();
 
     let mut ctx_params: HashMap<String, String> = HashMap::new();
 
@@ -143,8 +86,16 @@ pub(crate) async fn serve(
         let _ = session.unsubscribe_from_stream_center().await;
     });
 
-    Ok(HttpFlvStream {
-        receiver: response_receiver,
-        bytes_buffer: Default::default(),
-    })
+    Ok(axum::response::Response::builder()
+        .status(axum::http::StatusCode::OK)
+        .header(axum::http::header::CONTENT_TYPE, "video/x-flv")
+        .header(axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+        .body(
+            axum::body::Body::from_stream(
+                tokio_stream::wrappers::UnboundedReceiverStream::new(response_receiver)
+                    .map(|chunk| Ok::<axum::body::Bytes, Infallible>(chunk.freeze())),
+            )
+            .into_data_stream(),
+        )
+        .unwrap())
 }

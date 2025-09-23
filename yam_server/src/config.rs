@@ -1,20 +1,12 @@
-use std::{env, net::IpAddr, path::PathBuf};
+use std::{env, net::IpAddr};
 
 use config::{Config, ConfigError, Environment, File};
 use serde::Deserialize;
 
 use crate::{
-    AppCli,
+    cli::AppCli,
     errors::{AppError, AppResult},
-    util::parse_log_level,
 };
-
-#[derive(Debug, Deserialize)]
-#[allow(unused)]
-pub(crate) struct Logger {
-    pub(crate) level: String,
-    pub(crate) dir: PathBuf,
-}
 
 #[derive(Debug, Deserialize)]
 #[allow(unused)]
@@ -46,15 +38,14 @@ pub(crate) struct RtspServer {
 
 #[derive(Debug, Deserialize)]
 #[allow(unused)]
-pub(crate) struct AppConfig {
-    pub(crate) logger: Logger,
+pub struct AppConfig {
     pub(crate) rtmp_server: RtmpServer,
     pub(crate) http_server: HttpServer,
     pub(crate) rtsp_server: RtspServer,
 }
 
 impl AppConfig {
-    pub(crate) fn new(config_path: Option<String>) -> AppResult<Self> {
+    pub fn new(config_path: Option<String>) -> AppResult<Self> {
         let config_path_composed = config_path
             .map(|v| v.to_owned())
             .or_else(|| env::var("YAM_CONFIG").ok());
@@ -71,11 +62,7 @@ impl AppConfig {
         Ok(config)
     }
 
-    pub(crate) fn apply(&mut self, cli_args: AppCli) -> AppResult<()> {
-        if cli_args.log_level.is_some() {
-            self.logger.level = cli_args.log_level.unwrap();
-        }
-
+    pub fn apply(&mut self, cli_args: AppCli) -> AppResult<()> {
         if cli_args.rtmp_port.is_some() {
             self.rtmp_server.port = cli_args.rtmp_port.unwrap();
         }
@@ -90,16 +77,7 @@ impl AppConfig {
         Ok(())
     }
 
-    pub(crate) fn validate(&self) -> AppResult<()> {
-        let _ = parse_log_level(&self.logger.level)?;
-
-        if self.logger.dir.clone().into_os_string().is_empty() {
-            return Err(AppError::ConfigError(ConfigError::Message(format!(
-                "the log dir config is empty: {:?}",
-                self.logger.dir.to_str()
-            ))));
-        }
-
+    pub fn validate(&self) -> AppResult<()> {
         Ok(())
     }
 }

@@ -1,6 +1,6 @@
-mod ext;
 pub mod hello;
 pub mod httpflv;
+pub mod whip;
 
 pub mod params {
     pub const AUDIO_ONLY_KEY: &str = "audioOnly";

@@ -1,6 +1,6 @@
 [package]
-name = "sdp-formats"
-description = "encoder and decoder for sdp formats"
+name = "webrtc-formats"
+description = "encoder and decoder for webrtc whip/whep related formats"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,9 +11,10 @@ crate-type = ["lib"]
 
 [dependencies]
 thiserror = { workspace = true }
-tracing = { workspace = true }
-url = { workspace = true }
 tokio-util = { workspace = true, features = ["full"] }
-itertools = { workspace = true }
+byteorder = { workspace = true }
+num = { workspace = true }
+url = { workspace = true }
 
 utils = { workspace = true }
+sdp-formats = { workspace = true }

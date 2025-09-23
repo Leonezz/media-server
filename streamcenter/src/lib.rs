@@ -2,6 +2,7 @@
 
 use codec_common::{audio::AudioCodecCommon, video::VideoCodecCommon};
 use flv_formats::tag::on_meta_data::OnMetaData;
+pub mod adaptors;
 pub mod errors;
 pub mod events;
 pub mod frame_info;

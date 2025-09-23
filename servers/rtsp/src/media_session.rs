@@ -8,7 +8,7 @@ use rtp_formats::{
     codec::{
         h264::{packet::{packetizer::RtpH264PacketPacketizer, sequencer::RtpH264Sequencer}, paramters::rfc6184::RtpH264Fmtp},
         mpeg4_generic::{packet::{packetizer::RtpMpeg4GenericPacketPacketizer, sequencer::RtpMpeg4GenericSequencer}, parameters::rfc3640::RtpMpeg4Fmtp},
-    }, packet::{packetizer::{RtpPacketizerItem, RtpTrivialPacketPacketizer}, sequencer::{RtpBufferedSequencer, RtpTrivialSequencer}, RtpTrivialPacket}, payload_types::rtp_payload_type::get_rtp_clockrate, rtcp::RtcpPacket
+    }, packet::{packetizer::RtpTrivialPacketPacketizer, sequencer::{RtpBufferedSequencer, RtpTrivialSequencer}, RtpTrivialPacket}, payload_types::rtp_payload_type::get_rtp_clockrate, rtcp::RtcpPacket
 };
 use rtp_session::{
     session::{RtpSession, RtpSessionCommand},
@@ -554,7 +554,7 @@ impl RtspMediaSession {
             ))),
             Some(frame) => span.in_scope(async || {
                 rtp_packetizer.set_frame_timestamp(frame.get_presentation_timestamp_ms());
-                if let Some(item) = RtpPacketizerItem::from_media_frame(frame) {
+                if let Some(item) = stream_center::adaptors::rtp::from_media_frame(frame) {
                 rtp_packetizer.packetize(item).inspect_err(|err| {
                     tracing::error!("error while packetizing media frame to rtp: {}", err);
                 })?;
@@ -656,7 +656,9 @@ impl RtspMediaSession {
                         }
                     }
                     for packet in ready_packets {
-                        match media_frame_sender.send(packet.to_media_frame(first_rtp_timestamp.unwrap(), rtp_clockrate)).await {
+                        match media_frame_sender.send(
+                            stream_center::adaptors::rtp::to_media_frame(packet, first_rtp_timestamp.unwrap(), rtp_clockrate)
+                        ).await {
                             Ok(()) => {}
                             Err(err) => {
                                 tracing::error!(

@@ -1,35 +1,40 @@
 [package]
 name = "rtsp-server"
-version = "0.1.0"
-edition = "2024"
+description = "server and session for rtsp publish and play"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["lib"]
 
 [dependencies]
-thiserror = "2.0.7"
-tokio = { version = "1.44.2", features = ["full"] }
-tokio-util = { version = "0.7.13", features = ["full"] }
-futures = "0.3.31"
-tracing = "0.1.41"
-unified-io = { path = "../../unifiedio" }
-rtsp-formats = { path = "../../formats/rtsp" }
-sdp-formats = { path = "../../formats/sdp" }
-rtp-session = { path = "../rtp" }
-rtp-formats = { path = "../../formats/rtp" }
-utils = { path = "../../utils" }
-server-utils = { path = "../utils" }
-codec-h264 = { path = "../../codec/h264" }
-codec-aac = { path = "../../codec/aac" }
-codec-common = { path = "../../codec/common" }
-stream-center = { path = "../../streamcenter" }
-num = "0.4.3"
-uuid = { version = "1.11.0", features = [
-    "v7",
-    "fast-rng",
-    "macro-diagnostics",
-] }
-url = "2.5.4"
-chrono = "0.4.40"
-debug-tools = { path = "../../debug_tools" }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tokio-util = { workspace = true, features = ["full"] }
+futures = { workspace = true }
+tracing = { workspace = true }
+num = { workspace = true }
+uuid = { workspace = true, features = ["v7", "fast-rng", "macro-diagnostics"] }
+url = { workspace = true }
+chrono = { workspace = true }
 scopeguard = "1.1"
+
+unified-io = { workspace = true }
+rtsp-formats = { workspace = true }
+sdp-formats = { workspace = true }
+rtp-session = { workspace = true }
+rtp-formats = { workspace = true }
+utils = { workspace = true }
+server-utils = { workspace = true }
+codec-h264 = { workspace = true }
+codec-aac = { workspace = true }
+codec-common = { workspace = true }
+stream-center = { workspace = true }
+
+debug-tools = { workspace = true }
+
 
 [lints.clippy]
 uninlined_format_args = "allow"

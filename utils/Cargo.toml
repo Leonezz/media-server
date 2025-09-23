@@ -1,12 +1,15 @@
 [package]
 name = "utils"
-version = "0.1.0"
-edition = "2024"
+description = "common utilities"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["lib"]
 
 [dependencies]
 rand = "0.9.1"
 rand_core = "0.9.3"
-bitstream-io = "4.0.0"
-
-[lints.clippy]
-uninlined_format_args = "allow"
+bitstream-io = { workspace = true }

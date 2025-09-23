@@ -1,12 +1,11 @@
-use figment::{Figment, providers::Serialized};
-use rocket::{Config, config::Ident, routes};
+use axum::routing::{get, post};
 use stream_center::events::StreamCenterEvent;
 use tokio::sync::mpsc;
 
 use crate::{
     config::HttpServerConfig,
     errors::HttpServerResult,
-    routes::{self, hello::hello},
+    routes::{self},
 };
 
 #[derive(Clone)]
@@ -34,22 +33,19 @@ impl HttpServer {
 
     pub async fn run(&mut self) -> HttpServerResult<()> {
         tracing::info!("http server is running, config: {:?}", self.context.config);
-        let figment = Figment::from(Config {
-            log_level: rocket::config::LogLevel::Off,
-            ident: Ident::try_new("yam_server/http").unwrap(),
-            ip_header: Some("X-Real-IP".into()),
-            keep_alive: 5,
-            ..Default::default()
-        })
-        .merge(Serialized::defaults(&self.context.config));
-
-        match rocket::custom(figment)
-            .manage(self.context.clone())
-            .mount("/rest/v1", routes![hello])
-            .mount("/live_stream/v1", routes![routes::httpflv::serve])
-            .launch()
-            .await
-        {
+        let app = axum::Router::new()
+            .route("/rest/v1/hello", get(routes::hello::hello))
+            .route(
+                "/live_stream/v1/{app}/{stream}",
+                get(routes::httpflv::serve),
+            )
+            .with_state(self.context.clone())
+            .route("/webrtc/v1/whip", post(routes::whip::serve));
+        let listener =
+            tokio::net::TcpListener::bind((self.context.config.address, self.context.config.port))
+                .await
+                .unwrap();
+        match axum::serve(listener, app).await {
             Ok(res) => {
                 tracing::info!(
                     "http server exit successfully, config: {:?}",

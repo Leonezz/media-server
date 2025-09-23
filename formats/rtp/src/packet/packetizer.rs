@@ -1,9 +1,4 @@
-use codec_common::{
-    audio::AudioCodecCommon,
-    video::{H264VideoConfig, VideoConfig, VideoFrameUnit},
-};
 use codec_h264::nalu::NalUnit;
-use stream_center::gop::MediaFrame;
 use tokio_util::bytes::{Bytes, BytesMut};
 
 use crate::{errors::RtpError, header::RtpHeader};
@@ -60,71 +55,6 @@ pub enum RtpPacketizerAudioItem {
 pub enum RtpPacketizerItem {
     Video(RtpPacketizerVideoItem),
     Audio(RtpPacketizerAudioItem),
-}
-
-impl RtpPacketizerItem {
-    pub fn from_media_frame(frame: MediaFrame) -> Option<Self> {
-        match frame {
-            MediaFrame::Video {
-                frame_info: _,
-                payload,
-            } => match payload {
-                VideoFrameUnit::H264 { nal_units } => Some(RtpPacketizerItem::Video(
-                    RtpPacketizerVideoItem::H264(RtpTrivialPacketizerH264Item { nalus: nal_units }),
-                )),
-                _ => unimplemented!("unsupported video format {:?}", payload),
-            },
-            MediaFrame::Audio {
-                frame_info,
-                payload,
-            } => match frame_info.codec_id {
-                AudioCodecCommon::AAC => Some(RtpPacketizerItem::Audio(
-                    RtpPacketizerAudioItem::AAC(RtpTrivialPacketizerAACItem {
-                        access_units: vec![payload],
-                    }),
-                )),
-                _ => unimplemented!("unsupported audio format {:?}", frame_info),
-            },
-            MediaFrame::VideoConfig {
-                timestamp_nano: _,
-                config,
-            } => match *config {
-                VideoConfig::H264(H264VideoConfig {
-                    sps,
-                    pps,
-                    sps_ext: _,
-                    avc_decoder_configuration_record: _,
-                }) => {
-                    let mut nal_units = Vec::new();
-                    if let Some(sps) = sps {
-                        nal_units.push((&sps).into());
-                    }
-                    if let Some(pps) = pps {
-                        nal_units.push((&pps).into());
-                    }
-                    Some(RtpPacketizerItem::Video(RtpPacketizerVideoItem::H264(
-                        RtpTrivialPacketizerH264Item { nalus: nal_units },
-                    )))
-                }
-            },
-            MediaFrame::AudioConfig {
-                timestamp_nano: _,
-                sound_info: _,
-                config: _,
-            } => {
-                tracing::debug!("audio config frame, ignore");
-                None
-            }
-            MediaFrame::Script {
-                timestamp_nano: _,
-                on_meta_data: _,
-                payload: _,
-            } => {
-                tracing::debug!("script frame, ignore");
-                None
-            }
-        }
-    }
 }
 
 pub trait RtpTrivialPacketPacketizer {
