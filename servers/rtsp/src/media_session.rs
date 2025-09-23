@@ -554,7 +554,7 @@ impl RtspMediaSession {
             ))),
             Some(frame) => span.in_scope(async || {
                 rtp_packetizer.set_frame_timestamp(frame.get_presentation_timestamp_ms());
-                if let Some(item) = stream_center::adaptors::rtp::from_media_frame(frame) {
+                if let Some(item) = frame.to_rtp_packetizer_item() {
                 rtp_packetizer.packetize(item).inspect_err(|err| {
                     tracing::error!("error while packetizing media frame to rtp: {}", err);
                 })?;
@@ -657,7 +657,7 @@ impl RtspMediaSession {
                     }
                     for packet in ready_packets {
                         match media_frame_sender.send(
-                            stream_center::adaptors::rtp::to_media_frame(packet, first_rtp_timestamp.unwrap(), rtp_clockrate)
+                            MediaFrame::from_rtp_buffer_item(packet, first_rtp_timestamp.unwrap(), rtp_clockrate)
                         ).await {
                             Ok(()) => {}
                             Err(err) => {
