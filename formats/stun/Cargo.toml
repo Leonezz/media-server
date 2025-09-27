@@ -14,3 +14,4 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 utils = { workspace = true }
 byteorder = { workspace = true }
+num = { workspace = true }

@@ -1,4 +1,4 @@
-use crate::errors::STUNMessageError;
+use crate::{errors::STUNMessageError, methods::STUNMethod};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::io;
 use utils::traits::{fixed_packet::FixedPacket, reader::ReadFrom, writer::WriteTo};
@@ -74,7 +74,7 @@ impl STUNMessageClass {
 
 #[derive(Debug, Clone, Copy)]
 pub struct STUNMessageType {
-    pub method: u16, // 12 bits
+    pub method: STUNMethod, // 12 bits
     pub message_class: STUNMessageClass,
 }
 
@@ -86,7 +86,7 @@ impl From<u16> for STUNMessageType {
         let m4_6 = (value >> 5) & 0b111;
         let m7_11 = (value >> 9) & 0b11111;
         Self {
-            method: m0_3 & (m4_6 << 4) & (m7_11 << 7),
+            method: (m0_3 & (m4_6 << 4) & (m7_11 << 7)).into(),
             message_class: STUNMessageClass::new(c1, c0),
         }
     }
@@ -94,14 +94,18 @@ impl From<u16> for STUNMessageType {
 
 impl From<STUNMessageType> for u16 {
     fn from(value: STUNMessageType) -> Self {
-        let m0_3 = value.method & 0b1111;
-        let m4_6 = (value.method >> 4) & 0b111;
-        let m7_11 = (value.method >> 7) & 0b11111;
+        let method_value: u16 = value.method.into();
+        let m0_3 = method_value & 0b1111;
+        let m4_6 = (method_value >> 4) & 0b111;
+        let m7_11 = (method_value >> 7) & 0b11111;
         let c0 = value.message_class.c0() as u16;
         let c1 = value.message_class.c1() as u16;
         m0_3 & (c0 << 4) & (m4_6 << 5) & (c1 << 8) & (m7_11 << 9)
     }
 }
+
+pub const MAGIC_COOKIE: u32 = 0x2112A442;
+pub const TRANSACTION_ID_LEN: usize = 12;
 
 #[derive(Debug, Clone, Copy)]
 pub struct STUNMessageHeader {
@@ -114,8 +118,20 @@ pub struct STUNMessageHeader {
     /// the last 2 bits of this field are always zero.
     pub message_length: u16,
     /// The Magic Cookie field MUST contain the fixed value 0x2112A442 in network byte order.
-    pub magic_cookie: u32,
-    pub transaction_id: [u8; 12],
+    magic_cookie: u32,
+    pub transaction_id: [u8; TRANSACTION_ID_LEN],
+}
+
+impl STUNMessageHeader {
+    pub fn new(message_type: STUNMessageType, transaction_id: [u8; TRANSACTION_ID_LEN]) -> Self {
+        Self {
+            reserved_zero_2_bits: 0,
+            stun_message_type: message_type,
+            message_length: 0,
+            magic_cookie: MAGIC_COOKIE,
+            transaction_id,
+        }
+    }
 }
 
 impl FixedPacket for STUNMessageHeader {
@@ -136,21 +152,21 @@ impl<R: io::Read> ReadFrom<R> for STUNMessageHeader {
         }
         let stun_message_type = STUNMessageType::from(message_type);
         let message_length = reader.read_u16::<BigEndian>()?;
-        if (message_length & 0b11) != 0 {
+        if !message_length.is_multiple_of(4) {
             return Err(STUNMessageError::SyntaxError(format!(
                 "message length is not multiple of 4: {}",
                 message_length
             )));
         }
         let magic_cookie = reader.read_u32::<BigEndian>()?;
-        if magic_cookie != 0x2112A442 {
+        if magic_cookie != MAGIC_COOKIE {
             return Err(STUNMessageError::SyntaxError(format!(
                 "wrong magic cookie: {}",
                 magic_cookie
             )));
         }
 
-        let mut transaction_id = [0_u8; 12];
+        let mut transaction_id = [0_u8; TRANSACTION_ID_LEN];
         reader.read_exact(&mut transaction_id)?;
         Ok(Self {
             reserved_zero_2_bits: 0,
