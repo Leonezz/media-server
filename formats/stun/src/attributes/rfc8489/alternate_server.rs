@@ -38,7 +38,7 @@ impl STUNAttributeExt for AlternateServerAttribute {
 
     fn from_raw_attr(
         raw_attr: crate::attribute::STUNRawAttribute,
-        transaction_id: &[u8; crate::header::TRANSACTION_ID_LEN],
+        transaction_id: &crate::header::TransactionId,
     ) -> Result<Self, crate::errors::STUNMessageError> {
         Ok(Self(MappedAddressAttribute::from_raw_attr(
             raw_attr,
@@ -48,7 +48,7 @@ impl STUNAttributeExt for AlternateServerAttribute {
 
     fn into_raw_attr(
         self,
-        transaction_id: &[u8; crate::header::TRANSACTION_ID_LEN],
+        transaction_id: &crate::header::TransactionId,
     ) -> crate::attribute::STUNRawAttribute {
         self.0.into_raw_attr(transaction_id)
     }

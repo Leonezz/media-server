@@ -108,6 +108,42 @@ pub const MAGIC_COOKIE: u32 = 0x2112A442;
 pub const TRANSACTION_ID_LEN: usize = 12;
 
 #[derive(Debug, Clone, Copy)]
+pub struct TransactionId([u8; TRANSACTION_ID_LEN]);
+
+impl TransactionId {
+    pub fn new(id: [u8; TRANSACTION_ID_LEN]) -> Self {
+        Self(id)
+    }
+
+    pub fn new_random() -> Self {
+        let mut id = [0_u8; TRANSACTION_ID_LEN];
+        utils::random::random_fill(&mut id);
+        Self(id)
+    }
+
+    pub fn new_dummy() -> Self {
+        Self(Default::default())
+    }
+}
+
+impl<R: io::Read> ReadFrom<R> for TransactionId {
+    type Error = STUNMessageError;
+    fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
+        let mut value = Self::new_dummy();
+        reader.read_exact(&mut value.0)?;
+        Ok(value)
+    }
+}
+
+impl<W: io::Write> WriteTo<W> for TransactionId {
+    type Error = STUNMessageError;
+    fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
+        writer.write_all(&self.0)?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct STUNMessageHeader {
     #[allow(unused)]
     reserved_zero_2_bits: u8, // 2 bits, must be 0
@@ -119,11 +155,11 @@ pub struct STUNMessageHeader {
     pub message_length: u16,
     /// The Magic Cookie field MUST contain the fixed value 0x2112A442 in network byte order.
     magic_cookie: u32,
-    pub transaction_id: [u8; TRANSACTION_ID_LEN],
+    pub transaction_id: TransactionId,
 }
 
 impl STUNMessageHeader {
-    pub fn new(message_type: STUNMessageType, transaction_id: [u8; TRANSACTION_ID_LEN]) -> Self {
+    pub fn new(message_type: STUNMessageType, transaction_id: TransactionId) -> Self {
         Self {
             reserved_zero_2_bits: 0,
             stun_message_type: message_type,
@@ -166,8 +202,7 @@ impl<R: io::Read> ReadFrom<R> for STUNMessageHeader {
             )));
         }
 
-        let mut transaction_id = [0_u8; TRANSACTION_ID_LEN];
-        reader.read_exact(&mut transaction_id)?;
+        let transaction_id = TransactionId::read_from(reader)?;
         Ok(Self {
             reserved_zero_2_bits: 0,
             stun_message_type,
@@ -184,7 +219,7 @@ impl<W: io::Write> WriteTo<W> for STUNMessageHeader {
         writer.write_u16::<BigEndian>(self.stun_message_type.into())?;
         writer.write_u16::<BigEndian>(self.message_length)?;
         writer.write_u32::<BigEndian>(self.magic_cookie)?;
-        writer.write_all(&self.transaction_id)?;
+        self.transaction_id.write_to(writer)?;
         Ok(())
     }
 }

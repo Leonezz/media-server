@@ -54,7 +54,7 @@ impl STUNAttributeExt for RealmAttribute {
 
     fn from_raw_attr(
         raw_attr: crate::attribute::STUNRawAttribute,
-        _transaction_id: &[u8; crate::header::TRANSACTION_ID_LEN],
+        _transaction_id: &crate::header::TransactionId,
     ) -> Result<Self, crate::errors::STUNMessageError> {
         check_attr_match(raw_attr.attr_type, crate::attribute::AttrType::Realm)?;
         if raw_attr.value.len() > REALM_VALUE_MAX_LEN {
@@ -73,7 +73,7 @@ impl STUNAttributeExt for RealmAttribute {
 
     fn into_raw_attr(
         self,
-        _transaction_id: &[u8; crate::header::TRANSACTION_ID_LEN],
+        _transaction_id: &crate::header::TransactionId,
     ) -> crate::attribute::STUNRawAttribute {
         crate::attribute::STUNRawAttribute::new(self.get_type(), self.value.into_bytes())
     }

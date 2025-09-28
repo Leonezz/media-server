@@ -44,7 +44,7 @@ impl STUNAttributeExt for UnknownAttributes {
 
     fn from_raw_attr(
         raw_attr: crate::attribute::STUNRawAttribute,
-        _transaction_id: &[u8; crate::header::TRANSACTION_ID_LEN],
+        _transaction_id: &crate::header::TransactionId,
     ) -> Result<Self, crate::errors::STUNMessageError> {
         check_attr_match(raw_attr.attr_type, AttrType::UnknownAttributes)?;
         let mut attributes = Vec::with_capacity(raw_attr.value.len() / 2);
@@ -61,7 +61,7 @@ impl STUNAttributeExt for UnknownAttributes {
 
     fn into_raw_attr(
         self,
-        _transaction_id: &[u8; crate::header::TRANSACTION_ID_LEN],
+        _transaction_id: &crate::header::TransactionId,
     ) -> crate::attribute::STUNRawAttribute {
         let mut value = Vec::with_capacity(self.attributes.len() * 2);
         self.attributes.iter().for_each(|item| {

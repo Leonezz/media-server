@@ -144,14 +144,11 @@ impl TryFrom<STUNRawAttribute> for MappedAddressAttribute {
 impl STUNAttributeExt for MappedAddressAttribute {
     fn from_raw_attr(
         raw_attr: STUNRawAttribute,
-        _transaction_id: &[u8; crate::header::TRANSACTION_ID_LEN],
+        _transaction_id: &crate::header::TransactionId,
     ) -> Result<Self, STUNMessageError> {
         raw_attr.try_into()
     }
-    fn into_raw_attr(
-        self,
-        _transaction_id: &[u8; crate::header::TRANSACTION_ID_LEN],
-    ) -> STUNRawAttribute {
+    fn into_raw_attr(self, _transaction_id: &crate::header::TransactionId) -> STUNRawAttribute {
         self.into()
     }
     fn get_type(&self) -> AttrType {

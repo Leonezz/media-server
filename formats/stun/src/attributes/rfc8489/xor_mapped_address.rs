@@ -5,7 +5,7 @@ use std::{
 };
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
+use utils::traits::{dynamic_sized_packet::DynamicSizedPacket, writer::WriteTo};
 
 use crate::{
     attribute::{AttrType, STUNAttributeExt},
@@ -96,7 +96,7 @@ impl STUNAttributeExt for XorMappedAddressAttribute {
 
     fn from_raw_attr(
         raw_attr: crate::attribute::STUNRawAttribute,
-        transaction_id: &[u8; crate::header::TRANSACTION_ID_LEN],
+        transaction_id: &crate::header::TransactionId,
     ) -> Result<Self, crate::errors::STUNMessageError> {
         check_attr_match(raw_attr.attr_type, AttrType::XorMappedAddress)?;
         let mut bytes = raw_attr.value.as_slice();
@@ -123,7 +123,7 @@ impl STUNAttributeExt for XorMappedAddressAttribute {
                 bytes.read_exact(&mut ipv6_bytes)?;
                 let mut xor_value = Vec::with_capacity(4 + TRANSACTION_ID_LEN);
                 xor_value.extend_from_slice(&MAGIC_COOKIE.to_be_bytes());
-                xor_value.extend_from_slice(transaction_id);
+                transaction_id.write_to(&mut xor_value).unwrap();
                 xor_inplace(&mut ipv6_bytes, &xor_value.try_into().unwrap());
                 IpAddr::V6(Ipv6Addr::from_octets(ipv6_bytes))
             }
@@ -143,7 +143,7 @@ impl STUNAttributeExt for XorMappedAddressAttribute {
 
     fn into_raw_attr(
         self,
-        transaction_id: &[u8; TRANSACTION_ID_LEN],
+        transaction_id: &crate::header::TransactionId,
     ) -> crate::attribute::STUNRawAttribute {
         let mut value = Vec::with_capacity(self.get_packet_bytes_count());
         value.write_u16::<BigEndian>(self.family()).unwrap();
@@ -160,7 +160,7 @@ impl STUNAttributeExt for XorMappedAddressAttribute {
                 let mut ipv6_bytes = ipv6.octets();
                 let mut xor_value = Vec::with_capacity(4 + TRANSACTION_ID_LEN);
                 xor_value.extend_from_slice(&MAGIC_COOKIE.to_be_bytes());
-                xor_value.extend_from_slice(transaction_id);
+                transaction_id.write_to(&mut xor_value).unwrap();
                 xor_inplace(&mut ipv6_bytes, &xor_value.try_into().unwrap());
                 value.extend_from_slice(&ipv6_bytes);
             }

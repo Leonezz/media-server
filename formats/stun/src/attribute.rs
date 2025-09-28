@@ -1,7 +1,7 @@
 use crate::{
     attributes::{STUN_ATTRIBUTE_PADDING_SIZE, get_after_padding_size},
     errors::STUNMessageError,
-    header::TRANSACTION_ID_LEN,
+    header::TransactionId,
     rfc8489::{self, FingerPrintAttribute, UserHashAttribute},
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
@@ -134,12 +134,12 @@ impl STUNAttributeExt for STUNRawAttribute {
 
     fn from_raw_attr(
         raw_attr: STUNRawAttribute,
-        _transaction_id: &[u8; TRANSACTION_ID_LEN],
+        _transaction_id: &TransactionId,
     ) -> Result<Self, STUNMessageError> {
         Ok(raw_attr)
     }
 
-    fn into_raw_attr(self, _transaction_id: &[u8; TRANSACTION_ID_LEN]) -> STUNRawAttribute {
+    fn into_raw_attr(self, _transaction_id: &TransactionId) -> STUNRawAttribute {
         self
     }
 }
@@ -168,9 +168,9 @@ impl STUNRawAttribute {
 pub trait STUNAttributeExt: Sized {
     fn from_raw_attr(
         raw_attr: STUNRawAttribute,
-        transaction_id: &[u8; TRANSACTION_ID_LEN],
+        transaction_id: &TransactionId,
     ) -> Result<Self, STUNMessageError>;
-    fn into_raw_attr(self, transaction_id: &[u8; TRANSACTION_ID_LEN]) -> STUNRawAttribute;
+    fn into_raw_attr(self, transaction_id: &TransactionId) -> STUNRawAttribute;
     fn get_type(&self) -> AttrType;
     fn is_comprehension_required(&self) -> bool {
         u16::from(self.get_type()) < 0x8000
@@ -292,7 +292,7 @@ impl STUNAttributeExt for STUNAttribute {
 
     fn from_raw_attr(
         raw_attr: STUNRawAttribute,
-        transaction_id: &[u8; TRANSACTION_ID_LEN],
+        transaction_id: &TransactionId,
     ) -> Result<Self, STUNMessageError> {
         let attr = match raw_attr.attr_type {
             AttrType::MappedAddress => STUNAttribute::MappedAddress(
@@ -350,7 +350,7 @@ impl STUNAttributeExt for STUNAttribute {
         Ok(attr)
     }
 
-    fn into_raw_attr(self, transaction_id: &[u8; TRANSACTION_ID_LEN]) -> STUNRawAttribute {
+    fn into_raw_attr(self, transaction_id: &TransactionId) -> STUNRawAttribute {
         match self {
             Self::MappedAddress(s) => s.into_raw_attr(transaction_id),
             Self::UserName(s) => s.into_raw_attr(transaction_id),

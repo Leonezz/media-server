@@ -147,7 +147,7 @@ impl STUNAttributeExt for MessageIntegritySHA256Attribute {
 
     fn from_raw_attr(
         raw_attr: crate::attribute::STUNRawAttribute,
-        _transaction_id: &[u8; crate::header::TRANSACTION_ID_LEN],
+        _transaction_id: &crate::header::TransactionId,
     ) -> Result<Self, crate::errors::STUNMessageError> {
         check_attr_match(
             raw_attr.attr_type,
@@ -172,7 +172,7 @@ impl STUNAttributeExt for MessageIntegritySHA256Attribute {
 
     fn into_raw_attr(
         self,
-        _transaction_id: &[u8; crate::header::TRANSACTION_ID_LEN],
+        _transaction_id: &crate::header::TransactionId,
     ) -> crate::attribute::STUNRawAttribute {
         assert!(self.key.len() >= MESSAGE_INTEGRITY_SHA256_MIN_LEN);
         assert!(self.key.len() <= MESSAGE_INTEGRITY_SHA256_MAX_LEN);

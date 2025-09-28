@@ -1,9 +1,7 @@
-use rand::prelude::Distribution;
+use rand::{Rng, prelude::Distribution};
 
 pub fn random_fill(buffer: &mut [u8]) {
-    for i in buffer {
-        *i = rand::random();
-    }
+    rand::rng().fill(buffer);
 }
 
 pub fn random_u64() -> u64 {

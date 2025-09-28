@@ -1,20 +1,20 @@
 use crate::{
     attribute::{STUNAttribute, STUNAttributeExt},
     errors::STUNMessageResult,
-    header::{STUNMessageHeader, STUNMessageType, TRANSACTION_ID_LEN},
+    header::{STUNMessageHeader, STUNMessageType, TransactionId},
     message::STUNMessage,
     rfc8489::{self},
 };
 
 #[derive(Debug, Default)]
 pub struct STUNMessageBuilder {
-    transaction_id: Option<[u8; TRANSACTION_ID_LEN]>,
+    transaction_id: Option<TransactionId>,
     message_type: Option<STUNMessageType>,
     attributes: Vec<STUNAttribute>,
 }
 
 impl STUNMessageBuilder {
-    pub fn transaction_id(mut self, transaction_id: [u8; TRANSACTION_ID_LEN]) -> Self {
+    pub fn transaction_id(mut self, transaction_id: TransactionId) -> Self {
         self.transaction_id = Some(transaction_id);
         self
     }

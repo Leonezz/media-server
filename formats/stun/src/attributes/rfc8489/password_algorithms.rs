@@ -50,7 +50,7 @@ impl STUNAttributeExt for PasswordAlgorithmsAttribute {
 
     fn from_raw_attr(
         raw_attr: crate::attribute::STUNRawAttribute,
-        _transaction_id: &[u8; crate::header::TRANSACTION_ID_LEN],
+        _transaction_id: &crate::header::TransactionId,
     ) -> Result<Self, crate::errors::STUNMessageError> {
         check_attr_match(
             raw_attr.attr_type,
@@ -66,7 +66,7 @@ impl STUNAttributeExt for PasswordAlgorithmsAttribute {
 
     fn into_raw_attr(
         self,
-        _transaction_id: &[u8; crate::header::TRANSACTION_ID_LEN],
+        _transaction_id: &crate::header::TransactionId,
     ) -> crate::attribute::STUNRawAttribute {
         let mut value = Vec::with_capacity(self.get_packet_bytes_count());
         self.algorithms.iter().for_each(|item| {

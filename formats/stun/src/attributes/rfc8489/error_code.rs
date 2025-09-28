@@ -120,7 +120,7 @@ impl STUNAttributeExt for ErrorCodeAttribute {
 
     fn from_raw_attr(
         raw_attr: crate::attribute::STUNRawAttribute,
-        _transaction_id: &[u8; crate::header::TRANSACTION_ID_LEN],
+        _transaction_id: &crate::header::TransactionId,
     ) -> Result<Self, crate::errors::STUNMessageError> {
         check_attr_match(raw_attr.attr_type, crate::attribute::AttrType::ErrorCode)?;
         let mut bytes = raw_attr.value.as_slice();
@@ -145,7 +145,7 @@ impl STUNAttributeExt for ErrorCodeAttribute {
 
     fn into_raw_attr(
         self,
-        _transaction_id: &[u8; crate::header::TRANSACTION_ID_LEN],
+        _transaction_id: &crate::header::TransactionId,
     ) -> crate::attribute::STUNRawAttribute {
         assert!(self.reason_phrase.len() < ERROR_CODE_REASON_PHRASE_MAX_LEN);
         let mut value = Vec::with_capacity(self.get_packet_bytes_count());

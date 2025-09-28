@@ -67,7 +67,7 @@ impl STUNAttributeExt for UserNameAttribute {
 
     fn from_raw_attr(
         raw_attr: crate::attribute::STUNRawAttribute,
-        _transaction_id: &[u8; crate::header::TRANSACTION_ID_LEN],
+        _transaction_id: &crate::header::TransactionId,
     ) -> Result<Self, crate::errors::STUNMessageError> {
         check_attr_match(raw_attr.attr_type, crate::attribute::AttrType::UserName)?;
         let username = String::from_utf8(raw_attr.value)?;
@@ -84,7 +84,7 @@ impl STUNAttributeExt for UserNameAttribute {
 
     fn into_raw_attr(
         self,
-        _transaction_id: &[u8; crate::header::TRANSACTION_ID_LEN],
+        _transaction_id: &crate::header::TransactionId,
     ) -> crate::attribute::STUNRawAttribute {
         assert!(self.username.len() <= USERNAME_MAX_LEN);
         let attr_type = self.get_type();
