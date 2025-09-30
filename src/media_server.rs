@@ -33,5 +33,5 @@ async fn main() {
         );
     }
 
-    yam_server::app_run(config).await;
+    yam_server::app_run(config, signal::stop()).await;
 }

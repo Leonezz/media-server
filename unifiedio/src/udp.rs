@@ -56,6 +56,17 @@ impl UdpIO {
             "Failed to bind to any port",
         )))
     }
+
+    pub fn from_inner(inner: UdpSocket) -> Self {
+        let local_addr = inner.local_addr().unwrap();
+        let peer_addr = inner.peer_addr().unwrap();
+        Self {
+            inner,
+            local_addr,
+            peer_addr,
+            pending_send: None,
+        }
+    }
 }
 
 impl UnifiedIO for UdpIO {

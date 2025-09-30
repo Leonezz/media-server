@@ -1,6 +1,13 @@
-use std::io::{self, BufRead};
+use std::{
+    fmt,
+    io::{self, BufRead, Read},
+};
 
 use num::ToPrimitive;
+use tokio_util::{
+    bytes::{Buf, BufMut},
+    codec::{Decoder, Encoder},
+};
 use utils::traits::{
     dynamic_sized_packet::DynamicSizedPacket, fixed_packet::FixedPacket, reader::ReadFrom,
     writer::WriteTo,
@@ -10,13 +17,23 @@ use crate::{
     attribute::{AttrType, STUNAttribute, STUNAttributeExt, STUNRawAttribute},
     builder::STUNMessageBuilder,
     errors::{STUNMessageError, STUNMessageResult},
-    header::STUNMessageHeader,
+    header::{STUNMessageHeader, TransactionId},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct STUNMessage {
     header: STUNMessageHeader,
     attributes: Vec<STUNAttribute>,
+}
+
+impl fmt::Debug for STUNMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "{:?}", self.header)?;
+        self.attributes
+            .iter()
+            .try_for_each(|item| writeln!(f, "{:?}", item))?;
+        Ok(())
+    }
 }
 
 impl DynamicSizedPacket for STUNMessage {
@@ -49,6 +66,9 @@ impl STUNMessage {
         &self.header
     }
 
+    pub fn transaction_id(&self) -> &TransactionId {
+        &self.header.transaction_id
+    }
     pub fn message_class(&self) -> crate::header::STUNMessageClass {
         self.header.stun_message_type.message_class
     }
@@ -124,5 +144,42 @@ impl<R: io::Read> ReadFrom<R> for STUNMessage {
         let message = Self { header, attributes };
         message.message_method().check(&message)?;
         Ok(message)
+    }
+}
+
+#[derive(Debug)]
+pub struct STUNMessageFramed;
+impl Encoder<STUNMessage> for STUNMessageFramed {
+    type Error = STUNMessageError;
+    fn encode(
+        &mut self,
+        item: STUNMessage,
+        dst: &mut tokio_util::bytes::BytesMut,
+    ) -> Result<(), Self::Error> {
+        item.write_to(&mut dst.writer())?;
+        Ok(())
+    }
+}
+
+impl Decoder for STUNMessageFramed {
+    type Error = STUNMessageError;
+    type Item = STUNMessage;
+    fn decode(
+        &mut self,
+        src: &mut tokio_util::bytes::BytesMut,
+    ) -> Result<Option<Self::Item>, Self::Error> {
+        if src.len() < STUNMessageHeader::bytes_count() {
+            return Ok(None);
+        }
+        let (res, position) = {
+            let mut cursor = io::Cursor::new(&src);
+            let res = STUNMessage::read_from(cursor.by_ref());
+            (res, cursor.position())
+        };
+        if let Ok(res) = res {
+            src.advance(position as usize);
+            return Ok(Some(res));
+        }
+        Err(res.unwrap_err())
     }
 }

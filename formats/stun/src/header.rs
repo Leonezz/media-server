@@ -1,6 +1,6 @@
 use crate::{errors::STUNMessageError, methods::STUNMethod};
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use std::io;
+use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
+use std::{fmt, io};
 use utils::traits::{fixed_packet::FixedPacket, reader::ReadFrom, writer::WriteTo};
 
 // see: Section 5. STUN Message Structure
@@ -22,12 +22,24 @@ use utils::traits::{fixed_packet::FixedPacket, reader::ReadFrom, writer::WriteTo
 // |M |M |M|M|M|C|M|M|M|C|M|M|M|M|
 // |11|10|9|8|7|1|6|5|4|0|3|2|1|0|
 // +--+--+-+-+-+-+-+-+-+-+-+-+-+-+
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub enum STUNMessageClass {
     Request,
     Indication,
     SuccessResponse,
     ErrorResponse,
+}
+
+impl fmt::Debug for STUNMessageClass {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let str = match self {
+            Self::Request => "request",
+            Self::Indication => "indication",
+            Self::SuccessResponse => "success response",
+            Self::ErrorResponse => "error response",
+        };
+        f.write_str(str)
+    }
 }
 
 impl From<u8> for STUNMessageClass {
@@ -67,15 +79,30 @@ impl STUNMessageClass {
     }
 
     pub fn new(c1: bool, c0: bool) -> Self {
-        let value = ((c1 as u8) << 1) & (c0 as u8);
+        let value = ((c1 as u8) << 1) | (c0 as u8);
         Self::from(value)
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct STUNMessageType {
     pub method: STUNMethod, // 12 bits
     pub message_class: STUNMessageClass,
+}
+
+impl fmt::Debug for STUNMessageType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}: {:?}", self.message_class, self.method)
+    }
+}
+
+impl STUNMessageType {
+    pub fn new(method: STUNMethod, class: STUNMessageClass) -> Self {
+        Self {
+            method,
+            message_class: class,
+        }
+    }
 }
 
 impl From<u16> for STUNMessageType {
@@ -86,7 +113,7 @@ impl From<u16> for STUNMessageType {
         let m4_6 = (value >> 5) & 0b111;
         let m7_11 = (value >> 9) & 0b11111;
         Self {
-            method: (m0_3 & (m4_6 << 4) & (m7_11 << 7)).into(),
+            method: (m0_3 | (m4_6 << 4) | (m7_11 << 7)).into(),
             message_class: STUNMessageClass::new(c1, c0),
         }
     }
@@ -100,15 +127,25 @@ impl From<STUNMessageType> for u16 {
         let m7_11 = (method_value >> 7) & 0b11111;
         let c0 = value.message_class.c0() as u16;
         let c1 = value.message_class.c1() as u16;
-        m0_3 & (c0 << 4) & (m4_6 << 5) & (c1 << 8) & (m7_11 << 9)
+        m0_3 | (c0 << 4) | (m4_6 << 5) | (c1 << 8) | (m7_11 << 9)
     }
 }
 
 pub const MAGIC_COOKIE: u32 = 0x2112A442;
 pub const TRANSACTION_ID_LEN: usize = 12;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TransactionId([u8; TRANSACTION_ID_LEN]);
+
+impl fmt::Debug for TransactionId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "0x")?;
+        for byte in &self.0 {
+            write!(f, "{:02x}", byte)?;
+        }
+        Ok(())
+    }
+}
 
 impl TransactionId {
     pub fn new(id: [u8; TRANSACTION_ID_LEN]) -> Self {
@@ -143,7 +180,7 @@ impl<W: io::Write> WriteTo<W> for TransactionId {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct STUNMessageHeader {
     #[allow(unused)]
     reserved_zero_2_bits: u8, // 2 bits, must be 0
@@ -156,6 +193,16 @@ pub struct STUNMessageHeader {
     /// The Magic Cookie field MUST contain the fixed value 0x2112A442 in network byte order.
     magic_cookie: u32,
     pub transaction_id: TransactionId,
+}
+
+impl fmt::Debug for STUNMessageHeader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{:?}, message_length: {}, transaction_id: {:?}",
+            self.stun_message_type, self.message_length, self.transaction_id
+        )
+    }
 }
 
 impl STUNMessageHeader {
@@ -179,7 +226,7 @@ impl FixedPacket for STUNMessageHeader {
 impl<R: io::Read> ReadFrom<R> for STUNMessageHeader {
     type Error = STUNMessageError;
     fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
-        let message_type = reader.read_u16::<BigEndian>()?;
+        let message_type = reader.read_u16::<LittleEndian>()?;
         if (message_type >> 14) != 0 {
             return Err(STUNMessageError::SyntaxError(format!(
                 "the first two bits is not 0: {}",

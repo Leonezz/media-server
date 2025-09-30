@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::fmt;
 
 use crate::{errors::STUNMessageResult, message::STUNMessage, methods::rfc8489::STUNMethodBinding};
 
@@ -15,7 +15,7 @@ pub enum STUNMethod {
     Reserved(u16),
 }
 
-impl Debug for STUNMethod {
+impl fmt::Debug for STUNMethod {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Binding(_) => f.write_str(STUNMethodBinding::get_name()),

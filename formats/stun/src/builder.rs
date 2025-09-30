@@ -1,15 +1,17 @@
 use crate::{
     attribute::{STUNAttribute, STUNAttributeExt},
     errors::STUNMessageResult,
-    header::{STUNMessageHeader, STUNMessageType, TransactionId},
+    header::{STUNMessageClass, STUNMessageHeader, STUNMessageType, TransactionId},
     message::STUNMessage,
-    rfc8489::{self},
+    methods::{STUNMethod, rfc8489::STUNMethodBinding},
+    rfc8489::{self, FingerPrintAttribute},
 };
 
 #[derive(Debug, Default)]
 pub struct STUNMessageBuilder {
     transaction_id: Option<TransactionId>,
-    message_type: Option<STUNMessageType>,
+    message_method: Option<STUNMethod>,
+    message_class: Option<STUNMessageClass>,
     attributes: Vec<STUNAttribute>,
 }
 
@@ -19,8 +21,28 @@ impl STUNMessageBuilder {
         self
     }
 
-    pub fn message_type(mut self, message_type: STUNMessageType) -> Self {
-        self.message_type = Some(message_type);
+    pub fn binding(mut self) -> Self {
+        self.message_method = Some(STUNMethod::Binding(STUNMethodBinding {}));
+        self
+    }
+
+    pub fn request(mut self) -> Self {
+        self.message_class = Some(STUNMessageClass::Request);
+        self
+    }
+
+    pub fn success(mut self) -> Self {
+        self.message_class = Some(STUNMessageClass::SuccessResponse);
+        self
+    }
+
+    pub fn error(mut self) -> Self {
+        self.message_class = Some(STUNMessageClass::ErrorResponse);
+        self
+    }
+
+    pub fn indication(mut self) -> Self {
+        self.message_class = Some(STUNMessageClass::Indication);
         self
     }
 
@@ -30,7 +52,7 @@ impl STUNMessageBuilder {
             STUNAttribute::MessageIntegritySHA256(integrity) => {
                 self.message_integrity_sha256(integrity)
             }
-            STUNAttribute::FingerPrint(fingerprint) => self.finger_print(fingerprint),
+            STUNAttribute::FingerPrint(_) => self.finger_print(),
             _ => {
                 self.attributes.push(attr);
                 Ok(self)
@@ -48,9 +70,15 @@ impl STUNMessageBuilder {
                 attr
             )));
         }
-        if self.message_type.is_none() {
+        if self.message_method.is_none() {
             return Err(crate::errors::STUNMessageError::InvalidMessage(format!(
-                "unable to set {:?} before message type is set",
+                "unable to set {:?} before message method is set",
+                attr
+            )));
+        }
+        if self.message_class.is_none() {
+            return Err(crate::errors::STUNMessageError::InvalidMessage(format!(
+                "unable to set {:?} before message class is set",
                 attr
             )));
         }
@@ -76,7 +104,10 @@ impl STUNMessageBuilder {
             )));
         }
         let dummy_message = STUNMessage::new(
-            STUNMessageHeader::new(self.message_type.unwrap(), self.transaction_id.unwrap()),
+            STUNMessageHeader::new(
+                STUNMessageType::new(self.message_method.unwrap(), self.message_class.unwrap()),
+                self.transaction_id.unwrap(),
+            ),
             self.attributes.clone(),
         );
         self.attributes
@@ -94,9 +125,15 @@ impl STUNMessageBuilder {
                 attr
             )));
         }
-        if self.message_type.is_none() {
+        if self.message_method.is_none() {
             return Err(crate::errors::STUNMessageError::InvalidMessage(format!(
-                "unable to set {:?} before message type is set",
+                "unable to set {:?} before message method is set",
+                attr
+            )));
+        }
+        if self.message_class.is_none() {
+            return Err(crate::errors::STUNMessageError::InvalidMessage(format!(
+                "unable to set {:?} before message class is set",
                 attr
             )));
         }
@@ -124,7 +161,10 @@ impl STUNMessageBuilder {
         }
 
         let dummy_message = STUNMessage::new(
-            STUNMessageHeader::new(self.message_type.unwrap(), self.transaction_id.unwrap()),
+            STUNMessageHeader::new(
+                STUNMessageType::new(self.message_method.unwrap(), self.message_class.unwrap()),
+                self.transaction_id.unwrap(),
+            ),
             self.attributes.clone(),
         );
         self.attributes.push(STUNAttribute::MessageIntegritySHA256(
@@ -133,16 +173,23 @@ impl STUNMessageBuilder {
         Ok(self)
     }
 
-    pub fn finger_print(mut self, attr: rfc8489::FingerPrintAttribute) -> STUNMessageResult<Self> {
+    pub fn finger_print(mut self) -> STUNMessageResult<Self> {
+        let attr = FingerPrintAttribute::new_dummy();
         if self.transaction_id.is_none() {
             return Err(crate::errors::STUNMessageError::InvalidMessage(format!(
                 "unable to set {:?} before transaction id is set",
                 attr
             )));
         }
-        if self.message_type.is_none() {
+        if self.message_method.is_none() {
             return Err(crate::errors::STUNMessageError::InvalidMessage(format!(
-                "unable to set {:?} before message type is set",
+                "unable to set {:?} before message method is set",
+                attr
+            )));
+        }
+        if self.message_class.is_none() {
+            return Err(crate::errors::STUNMessageError::InvalidMessage(format!(
+                "unable to set {:?} before message class is set",
                 attr
             )));
         }
@@ -159,7 +206,10 @@ impl STUNMessageBuilder {
         }
 
         let message = STUNMessage::new(
-            STUNMessageHeader::new(self.message_type.unwrap(), self.transaction_id.unwrap()),
+            STUNMessageHeader::new(
+                STUNMessageType::new(self.message_method.unwrap(), self.message_class.unwrap()),
+                self.transaction_id.unwrap(),
+            ),
             self.attributes.clone(),
         );
         let real_attr = rfc8489::FingerPrintAttribute::sign(message);
@@ -173,14 +223,21 @@ impl STUNMessageBuilder {
                 "unable to build message before transaction id is set".to_owned(),
             ));
         }
-        if self.message_type.is_none() {
+        if self.message_method.is_none() {
             return Err(crate::errors::STUNMessageError::InvalidMessage(
-                "unable to build message before message type is set".to_owned(),
+                "unable to build before message method is set".to_owned(),
             ));
         }
-
+        if self.message_class.is_none() {
+            return Err(crate::errors::STUNMessageError::InvalidMessage(
+                "unable to build before message class is set".to_owned(),
+            ));
+        }
         let message = STUNMessage::new(
-            STUNMessageHeader::new(self.message_type.unwrap(), self.transaction_id.unwrap()),
+            STUNMessageHeader::new(
+                STUNMessageType::new(self.message_method.unwrap(), self.message_class.unwrap()),
+                self.transaction_id.unwrap(),
+            ),
             self.attributes,
         );
 

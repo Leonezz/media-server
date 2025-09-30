@@ -24,7 +24,6 @@ impl MediaFrame {
                 VideoFrameUnit::H264 { nal_units } => Some(RtpPacketizerItem::Video(
                     RtpPacketizerVideoItem::H264(RtpTrivialPacketizerH264Item { nalus: nal_units }),
                 )),
-                _ => unimplemented!("unsupported video format {:?}", payload),
             },
             MediaFrame::Audio {
                 frame_info,
