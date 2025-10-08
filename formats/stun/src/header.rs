@@ -226,7 +226,7 @@ impl FixedPacket for STUNMessageHeader {
 impl<R: io::Read> ReadFrom<R> for STUNMessageHeader {
     type Error = STUNMessageError;
     fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
-        let message_type = reader.read_u16::<LittleEndian>()?;
+        let message_type = reader.read_u16::<BigEndian>()?;
         if (message_type >> 14) != 0 {
             return Err(STUNMessageError::SyntaxError(format!(
                 "the first two bits is not 0: {}",

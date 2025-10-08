@@ -19,6 +19,10 @@ path = "src/media_server.rs"
 name = "stun_client"
 path = "src/stun_client.rs"
 
+[[bin]]
+name = "stun_server"
+path = "src/stun_server.rs"
+
 [workspace]
 members = [
     ".",
@@ -109,6 +113,7 @@ config = "0.15.16"
 
 yam_server = { path = "yam_server" }
 stun_client = { path = "stun_client" }
+stun_server = { path = "stun_server" }
 
 [profile.dev]
 incremental = true

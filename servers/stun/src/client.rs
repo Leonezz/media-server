@@ -1,4 +1,5 @@
 use futures::{FutureExt, Sink, SinkExt, Stream, StreamExt, select};
+use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use stun_formats::errors::STUNMessageError;
@@ -33,7 +34,11 @@ pub struct STUNClient {
 }
 
 impl STUNClient {
-    pub async fn new(io: Pin<Box<dyn UnifiedIO>>, result_tx: Sender<STUNClientResult>) -> Self {
+    pub async fn new(
+        io: Pin<Box<dyn UnifiedIO>>,
+        local_addr: SocketAddr,
+        result_tx: Sender<STUNClientResult>,
+    ) -> Self {
         let (agent_command_tx, agent_command_rx) = channel(100);
         let (agent_event_tx, agent_event_rx) = channel(100);
         let (close_tx, close_rx) = channel(10);
@@ -59,6 +64,7 @@ impl STUNClient {
         tokio::spawn(Self::run_read(
             close_rx,
             Box::pin(stream),
+            local_addr,
             Arc::clone(&agent_command_tx),
             result_tx.clone(),
         ));
@@ -136,6 +142,7 @@ impl STUNClient {
     async fn run_read(
         mut close_rx: Receiver<()>,
         mut io: Pin<Box<dyn Stream<Item = Result<STUNMessage, STUNMessageError>> + Send + Sync>>,
+        local_addr: SocketAddr,
         agent_command_tx: Arc<Sender<AgentCommand>>,
         result_tx: Arc<Sender<STUNClientResult>>,
     ) {
@@ -147,7 +154,7 @@ impl STUNClient {
                             match message {
                                 Ok(message) => {
                                     if let Err(err) = agent_command_tx
-                                        .send(AgentCommand::IncomingMessage(message.clone()))
+                                        .send(AgentCommand::IncomingMessage((message.clone(), local_addr)))
                                         .await
                                     {
                                         Some(STUNClientResult::Error(format!(

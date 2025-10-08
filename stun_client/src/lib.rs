@@ -8,8 +8,9 @@ use stun_formats::{attribute::STUNAttribute, header::TransactionId, message::STU
 use stun_server::client::STUNClientResult;
 use tokio::{select, task::block_in_place};
 use unified_io::{UnifiedIO, tcp::TcpIO, udp::UdpIO};
+use utils::net::protocol::Protocol;
 
-use crate::config::{AppConfig, Protocol};
+use crate::config::AppConfig;
 
 pub mod config;
 pub mod errors;
@@ -22,6 +23,7 @@ where
         "start with local address: [{}]:{}",
         config.local_addr, config.local_port
     );
+    let local_addr = SocketAddr::new(config.local_addr, config.local_port);
     let io = match config.protocol {
         Protocol::Tcp => {
             let socket = match config.local_addr {
@@ -33,11 +35,8 @@ where
                 return;
             }
             let socket = socket.unwrap();
-            if let Err(err) = socket.bind(SocketAddr::new(config.local_addr, config.local_port)) {
-                eprintln!(
-                    "error binding to [{}]:{}, err: {}",
-                    config.local_addr, config.local_port, err
-                );
+            if let Err(err) = socket.bind(local_addr) {
+                eprintln!("error binding to {} , err: {}", local_addr, err);
                 return;
             }
             let remote_addrs = tokio::net::lookup_host(config.server.clone()).await;
@@ -60,15 +59,13 @@ where
             }
         }
         Protocol::Udp => {
-            let udp = match tokio::net::UdpSocket::bind(SocketAddr::new(
-                config.local_addr,
-                config.local_port,
-            ))
-            .await
-            {
+            let udp = match tokio::net::UdpSocket::bind(local_addr).await {
                 Ok(udp) => udp,
                 Err(err) => {
-                    eprintln!("error creating a udp socket: {}", err);
+                    eprintln!(
+                        "error creating a udp socket with local addr: {}, err: {}",
+                        local_addr, err
+                    );
                     return;
                 }
             };
@@ -83,7 +80,7 @@ where
     };
 
     let (result_tx, mut result_rx) = tokio::sync::mpsc::channel(10);
-    let client = stun_server::client::STUNClient::new(io, result_tx).await;
+    let client = stun_server::client::STUNClient::new(io, local_addr, result_tx).await;
     defer! {
         block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {

@@ -1,10 +1,11 @@
-use crate::errors::AppError;
 use std::net::IpAddr;
+
 use utils::net::protocol::Protocol;
+
+use crate::errors::AppError;
 
 #[derive(Debug, Clone)]
 pub struct AppConfig {
-    pub server: String,
     pub protocol: Protocol,
     pub local_addr: IpAddr,
     pub local_port: u16,

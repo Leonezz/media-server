@@ -1,9 +1,14 @@
 use std::{
     collections::HashMap,
+    net::SocketAddr,
     time::{Duration, Instant},
 };
 
-use stun_formats::{header::TransactionId, message::STUNMessage};
+use stun_formats::{
+    header::TransactionId,
+    message::STUNMessage,
+    rfc8489::{ErrorCodeAttribute, XorMappedAddressAttribute, error_code::ERROR_CODE_BAD_REQUEST},
+};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::errors::{STUNSessionError, STUNSessionResult};
@@ -22,7 +27,7 @@ pub enum AgentCommand {
     // any message a client or server received from socket,
     // a client received a resposne and emit it to agent through this,
     // a server received a request and emit it to agent through this,
-    IncomingMessage(STUNMessage),
+    IncomingMessage((STUNMessage, SocketAddr)),
     SendRequest(STUNMessage), // MUST be a request
 }
 
@@ -109,17 +114,53 @@ impl Agent {
         Ok(events)
     }
 
-    fn on_incoming_message(&mut self, message: STUNMessage) -> STUNSessionResult<AgentEvent> {
-        tracing::debug!("incoming message: {:?}", message);
-        if let Some(entry) = self.transactions.remove(message.transaction_id()) {
-            tracing::debug!(
-                "corresponding transaction: {:?}, retransmit times: {}",
-                entry.request,
-                entry.retransmit_times
-            );
-            return Ok(AgentEvent::OutgoingMessage(message));
+    fn on_incoming_message(
+        &mut self,
+        message: (STUNMessage, SocketAddr),
+    ) -> STUNSessionResult<AgentEvent> {
+        let (message, remote) = message;
+        tracing::debug!("incoming message: {:?} from {}", message, remote);
+        match message.message_class() {
+            stun_formats::header::STUNMessageClass::Request => match message.message_method() {
+                stun_formats::methods::STUNMethod::Binding(_) => {
+                    let response = STUNMessage::builder()
+                        .success()
+                        .binding()
+                        .transaction_id(message.transaction_id().clone())
+                        .attribute(stun_formats::attribute::STUNAttribute::XorMappedAddress(
+                            XorMappedAddressAttribute::new(remote),
+                        ))
+                        .unwrap()
+                        .finger_print()
+                        .unwrap()
+                        .build()
+                        .unwrap();
+                    Ok(AgentEvent::OutgoingMessage(response))
+                }
+                _ => {
+                    let response = STUNMessage::builder()
+                        .error()
+                        .attribute(stun_formats::attribute::STUNAttribute::ErrorCode(
+                            ErrorCodeAttribute::new(ERROR_CODE_BAD_REQUEST).unwrap(),
+                        ))
+                        .unwrap()
+                        .build()
+                        .unwrap();
+                    Ok(AgentEvent::OutgoingMessage(response))
+                }
+            },
+            _ => {
+                if let Some(entry) = self.transactions.remove(message.transaction_id()) {
+                    tracing::debug!(
+                        "corresponding transaction: {:?}, retransmit times: {}",
+                        entry.request,
+                        entry.retransmit_times
+                    );
+                    return Ok(AgentEvent::OutgoingMessage(message));
+                }
+                Err(STUNSessionError::UnknownTransaction(message))
+            }
         }
-        Err(STUNSessionError::UnknownTransaction(message))
     }
 
     fn on_send_request(&mut self, message: STUNMessage) -> STUNSessionResult<()> {

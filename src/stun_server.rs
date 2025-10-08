@@ -1,31 +1,21 @@
+use crate::logger::parse_log_level;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use stun_client::config::AppConfig;
+use stun_server::config::AppConfig;
 use time::macros::format_description;
 use tracing_subscriber::{EnvFilter, fmt::time::LocalTime};
 mod errors;
 mod logger;
-use crate::logger::parse_log_level;
 #[tokio::main]
 async fn main() {
-    let app = clap::builder::Command::new("stun client")
+    let app = clap::builder::Command::new("stun server")
         .version("0.1.0")
         .author("zhuwenq <zhuwenqa@outlook.com>")
-        .about("a simple stun client tool")
-        .arg(
-            clap::Arg::new("server")
-                .help("stun server address in addr:port format")
-                .long("server")
-                .value_parser(clap::builder::NonEmptyStringValueParser::new())
-                .default_value("stun.l.google.com:19302"),
-        )
+        .about("a simple stun server tool")
         .arg(
             clap::Arg::new("protocol")
                 .help("tcp or udp to use")
                 .long("protocol")
-                .value_parser([
-                    clap::builder::PossibleValue::new("tcp").help("use tcp"),
-                    clap::builder::PossibleValue::new("udp").help("use udp"),
-                ])
+                .value_parser(["tcp", "udp"])
                 .default_value("udp"),
         )
         .arg(
@@ -73,6 +63,7 @@ async fn main() {
                 .default_value("none")
                 .long("loglevel"),
         );
+
     let matches = app.get_matches();
     let protocol = matches.get_one::<String>("protocol").unwrap().parse();
     if let Err(err) = protocol {
@@ -81,7 +72,6 @@ async fn main() {
     }
     let config = AppConfig {
         protocol: protocol.unwrap(),
-        server: matches.get_one::<String>("server").unwrap().to_owned(),
         local_addr: matches.get_one::<IpAddr>("localaddr").unwrap().to_owned(),
         local_port: matches.get_one::<u16>("localport").unwrap().to_owned(),
     };
@@ -99,7 +89,6 @@ async fn main() {
     } else {
         None
     };
-
     if let Some(loglevel) = loglevel {
         tracing_subscriber::fmt()
             .with_timer(LocalTime::new(format_description!(
@@ -114,5 +103,5 @@ async fn main() {
             .init();
         tracing::debug!("running with {:?}", config);
     }
-    stun_client::app_run(config, signal::stop()).await;
+    stun_server::app_run(config, signal::stop()).await;
 }
