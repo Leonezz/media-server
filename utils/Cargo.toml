@@ -16,3 +16,4 @@ bitstream-io = { workspace = true }
 ring = { workspace = true }
 md5 = "0.8.0"
 crc = "3.3.0"
+tokio-util = { workspace = true }

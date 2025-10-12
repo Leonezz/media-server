@@ -1,16 +1,10 @@
-use std::{
-    net::{IpAddr, SocketAddr},
-    pin::Pin,
-};
-
+use crate::config::AppConfig;
 use scopeguard::defer;
+use std::net::{SocketAddr, ToSocketAddrs};
 use stun_formats::{attribute::STUNAttribute, header::TransactionId, message::STUNMessage};
 use stun_server::client::STUNClientResult;
 use tokio::{select, task::block_in_place};
-use unified_io::{UnifiedIO, tcp::TcpIO, udp::UdpIO};
 use utils::net::protocol::Protocol;
-
-use crate::config::AppConfig;
 
 pub mod config;
 pub mod errors;
@@ -24,63 +18,58 @@ where
         config.local_addr, config.local_port
     );
     let local_addr = SocketAddr::new(config.local_addr, config.local_port);
-    let io = match config.protocol {
-        Protocol::Tcp => {
-            let socket = match config.local_addr {
-                IpAddr::V4(_) => tokio::net::TcpSocket::new_v4(),
-                IpAddr::V6(_) => tokio::net::TcpSocket::new_v6(),
-            };
-            if let Err(err) = socket {
-                eprintln!("error construct tcp socket: {}", err);
-                return;
-            }
-            let socket = socket.unwrap();
-            if let Err(err) = socket.bind(local_addr) {
-                eprintln!("error binding to {} , err: {}", local_addr, err);
-                return;
-            }
-            let remote_addrs = tokio::net::lookup_host(config.server.clone()).await;
-            if let Err(err) = remote_addrs {
-                eprintln!("--server {} is not valid address: {}", config.server, err);
-                return;
-            }
-            let remote_addrs: Vec<_> = remote_addrs.unwrap().collect();
-            if remote_addrs.is_empty() {
-                eprintln!("cannot resolve address from server: {}", config.server);
-                return;
-            }
+    let remote_addrs = config
+        .server
+        .to_socket_addrs()
+        .inspect_err(|err| {
+            eprintln!("error resolving server address: {}", err);
+            std::process::exit(1);
+        })
+        .unwrap();
+    let mut client = None;
+    for remote in remote_addrs {
+        tracing::debug!("trying server address: {}", remote);
+        let endpoint = match config.protocol {
+            Protocol::Tcp => connection::endpoint::ClientEndpoint::new_tcp(local_addr),
+            Protocol::Udp => connection::endpoint::ClientEndpoint::new_udp(local_addr),
+        }
+        .inspect_err(|err| {
+            eprintln!("error creating client endpoint: {}", err);
+            std::process::exit(1);
+        })
+        .unwrap();
 
-            match socket.connect(remote_addrs[0]).await {
-                Ok(tcp) => Box::pin(TcpIO::new(tcp)) as Pin<Box<dyn UnifiedIO>>,
-                Err(err) => {
-                    eprintln!("error connect to {}: {}", config.server, err);
-                    return;
-                }
+        match endpoint.connect::<STUNMessage>(remote).await {
+            Ok((conn, message_tx, message_rx)) => {
+                tracing::info!("connected to server: {}", remote);
+                let (result_tx, result_rx) = tokio::sync::mpsc::channel(10);
+                tokio::spawn(async move {
+                    let _ = conn.await.inspect_err(|err| {
+                        tracing::error!("connection to server {} closed with err: {}", remote, err);
+                    });
+                });
+                let stun_client = stun_server::client::STUNClient::new(
+                    message_tx, message_rx, local_addr, result_tx,
+                )
+                .await;
+                client = Some((stun_client, result_rx));
+                break;
+            }
+            Err(err) => {
+                tracing::error!(
+                    "error connecting to server {}: {}, trying next",
+                    remote,
+                    err
+                );
             }
         }
-        Protocol::Udp => {
-            let udp = match tokio::net::UdpSocket::bind(local_addr).await {
-                Ok(udp) => udp,
-                Err(err) => {
-                    eprintln!(
-                        "error creating a udp socket with local addr: {}, err: {}",
-                        local_addr, err
-                    );
-                    return;
-                }
-            };
-            match udp.connect(config.server.clone()).await {
-                Ok(()) => Box::pin(UdpIO::from_inner(udp)) as Pin<Box<dyn UnifiedIO>>,
-                Err(err) => {
-                    eprintln!("error connect to {}: {}", config.server, err);
-                    return;
-                }
-            }
-        }
-    };
+    }
 
-    let (result_tx, mut result_rx) = tokio::sync::mpsc::channel(10);
-    let client = stun_server::client::STUNClient::new(io, local_addr, result_tx).await;
+    if client.is_none() {
+        eprintln!("failed to connect to any server address");
+        return;
+    }
+    let (client, mut result_rx) = client.unwrap();
     defer! {
         block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {
@@ -97,7 +86,7 @@ where
         .finger_print()
         .unwrap()
         .build();
-    tracing::debug!("bing_request: {:?}", binding_request);
+    tracing::debug!("bind_request: {:?}", binding_request);
     if let Err(err) = binding_request {
         eprintln!("error building request: {}", err);
         return;

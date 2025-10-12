@@ -1,6 +1,6 @@
 [package]
-name = "stun-server"
-description = "agent and client and server for STUN protocol"
+name = "connection"
+description = "unified socket level connection"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,11 +11,10 @@ crate-type = ["lib"]
 
 [dependencies]
 thiserror = { workspace = true }
+tokio = { workspace = true, features = ["net", "time"] }
+tokio-util = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
-tokio = { workspace = true, features = ["full"] }
-tokio-util = { workspace = true }
 futures = { workspace = true }
-
-stun-formats = { workspace = true }
 utils = { workspace = true }
-connection = { workspace = true }
+
+pin-project = "1"

@@ -20,3 +20,4 @@ stun-server = { workspace = true }
 stun-formats = { workspace = true }
 unified-io = { workspace = true }
 utils = { workspace = true }
+connection = { workspace = true }

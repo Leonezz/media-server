@@ -1,15 +1,12 @@
-use futures::{FutureExt, Sink, SinkExt, Stream, StreamExt, select};
+use connection::connection::Outgoing;
+use futures::{FutureExt, select};
 use std::net::SocketAddr;
-use std::pin::Pin;
 use std::sync::Arc;
-use stun_formats::errors::STUNMessageError;
-use stun_formats::message::{STUNMessage, STUNMessageFramed};
-use tokio::sync::Mutex;
+use stun_formats::message::STUNMessage;
 use tokio::sync::{
     RwLock,
     mpsc::{Receiver, Sender, channel},
 };
-use unified_io::{UnifiedIO, UnifiyStreamed};
 
 use crate::{
     agent::{Agent, AgentCommand, AgentEvent},
@@ -22,33 +19,26 @@ pub enum STUNClientResult {
     Error(String),
 }
 
-type MessageSource =
-    Arc<Mutex<Pin<Box<dyn Sink<STUNMessage, Error = STUNMessageError> + Send + Sync>>>>;
-type MessageSink =
-    Arc<Mutex<Pin<Box<dyn Sink<STUNMessage, Error = STUNMessageError> + Send + Sync>>>>;
-
 pub struct STUNClient {
-    io: MessageSink,
+    message_tx: tokio::sync::mpsc::Sender<Outgoing<STUNMessage>>,
     agent_command_tx: Arc<Sender<AgentCommand>>,
     close_tx: Sender<()>,
 }
 
 impl STUNClient {
     pub async fn new(
-        io: Pin<Box<dyn UnifiedIO>>,
+        message_tx: tokio::sync::mpsc::Sender<Outgoing<STUNMessage>>,
+        message_rx: tokio::sync::mpsc::Receiver<STUNMessage>,
         local_addr: SocketAddr,
         result_tx: Sender<STUNClientResult>,
     ) -> Self {
         let (agent_command_tx, agent_command_rx) = channel(100);
         let (agent_event_tx, agent_event_rx) = channel(100);
         let (close_tx, close_rx) = channel(10);
-        let streamd = UnifiyStreamed::new(io, STUNMessageFramed {});
-        let (sink, stream) = streamd.split();
         let result_tx = Arc::new(result_tx);
-        let sink: MessageSink = Arc::new(Mutex::new(Box::pin(sink)
-            as Pin<Box<dyn Sink<STUNMessage, Error = STUNMessageError> + Send + Sync>>));
+
         tokio::spawn(Self::run_observe(
-            sink.clone(),
+            message_tx.clone(),
             Arc::new(RwLock::new(agent_event_rx)),
             result_tx.clone(),
         ));
@@ -63,21 +53,29 @@ impl STUNClient {
 
         tokio::spawn(Self::run_read(
             close_rx,
-            Box::pin(stream),
+            message_rx,
             local_addr,
             Arc::clone(&agent_command_tx),
             result_tx.clone(),
         ));
         Self {
-            io: sink,
+            message_tx,
             agent_command_tx,
             close_tx,
         }
     }
 
     pub async fn send(&self, request: STUNMessage) -> STUNSessionResult<()> {
-        self.io.lock().await.send(request.clone()).await?;
-        self.io.lock().await.flush().await?;
+        let (flush_tx, flush_rx) = tokio::sync::oneshot::channel();
+        self.message_tx
+            .send((request.clone(), Some(flush_tx)))
+            .await
+            .map_err(|err| {
+                STUNSessionError::ChannelError(format!("error sending message to socket: {}", err))
+            })?;
+        let _ = flush_rx.await.map_err(|err| {
+            STUNSessionError::ChannelError(format!("error waiting for flush ack: {}", err))
+        })?;
         self.agent_command_tx
             .send(AgentCommand::SendRequest(request))
             .await
@@ -93,7 +91,7 @@ impl STUNClient {
     }
 
     async fn run_observe(
-        io: MessageSource,
+        message_tx: tokio::sync::mpsc::Sender<Outgoing<STUNMessage>>,
         agent_event_rx: Arc<RwLock<Receiver<AgentEvent>>>,
         result_tx: Arc<Sender<STUNClientResult>>,
     ) {
@@ -102,7 +100,7 @@ impl STUNClient {
             if let Some(res) = res {
                 match res {
                     AgentEvent::Retransmit(message) => {
-                        if let Err(err) = io.lock().await.send(message).await {
+                        if let Err(err) = message_tx.send((message, None)).await {
                             let _ = result_tx
                                 .send(STUNClientResult::Error(format!(
                                     "error sending retransmit message: {}",
@@ -141,34 +139,26 @@ impl STUNClient {
 
     async fn run_read(
         mut close_rx: Receiver<()>,
-        mut io: Pin<Box<dyn Stream<Item = Result<STUNMessage, STUNMessageError>> + Send + Sync>>,
+        mut message_rx: tokio::sync::mpsc::Receiver<STUNMessage>,
         local_addr: SocketAddr,
         agent_command_tx: Arc<Sender<AgentCommand>>,
         result_tx: Arc<Sender<STUNClientResult>>,
     ) {
         loop {
             select! {
-                res = io.next().fuse() => {
+                res = message_rx.recv().fuse() => {
                     let error = match res {
                         Some(message) => {
-                            match message {
-                                Ok(message) => {
-                                    if let Err(err) = agent_command_tx
-                                        .send(AgentCommand::IncomingMessage((message.clone(), local_addr)))
-                                        .await
-                                    {
-                                        Some(STUNClientResult::Error(format!(
-                                            "error processing message: {:?}, err: {}",
-                                            message, err
-                                        )))
-                                    } else {
-                                        None
-                                    }
-                                }
-                                Err(err) => Some(STUNClientResult::Error(format!(
-                                    "error reading message: {:?}",
-                                    err
-                                ))),
+                            if let Err(err) = agent_command_tx
+                                .send(AgentCommand::IncomingMessage((message.clone(), local_addr)))
+                                .await
+                            {
+                                Some(STUNClientResult::Error(format!(
+                                    "error processing message: {:?}, err: {}",
+                                    message, err
+                                )))
+                            } else {
+                                None
                             }
                         }
                         None => None,

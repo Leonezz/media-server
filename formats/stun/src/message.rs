@@ -9,7 +9,7 @@ use tokio_util::{
     codec::{Decoder, Encoder},
 };
 use utils::traits::{
-    dynamic_sized_packet::DynamicSizedPacket, fixed_packet::FixedPacket, reader::ReadFrom,
+    self, dynamic_sized_packet::DynamicSizedPacket, fixed_packet::FixedPacket, reader::ReadFrom,
     writer::WriteTo,
 };
 
@@ -24,6 +24,16 @@ use crate::{
 pub struct STUNMessage {
     header: STUNMessageHeader,
     attributes: Vec<STUNAttribute>,
+}
+
+impl traits::protocol_message::ProtocolMessage for STUNMessage {
+    type Codec = STUNMessageFramed;
+    type Error = STUNMessageError;
+    type In = STUNMessage;
+    type Out = STUNMessage;
+    fn codec() -> Self::Codec {
+        STUNMessageFramed {}
+    }
 }
 
 impl fmt::Debug for STUNMessage {

@@ -2,7 +2,11 @@ use crate::logger::parse_log_level;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use stun_server::config::AppConfig;
 use time::macros::format_description;
-use tracing_subscriber::{EnvFilter, fmt::time::LocalTime};
+#[cfg(feature = "tokio_unstable")]
+use tracing_subscriber::fmt::layer;
+use tracing_subscriber::{
+    EnvFilter, fmt::time::LocalTime, layer::SubscriberExt, util::SubscriberInitExt,
+};
 mod errors;
 mod logger;
 #[tokio::main]
@@ -90,17 +94,30 @@ async fn main() {
         None
     };
     if let Some(loglevel) = loglevel {
-        tracing_subscriber::fmt()
-            .with_timer(LocalTime::new(format_description!(
-                "[hour]:[minute]:[second]"
-            )))
-            .with_env_filter(
+        let registry = tracing_subscriber::registry()
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_timer(LocalTime::new(format_description!(
+                        "[hour]:[minute]:[second]"
+                    )))
+                    .compact()
+                    .with_ansi(true),
+            )
+            .with(
                 EnvFilter::try_from_default_env()
                     .unwrap_or(EnvFilter::new(format!("{}", loglevel))),
-            )
-            .compact()
-            .with_ansi(true)
-            .init();
+            );
+        #[cfg(feature = "tokio_unstable")]
+        let registry = registry.with(
+            console_subscriber::ConsoleLayer::builder()
+                // set how long the console will retain data from completed tasks
+                .retention(Duration::from_secs(60))
+                // set the address the server is bound to
+                .server_addr(([127, 0, 0, 1], 6669))
+                .spawn(),
+        );
+
+        registry.init();
         tracing::debug!("running with {:?}", config);
     }
     stun_server::app_run(config, signal::stop()).await;
