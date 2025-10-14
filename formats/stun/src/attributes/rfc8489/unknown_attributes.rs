@@ -4,8 +4,14 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
 
 use crate::{
-    attribute::{AttrType, AttributeExt},
-    attributes::{STUN_ATTRIBUTE_PADDING_SIZE, check_attr_match, get_after_padding_size},
+    MessageChecker,
+    attributes::{
+        AttributeExtDynamic, AttributeExtStatic, AttributeFactory, STUN_ATTRIBUTE_PADDING_SIZE,
+        get_after_padding_size, rfc8489::ErrorCodeAttribute,
+    },
+    define_attribute,
+    error_codes::{self, ErrorCodeExtStatic},
+    header::MessageClass,
 };
 
 ///  0                   1                   2                   3
@@ -16,11 +22,11 @@ use crate::{
 /// |        Attribute 3 Type       |        Attribute 4 Type     ...
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 #[derive(Clone)]
-pub struct UnknownAttributes {
-    pub attributes: Vec<AttrType>,
+pub struct UnknownAttributesAttribute {
+    pub attributes: Vec<u16>,
 }
 
-impl fmt::Debug for UnknownAttributes {
+impl fmt::Debug for UnknownAttributesAttribute {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -31,23 +37,51 @@ impl fmt::Debug for UnknownAttributes {
     }
 }
 
-impl DynamicSizedPacket for UnknownAttributes {
+impl DynamicSizedPacket for UnknownAttributesAttribute {
     fn get_packet_bytes_count(&self) -> usize {
         get_after_padding_size(self.attributes.len() * 2, STUN_ATTRIBUTE_PADDING_SIZE)
     }
 }
 
-impl AttributeExt for UnknownAttributes {
-    const STATIC_ATTR_TYPE: Option<AttrType> = Some(AttrType::UnknownAttributes);
-    fn get_type(&self) -> AttrType {
-        Self::STATIC_ATTR_TYPE.unwrap()
-    }
+define_attribute!(0x000A, UnknownAttributesAttribute, "UNKNOWN_ATTRIBUTES");
 
+impl MessageChecker for UnknownAttributesAttribute {
+    fn check(&self, message: &crate::message::Message) -> crate::errors::StunMessageResult<()> {
+        let class = message.message_class();
+        if !matches!(class, MessageClass::ErrorResponse) {
+            return Err(crate::errors::StunMessageError::InvalidMessage(format!(
+                "{:?} in {:?} message is not allowed",
+                Self::STATIC_ATTR_TYPE,
+                class
+            )));
+        }
+        if let Some(error_code) = message.get_attribute_ext::<ErrorCodeAttribute>() {
+            if error_code.error_code().code()
+                != error_codes::rfc8489::UNKNOWN_ATTRIBUTE::STATIC_CODE
+            {
+                return Err(crate::errors::StunMessageError::InvalidMessage(format!(
+                    "code {:?} is required for message with {:?}, got {:?} instead",
+                    error_codes::rfc8489::UNKNOWN_ATTRIBUTE::default(),
+                    Self::STATIC_ATTR_TYPE,
+                    error_code.error_code()
+                )));
+            }
+        } else {
+            return Err(crate::errors::StunMessageError::InvalidMessage(format!(
+                "{:?} is required for message with {:?}",
+                ErrorCodeAttribute::STATIC_ATTR_TYPE,
+                Self::STATIC_ATTR_TYPE
+            )));
+        }
+        Ok(())
+    }
+}
+
+impl AttributeFactory for UnknownAttributesAttribute {
     fn from_raw_attr(
-        raw_attr: crate::attribute::RawAttribute,
+        raw_attr: crate::attributes::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
     ) -> Result<Self, crate::errors::StunMessageError> {
-        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE.unwrap())?;
         let mut attributes = Vec::with_capacity(raw_attr.value.len() / 2);
         let mut bytes = raw_attr.value.as_slice();
         while bytes.has_data_left()? {
@@ -55,19 +89,18 @@ impl AttributeExt for UnknownAttributes {
             if attr == 0 {
                 break;
             }
-            attributes.push(AttrType::from(attr));
+            attributes.push(attr);
         }
         Ok(Self { attributes })
     }
-
     fn into_raw_attr(
         self,
         _transaction_id: &crate::header::TransactionId,
-    ) -> crate::attribute::RawAttribute {
+    ) -> crate::attributes::RawAttribute {
         let mut value = Vec::with_capacity(self.attributes.len() * 2);
         self.attributes.iter().for_each(|item| {
             value.write_u16::<BigEndian>((*item).into()).unwrap();
         });
-        crate::attribute::RawAttribute::new(self.get_type(), value)
+        crate::attributes::RawAttribute::new(self.get_type(), value)
     }
 }

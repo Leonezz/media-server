@@ -5,13 +5,15 @@ use std::{
 };
 
 use stun_formats::{
+    attributes::rfc8489::{ErrorCodeAttribute, XorMappedAddressAttribute},
+    error_codes::{ErrorCodeExtStatic, rfc8489::BAD_REQUEST},
     header::TransactionId,
     message::Message,
-    rfc8489::{ErrorCodeAttribute, XorMappedAddressAttribute, error_code::ERROR_CODE_BAD_REQUEST},
+    methods::MethodExtStatic,
 };
 use tokio::sync::mpsc::{Receiver, Sender};
 
-use crate::errors::{STUNSessionError, STUNSessionResult};
+use crate::errors::{StunSessionError, StunSessionResult};
 
 #[derive(Debug)]
 pub struct Transaction {
@@ -86,7 +88,7 @@ impl Agent {
         self
     }
 
-    fn on_timer(&mut self) -> STUNSessionResult<Vec<AgentEvent>> {
+    fn on_timer(&mut self) -> StunSessionResult<Vec<AgentEvent>> {
         let now = Instant::now();
         let mut events = Vec::new();
         self.transactions.retain(|_, transaction| {
@@ -117,19 +119,17 @@ impl Agent {
     fn on_incoming_message(
         &mut self,
         message: (Message, SocketAddr),
-    ) -> STUNSessionResult<AgentEvent> {
+    ) -> StunSessionResult<AgentEvent> {
         let (message, remote) = message;
         tracing::debug!("incoming message: {:?} from {}", message, remote);
         match message.message_class() {
-            stun_formats::header::MessageClass::Request => match message.message_method() {
-                stun_formats::methods::Method::Binding(_) => {
+            stun_formats::header::MessageClass::Request => match message.message_method().value() {
+                stun_formats::methods::rfc8489::BINDING::STATIC_VALUE => {
                     let response = Message::builder()
                         .success()
                         .binding()
                         .transaction_id(message.transaction_id().clone())
-                        .attribute(stun_formats::attribute::Attribute::XorMappedAddress(
-                            XorMappedAddressAttribute::new(remote),
-                        ))
+                        .attribute(XorMappedAddressAttribute::new(remote))
                         .unwrap()
                         .finger_print()
                         .unwrap()
@@ -140,9 +140,9 @@ impl Agent {
                 _ => {
                     let response = Message::builder()
                         .error()
-                        .attribute(stun_formats::attribute::Attribute::ErrorCode(
-                            ErrorCodeAttribute::new(ERROR_CODE_BAD_REQUEST).unwrap(),
-                        ))
+                        .attribute(
+                            ErrorCodeAttribute::new(BAD_REQUEST::STATIC_CODE.into()).unwrap(),
+                        )
                         .unwrap()
                         .build()
                         .unwrap();
@@ -158,12 +158,12 @@ impl Agent {
                     );
                     return Ok(AgentEvent::OutgoingMessage(message));
                 }
-                Err(STUNSessionError::UnknownTransaction(message))
+                Err(StunSessionError::UnknownTransaction(message))
             }
         }
     }
 
-    fn on_send_request(&mut self, message: Message) -> STUNSessionResult<()> {
+    fn on_send_request(&mut self, message: Message) -> StunSessionResult<()> {
         self.transactions.remove(message.transaction_id());
         let now = Instant::now();
         let transaction = Transaction {
@@ -178,7 +178,7 @@ impl Agent {
         Ok(())
     }
 
-    async fn process_events(&mut self, events: Vec<AgentEvent>) -> STUNSessionResult<()> {
+    async fn process_events(&mut self, events: Vec<AgentEvent>) -> StunSessionResult<()> {
         for event in events {
             match self.event_tx.send_timeout(event, self.timer_interval).await {
                 Ok(()) => {}
@@ -190,7 +190,7 @@ impl Agent {
         Ok(())
     }
 
-    pub async fn run(mut self) -> STUNSessionResult<()> {
+    pub async fn run(mut self) -> StunSessionResult<()> {
         let mut timer = tokio::time::interval(self.timer_interval);
         loop {
             tokio::select! {

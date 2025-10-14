@@ -8,8 +8,11 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
 
 use crate::{
-    attribute::{AttrType, AttributeExt, RawAttribute},
-    attributes::check_attr_match,
+    MessageChecker,
+    attributes::{
+        AttributeExtDynamic, AttributeExtStatic, AttributeFactory, RawAttribute, check_attr_match,
+    },
+    define_attribute,
     errors::StunMessageError,
 };
 
@@ -95,20 +98,20 @@ impl From<MappedAddressAttribute> for RawAttribute {
         buffer.write_u16::<BigEndian>(value.family()).unwrap();
         buffer.write_u16::<BigEndian>(value.port).unwrap();
         buffer.extend_from_slice(value.address.as_octets());
-        Self::new(Self::STATIC_ATTR_TYPE.unwrap(), buffer)
+        Self::new(MappedAddressAttribute::STATIC_ATTR_TYPE, buffer)
     }
 }
 
 impl TryFrom<RawAttribute> for MappedAddressAttribute {
     type Error = StunMessageError;
     fn try_from(value: RawAttribute) -> Result<Self, Self::Error> {
-        check_attr_match(value.attr_type, Self::STATIC_ATTR_TYPE.unwrap())?;
+        check_attr_match(value.attr_type, Self::STATIC_ATTR_TYPE)?;
         let mut bytes = value.value.as_slice();
         let first_byte = bytes.read_u8()?;
         if first_byte != 0 {
             return Err(StunMessageError::SyntaxError(format!(
                 "first byte of {:?} is not zero: {}",
-                Self::STATIC_ATTR_TYPE.unwrap(),
+                Self::STATIC_ATTR_TYPE,
                 first_byte
             )));
         }
@@ -141,8 +144,11 @@ impl TryFrom<RawAttribute> for MappedAddressAttribute {
     }
 }
 
-impl AttributeExt for MappedAddressAttribute {
-    const STATIC_ATTR_TYPE: Option<AttrType> = Some(AttrType::MappedAddress);
+define_attribute!(0x0001, MappedAddressAttribute, "MAPPED_ADDRESS");
+
+impl MessageChecker for MappedAddressAttribute {}
+
+impl AttributeFactory for MappedAddressAttribute {
     fn from_raw_attr(
         raw_attr: RawAttribute,
         _transaction_id: &crate::header::TransactionId,
@@ -151,9 +157,5 @@ impl AttributeExt for MappedAddressAttribute {
     }
     fn into_raw_attr(self, _transaction_id: &crate::header::TransactionId) -> RawAttribute {
         self.into()
-    }
-
-    fn get_type(&self) -> AttrType {
-        Self::STATIC_ATTR_TYPE.unwrap()
     }
 }

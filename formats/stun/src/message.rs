@@ -9,21 +9,28 @@ use tokio_util::{
     codec::{Decoder, Encoder},
 };
 use utils::traits::{
-    self, dynamic_sized_packet::DynamicSizedPacket, fixed_packet::FixedPacket, reader::ReadFrom,
+    self,
+    dynamic_sized_packet::DynamicSizedPacket,
+    fixed_packet::FixedPacket,
+    reader::{ReadFrom, ReadRemainingFrom},
     writer::WriteTo,
 };
 
 use crate::{
-    attribute::{AttrType, Attribute, AttributeExt, RawAttribute},
-    builder::STUNMessageBuilder,
-    errors::{STUNMessageResult, StunMessageError},
-    header::{STUNMessageHeader, TransactionId},
+    attributes::{
+        AttributeExtDynamic, AttributeExtStatic, AttributeFactory, RawAttribute,
+        rfc8489::{MessageIntegrityAttribute, MessageIntegritySHA256Attribute},
+    },
+    builder::MessageBuilder,
+    errors::{StunMessageError, StunMessageResult},
+    header::{MessageHeader, TransactionId},
+    methods::MethodExtDynamic,
 };
 
 #[derive(Clone)]
 pub struct Message {
-    header: STUNMessageHeader,
-    attributes: Vec<Attribute>,
+    header: MessageHeader,
+    attributes: Vec<RawAttribute>,
 }
 
 impl traits::protocol_message::ProtocolMessage for Message {
@@ -48,7 +55,7 @@ impl fmt::Debug for Message {
 
 impl DynamicSizedPacket for Message {
     fn get_packet_bytes_count(&self) -> usize {
-        STUNMessageHeader::bytes_count()
+        MessageHeader::bytes_count()
             + self
                 .attributes
                 .iter()
@@ -57,22 +64,22 @@ impl DynamicSizedPacket for Message {
 }
 
 impl Message {
-    pub fn builder() -> STUNMessageBuilder {
+    pub fn builder() -> MessageBuilder {
         Default::default()
     }
 
-    pub(crate) fn new(header: STUNMessageHeader, attrs: Vec<Attribute>) -> Self {
+    pub(crate) fn new(header: MessageHeader, attrs: Vec<RawAttribute>) -> Self {
         Message {
             header,
             attributes: attrs,
         }
     }
 
-    pub fn attributes(&self) -> &Vec<Attribute> {
+    pub fn attributes(&self) -> &Vec<RawAttribute> {
         &self.attributes
     }
 
-    pub fn header(&self) -> &STUNMessageHeader {
+    pub fn header(&self) -> &MessageHeader {
         &self.header
     }
 
@@ -83,47 +90,78 @@ impl Message {
         self.header.stun_message_type.message_class
     }
 
-    pub fn message_method(&self) -> crate::methods::Method {
-        self.header.stun_message_type.method
+    pub fn message_method(&self) -> &Box<dyn MethodExtDynamic> {
+        &self.header.stun_message_type.method
     }
 
-    pub fn prepare_dummy_message_bytes(mut self, attr: Attribute) -> Self {
-        self.attributes.push(attr);
+    pub fn prepare_dummy_message_bytes<A: AttributeFactory>(mut self, attr: A) -> Self {
+        self.attributes
+            .push(attr.into_raw_attr(self.transaction_id()));
         self
     }
 
     pub fn has_authentication(&self) -> bool {
         self.attributes.iter().any(|item| {
-            let attr_type = item.get_type();
-            matches!(attr_type, AttrType::MessageIntegrity)
-                || matches!(attr_type, AttrType::MessageIntegritySHA256)
+            let attr_type = item.attr_type;
+            matches!(attr_type, MessageIntegrityAttribute::STATIC_ATTR_TYPE)
+                || matches!(attr_type, MessageIntegritySHA256Attribute::STATIC_ATTR_TYPE)
         })
     }
 
-    pub fn get_attribute(&self, attr_type: AttrType) -> Option<&Attribute> {
+    pub fn get_attribute(&self, attr_type: u16) -> Option<&RawAttribute> {
         self.attributes
             .iter()
-            .find(|item| item.get_type() == attr_type)
+            .find(|item| item.attr_type == attr_type)
     }
 
-    pub fn get_attribute_ext<Attr: AttributeExt>(&self) -> Option<Attr> {
+    pub fn get_attribute_ext<Attr: AttributeExtDynamic + AttributeFactory>(&self) -> Option<Attr> {
         self.attributes.iter().find_map(|item| {
-            if let Some(static_attr_type) = Attr::STATIC_ATTR_TYPE
-                && static_attr_type == item.get_type()
-            {
-                let raw_attribute = item.clone().into_raw_attr(self.transaction_id());
+            if Attr::STATIC_ATTR_TYPE == item.attr_type {
+                let raw_attribute = item.clone();
                 return Attr::from_raw_attr(raw_attribute, self.transaction_id()).ok();
             }
             None
         })
     }
 
-    pub fn require(&self, attr_type: AttrType) -> STUNMessageResult<()> {
+    pub fn require(&self, attr_type: u16) -> StunMessageResult<()> {
         if self.get_attribute(attr_type).is_none() {
             return Err(StunMessageError::InvalidMessage(format!(
                 "no {:?} found in message: {:?}",
                 attr_type, self
             )));
+        }
+        Ok(())
+    }
+
+    pub fn require_ext<A: AttributeExtStatic>(&self) -> StunMessageResult<()> {
+        self.require(A::STATIC_ATTR_TYPE)
+    }
+
+    pub fn count(&self, attr_type: u16) -> usize {
+        self.attributes().iter().fold(0, |prev, item| {
+            if item.attr_type == attr_type {
+                return prev + 1;
+            }
+            prev
+        })
+    }
+
+    pub fn check(&self) -> StunMessageResult<()> {
+        self.message_class().check(self)?;
+        self.message_method().check(self)?;
+        let mut unknown_attributes = vec![];
+        self.attributes().iter().try_for_each(|item| {
+            let ext = item.clone().into_extension(*self.transaction_id());
+            if let Some(attr) = ext {
+                attr?.check(self)?;
+            } else if item.is_comprehension_required() {
+                unknown_attributes.push(item.attr_type);
+            }
+            Ok::<(), StunMessageError>(())
+        })?;
+        if !unknown_attributes.is_empty() {
+            return Err(StunMessageError::UnknownAttributes(unknown_attributes));
         }
         Ok(())
     }
@@ -136,12 +174,11 @@ impl<W: io::Write> WriteTo<W> for Message {
             .attributes
             .iter()
             .fold(0, |prev, item| prev + item.get_packet_bytes_count());
-        let mut header = self.header;
+        let mut header = self.header.clone();
         header.message_length = body_len.to_u16().unwrap();
         header.write_to(writer)?;
         self.attributes.iter().try_for_each(|item| {
-            let raw_attr = item.clone().into_raw_attr(&self.header.transaction_id);
-            raw_attr.write_to(writer)?;
+            item.write_to(writer)?;
             Ok::<(), Self::Error>(())
         })?;
         Ok(())
@@ -151,17 +188,37 @@ impl<W: io::Write> WriteTo<W> for Message {
 impl<R: io::Read> ReadFrom<R> for Message {
     type Error = StunMessageError;
     fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
-        let header = STUNMessageHeader::read_from(reader)?;
+        let header = MessageHeader::read_from(reader)?;
+        Self::read_remaining_from(header, reader)
+    }
+}
+
+// for turn ChannelData interleaving
+impl<R: io::Read> ReadRemainingFrom<u8, R> for Message {
+    type Error = StunMessageError;
+    fn read_remaining_from(header: u8, reader: &mut R) -> Result<Self, Self::Error> {
+        assert!(header <= 3);
+        let mut message_header_bytes = vec![0; MessageHeader::bytes_count()];
+        message_header_bytes[0] = header;
+        reader.read_exact(&mut message_header_bytes[1..])?;
+        let message_header = MessageHeader::read_from(&mut message_header_bytes.reader())?;
+        Self::read_remaining_from(message_header, reader)
+    }
+}
+
+impl<R: io::Read> ReadRemainingFrom<MessageHeader, R> for Message {
+    type Error = StunMessageError;
+    fn read_remaining_from(header: MessageHeader, reader: &mut R) -> Result<Self, Self::Error> {
         let mut remaining_bytes = vec![0_u8; header.message_length as usize];
         reader.read_exact(&mut remaining_bytes)?;
         let mut bytes = remaining_bytes.as_slice();
         let mut attributes = Vec::new();
         while bytes.has_data_left()? {
             let raw_attr = RawAttribute::read_from(&mut bytes)?;
-            attributes.push(Attribute::from_raw_attr(raw_attr, &header.transaction_id)?);
+            attributes.push(raw_attr);
         }
         let message = Self { header, attributes };
-        message.message_method().check(&message)?;
+        message.check()?;
         Ok(message)
     }
 }
@@ -187,7 +244,7 @@ impl Decoder for MessageFramed {
         &mut self,
         src: &mut tokio_util::bytes::BytesMut,
     ) -> Result<Option<Self::Item>, Self::Error> {
-        if src.len() < STUNMessageHeader::bytes_count() {
+        if src.len() < MessageHeader::bytes_count() {
             return Ok(None);
         }
         let (res, position) = {

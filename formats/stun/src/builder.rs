@@ -1,28 +1,32 @@
 use crate::{
-    attribute::{Attribute, AttributeExt},
-    errors::STUNMessageResult,
-    header::{MessageClass, STUNMessageHeader, STUNMessageType, TransactionId},
+    attributes::{
+        AttributeExtDynamic, AttributeExtStatic, AttributeFactory, RawAttribute,
+        rfc8489::{
+            self, FingerPrintAttribute, MessageIntegrityAttribute, MessageIntegritySHA256Attribute,
+        },
+    },
+    errors::StunMessageResult,
+    header::{MessageClass, MessageHeader, MessageType, TransactionId},
     message::Message,
-    methods::{Method, rfc8489::STUNMethodBinding},
-    rfc8489::{self, FingerPrintAttribute},
+    methods::{self, CloneableMethodExt},
 };
 
 #[derive(Debug, Default)]
-pub struct STUNMessageBuilder {
+pub struct MessageBuilder {
     transaction_id: Option<TransactionId>,
-    message_method: Option<Method>,
+    message_method: Option<Box<dyn CloneableMethodExt>>,
     message_class: Option<MessageClass>,
-    attributes: Vec<Attribute>,
+    attributes: Vec<RawAttribute>,
 }
 
-impl STUNMessageBuilder {
+impl MessageBuilder {
     pub fn transaction_id(mut self, transaction_id: TransactionId) -> Self {
         self.transaction_id = Some(transaction_id);
         self
     }
 
     pub fn binding(mut self) -> Self {
-        self.message_method = Some(Method::Binding(STUNMethodBinding {}));
+        self.message_method = Some(Box::new(methods::rfc8489::BINDING));
         self
     }
 
@@ -41,43 +45,88 @@ impl STUNMessageBuilder {
         self
     }
 
+    pub(crate) fn error_mut(&mut self) -> &mut Self {
+        self.message_class = Some(MessageClass::ErrorResponse);
+        self
+    }
+
     pub fn indication(mut self) -> Self {
         self.message_class = Some(MessageClass::Indication);
         self
     }
 
-    pub fn attribute(mut self, attr: Attribute) -> STUNMessageResult<Self> {
-        match attr {
-            Attribute::MessageIntegrity(integrity) => self.message_integrity(integrity),
-            Attribute::MessageIntegritySHA256(integrity) => {
-                self.message_integrity_sha256(integrity)
+    pub fn attribute<A: AttributeFactory>(mut self, attr: A) -> StunMessageResult<Self> {
+        self.attribute_mut(attr)?;
+        Ok(self)
+    }
+
+    pub(crate) fn attribute_mut<A: AttributeFactory>(
+        &mut self,
+        attr: A,
+    ) -> StunMessageResult<&mut Self> {
+        if self.transaction_id.is_none() {
+            return Err(crate::errors::StunMessageError::BuilderError(format!(
+                "unable to set attribute before transaction id is set"
+            )));
+        }
+        match A::STATIC_ATTR_TYPE {
+            MessageIntegrityAttribute::STATIC_ATTR_TYPE => {
+                let attr = Box::new(attr)
+                    .into_any()
+                    .downcast::<MessageIntegrityAttribute>()
+                    .expect(&format!(
+                        "an attribute with attr_type {} must be {}",
+                        MessageIntegrityAttribute::STATIC_ATTR_TYPE,
+                        MessageIntegrityAttribute::STATIC_NAME,
+                    ));
+                return self.message_integrity_mut(attr);
             }
-            Attribute::FingerPrint(_) => self.finger_print(),
+            MessageIntegritySHA256Attribute::STATIC_ATTR_TYPE => {
+                let attr = Box::new(attr)
+                    .into_any()
+                    .downcast::<MessageIntegritySHA256Attribute>()
+                    .expect(&format!(
+                        "an attribute with attr_type {} must be {}",
+                        MessageIntegritySHA256Attribute::STATIC_ATTR_TYPE,
+                        MessageIntegritySHA256Attribute::STATIC_NAME,
+                    ));
+                return self.message_integrity_sha256_mut(attr);
+            }
+            FingerPrintAttribute::STATIC_ATTR_TYPE => return self.finger_print_mut(),
             _ => {
-                self.attributes.push(attr);
-                Ok(self)
+                self.attributes
+                    .push(attr.into_raw_attr(&self.transaction_id.unwrap()));
+                return Ok(self);
             }
         }
     }
 
-    fn message_integrity(
+    pub fn message_integrity(
         mut self,
-        attr: rfc8489::MessageIntegrityAttribute,
-    ) -> STUNMessageResult<Self> {
+        attr: Box<rfc8489::MessageIntegrityAttribute>,
+    ) -> StunMessageResult<Self> {
+        self.message_integrity_mut(attr)?;
+        Ok(self)
+    }
+
+    pub(crate) fn message_integrity_mut(
+        &mut self,
+        attr: Box<rfc8489::MessageIntegrityAttribute>,
+    ) -> StunMessageResult<&mut Self> {
         if self.transaction_id.is_none() {
-            return Err(crate::errors::StunMessageError::InvalidMessage(format!(
+            return Err(crate::errors::StunMessageError::BuilderError(format!(
                 "unable to set {:?} before transaction id is set",
                 attr
             )));
         }
         if self.message_method.is_none() {
-            return Err(crate::errors::StunMessageError::InvalidMessage(format!(
+            return Err(crate::errors::StunMessageError::BuilderError(format!(
                 "unable to set {:?} before message method is set",
                 attr
             )));
         }
         if self.message_class.is_none() {
-            return Err(crate::errors::StunMessageError::InvalidMessage(format!(
+            return Err(crate::errors::StunMessageError::BuilderError(format!(
                 "unable to set {:?} before message class is set",
                 attr
             )));
@@ -85,9 +134,9 @@ impl STUNMessageBuilder {
         if self
             .attributes
             .iter()
-            .any(|item| matches!(&item, Attribute::MessageIntegrity(_)))
+            .any(|item| matches!(item.attr_type, MessageIntegrityAttribute::STATIC_ATTR_TYPE))
         {
-            return Err(crate::errors::StunMessageError::InvalidMessage(format!(
+            return Err(crate::errors::StunMessageError::BuilderError(format!(
                 "multiple {:?} attr is not allowed: {:?}",
                 attr.get_type(),
                 attr
@@ -96,7 +145,7 @@ impl STUNMessageBuilder {
         if self
             .attributes
             .iter()
-            .any(|item| matches!(&item, Attribute::FingerPrint(_)))
+            .any(|item| matches!(item.attr_type, FingerPrintAttribute::STATIC_ATTR_TYPE))
         {
             return Err(crate::errors::StunMessageError::InvalidMessage(format!(
                 "{:?} after finger print is not allowed",
@@ -104,21 +153,34 @@ impl STUNMessageBuilder {
             )));
         }
         let dummy_message = Message::new(
-            STUNMessageHeader::new(
-                STUNMessageType::new(self.message_method.unwrap(), self.message_class.unwrap()),
+            MessageHeader::new(
+                MessageType::new_method(
+                    self.message_method.clone().unwrap(),
+                    self.message_class.unwrap(),
+                ),
                 self.transaction_id.unwrap(),
             ),
             self.attributes.clone(),
         );
-        self.attributes
-            .push(Attribute::MessageIntegrity(attr.sign(dummy_message)));
+        self.attributes.push(
+            attr.sign(dummy_message)
+                .into_raw_attr(&self.transaction_id.unwrap()),
+        );
         Ok(self)
     }
 
     pub fn message_integrity_sha256(
         mut self,
-        attr: rfc8489::MessageIntegritySHA256Attribute,
-    ) -> STUNMessageResult<Self> {
+        attr: Box<rfc8489::MessageIntegritySHA256Attribute>,
+    ) -> StunMessageResult<Self> {
+        self.message_integrity_sha256_mut(attr)?;
+        Ok(self)
+    }
+
+    pub(crate) fn message_integrity_sha256_mut(
+        &mut self,
+        attr: Box<rfc8489::MessageIntegritySHA256Attribute>,
+    ) -> StunMessageResult<&mut Self> {
         if self.transaction_id.is_none() {
             return Err(crate::errors::StunMessageError::InvalidMessage(format!(
                 "unable to set {:?} before transaction id is set",
@@ -137,11 +199,12 @@ impl STUNMessageBuilder {
                 attr
             )));
         }
-        if self
-            .attributes
-            .iter()
-            .any(|item| matches!(&item, Attribute::MessageIntegritySHA256(_)))
-        {
+        if self.attributes.iter().any(|item| {
+            matches!(
+                item.attr_type,
+                MessageIntegritySHA256Attribute::STATIC_ATTR_TYPE
+            )
+        }) {
             return Err(crate::errors::StunMessageError::InvalidMessage(format!(
                 "multiple {:?} attr is not allowed: {:?}",
                 attr.get_type(),
@@ -152,7 +215,7 @@ impl STUNMessageBuilder {
         if self
             .attributes
             .iter()
-            .any(|item| matches!(&item, Attribute::FingerPrint(_)))
+            .any(|item| matches!(item.attr_type, FingerPrintAttribute::STATIC_ATTR_TYPE))
         {
             return Err(crate::errors::StunMessageError::InvalidMessage(format!(
                 "{:?} after finger print is not allowed",
@@ -161,19 +224,28 @@ impl STUNMessageBuilder {
         }
 
         let dummy_message = Message::new(
-            STUNMessageHeader::new(
-                STUNMessageType::new(self.message_method.unwrap(), self.message_class.unwrap()),
+            MessageHeader::new(
+                MessageType::new_method(
+                    self.message_method.clone().unwrap(),
+                    self.message_class.unwrap(),
+                ),
                 self.transaction_id.unwrap(),
             ),
             self.attributes.clone(),
         );
-        self.attributes.push(Attribute::MessageIntegritySHA256(
-            attr.sign(dummy_message),
-        ));
+        self.attributes.push(
+            attr.sign(dummy_message)
+                .into_raw_attr(&self.transaction_id.unwrap()),
+        );
         Ok(self)
     }
 
-    pub fn finger_print(mut self) -> STUNMessageResult<Self> {
+    pub fn finger_print(mut self) -> StunMessageResult<Self> {
+        self.finger_print_mut()?;
+        Ok(self)
+    }
+
+    pub(crate) fn finger_print_mut(&mut self) -> StunMessageResult<&mut Self> {
         let attr = FingerPrintAttribute::new_dummy();
         if self.transaction_id.is_none() {
             return Err(crate::errors::StunMessageError::InvalidMessage(format!(
@@ -196,7 +268,7 @@ impl STUNMessageBuilder {
         if self
             .attributes
             .iter()
-            .any(|item| matches!(item, Attribute::FingerPrint(_)))
+            .any(|item| matches!(item.attr_type, FingerPrintAttribute::STATIC_ATTR_TYPE))
         {
             return Err(crate::errors::StunMessageError::InvalidMessage(format!(
                 "multiple {:?} is not allowed: {:?}",
@@ -206,18 +278,22 @@ impl STUNMessageBuilder {
         }
 
         let message = Message::new(
-            STUNMessageHeader::new(
-                STUNMessageType::new(self.message_method.unwrap(), self.message_class.unwrap()),
+            MessageHeader::new(
+                MessageType::new_method(
+                    self.message_method.clone().unwrap(),
+                    self.message_class.unwrap(),
+                ),
                 self.transaction_id.unwrap(),
             ),
             self.attributes.clone(),
         );
         let real_attr = rfc8489::FingerPrintAttribute::sign(message);
-        self.attributes.push(Attribute::FingerPrint(real_attr));
+        self.attributes
+            .push(real_attr.into_raw_attr(&self.transaction_id.unwrap()));
         Ok(self)
     }
 
-    pub fn build(self) -> STUNMessageResult<Message> {
+    pub fn build(self) -> StunMessageResult<Message> {
         if self.transaction_id.is_none() {
             return Err(crate::errors::StunMessageError::InvalidMessage(
                 "unable to build message before transaction id is set".to_owned(),
@@ -234,14 +310,17 @@ impl STUNMessageBuilder {
             ));
         }
         let message = Message::new(
-            STUNMessageHeader::new(
-                STUNMessageType::new(self.message_method.unwrap(), self.message_class.unwrap()),
+            MessageHeader::new(
+                MessageType::new_method(
+                    self.message_method.clone().unwrap(),
+                    self.message_class.unwrap(),
+                ),
                 self.transaction_id.unwrap(),
             ),
             self.attributes,
         );
 
-        message.message_method().check(&message)?;
+        message.check()?;
         Ok(message)
     }
 }

@@ -5,9 +5,10 @@ use utils::traits::{
 };
 
 use crate::{
-    attribute::{Attribute, AttributeExt},
-    attributes::check_attr_match,
-    errors::STUNMessageResult,
+    MessageChecker,
+    attributes::{AttributeExtDynamic, AttributeExtStatic, AttributeFactory, check_attr_match},
+    define_attribute,
+    errors::StunMessageResult,
     message::Message,
 };
 
@@ -22,8 +23,8 @@ impl FingerPrintAttribute {
     }
 
     pub fn sign(message: Message) -> Self {
-        let dummy_self = Attribute::FingerPrint(Self::new_dummy());
-        let attr_length = dummy_self.get_packet_bytes_count();
+        let dummy_self = Self::new_dummy();
+        let attr_length = Self::bytes_count();
         let dummy_message = message.prepare_dummy_message_bytes(dummy_self);
         let mut bytes_to_hash = Vec::with_capacity(dummy_message.get_packet_bytes_count());
         dummy_message.write_to(&mut bytes_to_hash).unwrap();
@@ -35,29 +36,6 @@ impl FingerPrintAttribute {
 
     pub fn finger_print(&self) -> u32 {
         self.fingerprint
-    }
-
-    pub fn check(&self, message: &Message) -> STUNMessageResult<()> {
-        if let Some(Attribute::FingerPrint(fingerprint)) = message.attributes().last()
-            && fingerprint == self
-        {
-            let mut dummy_attributes = message.attributes().clone();
-            dummy_attributes.pop();
-            let dummy_message = Message::new(*message.header(), dummy_attributes);
-            let real = Self::sign(dummy_message);
-            if &real != self {
-                return Err(crate::errors::StunMessageError::InvalidMessage(format!(
-                    "finger print not match, expected: 0x{:x}, real: 0x{:x}",
-                    self.fingerprint, real.fingerprint
-                )));
-            }
-            Ok(())
-        } else {
-            Err(crate::errors::StunMessageError::InvalidMessage(format!(
-                "last attribute of message not match: {:?} -> {:?}",
-                message, self
-            )))
-        }
     }
 }
 
@@ -85,22 +63,55 @@ impl FixedPacket for FingerPrintAttribute {
     }
 }
 
-impl AttributeExt for FingerPrintAttribute {
-    const STATIC_ATTR_TYPE: Option<crate::attribute::AttrType> =
-        Some(crate::attribute::AttrType::FingerPrint);
-    fn get_type(&self) -> crate::attribute::AttrType {
-        Self::STATIC_ATTR_TYPE.unwrap()
-    }
+define_attribute!(0x8028, FingerPrintAttribute, "FINGER_PRINT");
 
+impl MessageChecker for FingerPrintAttribute {
+    fn check(&self, message: &Message) -> StunMessageResult<()> {
+        if message.attributes().is_empty() {
+            return Err(crate::errors::StunMessageError::InvalidMessage(format!(
+                "no attributes in message: {:?}",
+                message
+            )));
+        }
+        if let Some(Ok(fingerprint)) =
+            message
+                .attributes()
+                .last()
+                .cloned()
+                .unwrap()
+                .into_concrete::<FingerPrintAttribute>(*message.transaction_id())
+            && fingerprint == *self
+        {
+            let mut dummy_attributes = message.attributes().clone();
+            dummy_attributes.pop();
+            let dummy_message = Message::new(message.header().clone(), dummy_attributes);
+            let real = Self::sign(dummy_message);
+            if &real != self {
+                return Err(crate::errors::StunMessageError::InvalidMessage(format!(
+                    "finger print not match, expected: 0x{:x}, real: 0x{:x}",
+                    self.fingerprint, real.fingerprint
+                )));
+            }
+            Ok(())
+        } else {
+            Err(crate::errors::StunMessageError::InvalidMessage(format!(
+                "last attribute of message not match: {:?} -> {:?}",
+                message, self
+            )))
+        }
+    }
+}
+
+impl AttributeFactory for FingerPrintAttribute {
     fn from_raw_attr(
-        raw_attr: crate::attribute::RawAttribute,
+        raw_attr: crate::attributes::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
     ) -> Result<Self, crate::errors::StunMessageError> {
-        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE.unwrap())?;
+        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE)?;
         if raw_attr.value.len() != Self::bytes_count() {
             return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "value length for {:?} is not 4: {}",
-                Self::STATIC_ATTR_TYPE.unwrap(),
+                Self::STATIC_ATTR_TYPE,
                 raw_attr.value.len(),
             )));
         }
@@ -108,12 +119,11 @@ impl AttributeExt for FingerPrintAttribute {
         let fingerprint = u32::from_be_bytes(raw_attr.value.try_into().unwrap());
         Ok(Self { fingerprint })
     }
-
     fn into_raw_attr(
         self,
         _transaction_id: &crate::header::TransactionId,
-    ) -> crate::attribute::RawAttribute {
-        crate::attribute::RawAttribute::new(
+    ) -> crate::attributes::RawAttribute {
+        crate::attributes::RawAttribute::new(
             self.get_type(),
             self.fingerprint.to_be_bytes().to_vec(),
         )

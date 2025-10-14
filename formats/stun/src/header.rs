@@ -1,5 +1,9 @@
-use crate::{errors::StunMessageError, methods::Method};
-use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
+use crate::{
+    attributes::rfc8489,
+    errors::{StunMessageError, StunMessageResult},
+    methods::{MethodExtDynamic, MethodExtStatic, from_value},
+};
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::{fmt, io};
 use utils::traits::{fixed_packet::FixedPacket, reader::ReadFrom, writer::WriteTo};
 
@@ -22,7 +26,7 @@ use utils::traits::{fixed_packet::FixedPacket, reader::ReadFrom, writer::WriteTo
 // |M |M |M|M|M|C|M|M|M|C|M|M|M|M|
 // |11|10|9|8|7|1|6|5|4|0|3|2|1|0|
 // +--+--+-+-+-+-+-+-+-+-+-+-+-+-+
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum MessageClass {
     Request,
     Indication,
@@ -82,22 +86,43 @@ impl MessageClass {
         let value = ((c1 as u8) << 1) | (c0 as u8);
         Self::from(value)
     }
+
+    pub fn check(&self, message: &crate::message::Message) -> StunMessageResult<()> {
+        match self {
+            Self::ErrorResponse => message.require_ext::<rfc8489::ErrorCodeAttribute>(),
+            Self::Indication => Ok(()),
+            Self::Request => Ok(()),
+            Self::SuccessResponse => Ok(()),
+        }
+    }
 }
 
-#[derive(Clone, Copy)]
-pub struct STUNMessageType {
-    pub method: Method, // 12 bits
+pub struct MessageType {
+    pub method: Box<dyn MethodExtDynamic>, // 12 bits
     pub message_class: MessageClass,
 }
 
-impl fmt::Debug for STUNMessageType {
+impl Clone for MessageType {
+    fn clone(&self) -> Self {
+        Self {
+            method: from_value(self.method.value()).unwrap(),
+            message_class: self.message_class,
+        }
+    }
+}
+
+impl fmt::Debug for MessageType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}: {:?}", self.message_class, self.method)
     }
 }
 
-impl STUNMessageType {
-    pub fn new(method: Method, class: MessageClass) -> Self {
+impl MessageType {
+    pub fn new<M: MethodExtStatic>(class: MessageClass) -> Self {
+        Self::new_method(from_value(M::STATIC_VALUE).unwrap(), class)
+    }
+
+    pub fn new_method(method: Box<dyn MethodExtDynamic>, class: MessageClass) -> Self {
         Self {
             method,
             message_class: class,
@@ -105,23 +130,28 @@ impl STUNMessageType {
     }
 }
 
-impl From<u16> for STUNMessageType {
-    fn from(value: u16) -> Self {
+impl TryFrom<u16> for MessageType {
+    type Error = StunMessageError;
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
         let c0 = ((value >> 4) & 0b1) == 0b1;
         let c1 = ((value >> 8) & 0b1) == 0b1;
         let m0_3 = value & 0b1111;
         let m4_6 = (value >> 5) & 0b111;
         let m7_11 = (value >> 9) & 0b11111;
-        Self {
-            method: (m0_3 | (m4_6 << 4) | (m7_11 << 7)).into(),
-            message_class: MessageClass::new(c1, c0),
+        let method = from_value(m0_3 | (m4_6 << 4) | (m7_11 << 7));
+        if method.is_none() {
+            return Err(StunMessageError::UnknownMethod(value));
         }
+        Ok(Self {
+            method: method.unwrap(),
+            message_class: MessageClass::new(c1, c0),
+        })
     }
 }
 
-impl From<STUNMessageType> for u16 {
-    fn from(value: STUNMessageType) -> Self {
-        let method_value: u16 = value.method.into();
+impl From<&MessageType> for u16 {
+    fn from(value: &MessageType) -> Self {
+        let method_value: u16 = value.method.value();
         let m0_3 = method_value & 0b1111;
         let m4_6 = (method_value >> 4) & 0b111;
         let m7_11 = (method_value >> 7) & 0b11111;
@@ -180,11 +210,11 @@ impl<W: io::Write> WriteTo<W> for TransactionId {
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct STUNMessageHeader {
+#[derive(Clone)]
+pub struct MessageHeader {
     #[allow(unused)]
     reserved_zero_2_bits: u8, // 2 bits, must be 0
-    pub stun_message_type: STUNMessageType, // 14 bits
+    pub stun_message_type: MessageType, // 14 bits
     /// The message length MUST contain the size of the message in bytes,
     /// not including the 20-byte STUN header.
     /// Since all STUN attributes are padded to a multiple of 4 bytes,
@@ -195,7 +225,7 @@ pub struct STUNMessageHeader {
     pub transaction_id: TransactionId,
 }
 
-impl fmt::Debug for STUNMessageHeader {
+impl fmt::Debug for MessageHeader {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -205,8 +235,8 @@ impl fmt::Debug for STUNMessageHeader {
     }
 }
 
-impl STUNMessageHeader {
-    pub fn new(message_type: STUNMessageType, transaction_id: TransactionId) -> Self {
+impl MessageHeader {
+    pub fn new(message_type: MessageType, transaction_id: TransactionId) -> Self {
         Self {
             reserved_zero_2_bits: 0,
             stun_message_type: message_type,
@@ -217,13 +247,13 @@ impl STUNMessageHeader {
     }
 }
 
-impl FixedPacket for STUNMessageHeader {
+impl FixedPacket for MessageHeader {
     fn bytes_count() -> usize {
         20
     }
 }
 
-impl<R: io::Read> ReadFrom<R> for STUNMessageHeader {
+impl<R: io::Read> ReadFrom<R> for MessageHeader {
     type Error = StunMessageError;
     fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let message_type = reader.read_u16::<BigEndian>()?;
@@ -233,7 +263,7 @@ impl<R: io::Read> ReadFrom<R> for STUNMessageHeader {
                 message_type
             )));
         }
-        let stun_message_type = STUNMessageType::from(message_type);
+        let stun_message_type = MessageType::try_from(message_type)?;
         let message_length = reader.read_u16::<BigEndian>()?;
         if !message_length.is_multiple_of(4) {
             return Err(StunMessageError::SyntaxError(format!(
@@ -260,10 +290,10 @@ impl<R: io::Read> ReadFrom<R> for STUNMessageHeader {
     }
 }
 
-impl<W: io::Write> WriteTo<W> for STUNMessageHeader {
+impl<W: io::Write> WriteTo<W> for MessageHeader {
     type Error = StunMessageError;
     fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
-        writer.write_u16::<BigEndian>(self.stun_message_type.into())?;
+        writer.write_u16::<BigEndian>((&self.stun_message_type).into())?;
         writer.write_u16::<BigEndian>(self.message_length)?;
         writer.write_u32::<BigEndian>(self.magic_cookie)?;
         self.transaction_id.write_to(writer)?;

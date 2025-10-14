@@ -3,9 +3,13 @@ use std::fmt;
 use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
 
 use crate::{
-    attribute::AttributeExt,
-    attributes::{STUN_ATTRIBUTE_PADDING_SIZE, check_attr_match, get_after_padding_size},
-    errors::STUNMessageResult,
+    MessageChecker,
+    attributes::{
+        AttributeExtDynamic, AttributeExtStatic, AttributeFactory, STUN_ATTRIBUTE_PADDING_SIZE,
+        check_attr_match, get_after_padding_size,
+    },
+    define_attribute,
+    errors::StunMessageResult,
 };
 
 #[derive(Clone)]
@@ -14,11 +18,11 @@ pub struct UserNameAttribute {
 }
 
 impl UserNameAttribute {
-    pub fn new(username: &str) -> STUNMessageResult<Self> {
+    pub fn new(username: &str) -> StunMessageResult<Self> {
         if username.len() > USERNAME_MAX_LEN {
             return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "length of {:?}: {} exceeds max length {}",
-                Self::STATIC_ATTR_TYPE.unwrap(),
+                Self::STATIC_ATTR_TYPE,
                 username,
                 USERNAME_MAX_LEN
             )));
@@ -60,37 +64,34 @@ impl DynamicSizedPacket for UserNameAttribute {
 // UTF-8-encoded sequence of 763 or fewer octets to be compatible with [RFC5389].
 pub const USERNAME_MAX_LEN: usize = 763;
 
-impl AttributeExt for UserNameAttribute {
-    const STATIC_ATTR_TYPE: Option<crate::attribute::AttrType> =
-        Some(crate::attribute::AttrType::UserName);
-    fn get_type(&self) -> crate::attribute::AttrType {
-        Self::STATIC_ATTR_TYPE.unwrap()
-    }
+define_attribute!(0x0006, UserNameAttribute, "USER_NAME");
 
+impl MessageChecker for UserNameAttribute {}
+
+impl AttributeFactory for UserNameAttribute {
     fn from_raw_attr(
-        raw_attr: crate::attribute::RawAttribute,
+        raw_attr: crate::attributes::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
     ) -> Result<Self, crate::errors::StunMessageError> {
-        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE.unwrap())?;
+        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE)?;
         let username = String::from_utf8(raw_attr.value)?;
         if username.len() > USERNAME_MAX_LEN {
             return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "length of {:?}: {} exceeds max length {}",
-                Self::STATIC_ATTR_TYPE.unwrap(),
+                Self::STATIC_ATTR_TYPE,
                 username,
                 USERNAME_MAX_LEN
             )));
         }
         Ok(Self { username })
     }
-
     fn into_raw_attr(
         self,
         _transaction_id: &crate::header::TransactionId,
-    ) -> crate::attribute::RawAttribute {
+    ) -> crate::attributes::RawAttribute {
         assert!(self.username.len() <= USERNAME_MAX_LEN);
         let attr_type = self.get_type();
         let value = self.username.into_bytes();
-        crate::attribute::RawAttribute::new(attr_type, value)
+        crate::attributes::RawAttribute::new(attr_type, value)
     }
 }

@@ -3,9 +3,13 @@ use std::fmt;
 use utils::traits::{dynamic_sized_packet::DynamicSizedPacket, writer::WriteTo};
 
 use crate::{
-    attribute::{Attribute, AttributeExt},
-    attributes::{STUN_ATTRIBUTE_PADDING_SIZE, check_attr_match, get_after_padding_size},
-    errors::STUNMessageResult,
+    MessageChecker,
+    attributes::{
+        AttributeExtDynamic, AttributeExtStatic, AttributeFactory, STUN_ATTRIBUTE_PADDING_SIZE,
+        check_attr_match, get_after_padding_size,
+    },
+    define_attribute,
+    errors::StunMessageResult,
     message::Message,
 };
 
@@ -48,7 +52,7 @@ impl MessageIntegrityAttribute {
     }
 
     pub fn sign(self, message: Message) -> Self {
-        let dummy_self = Attribute::MessageIntegrity(Self::new_dummy());
+        let dummy_self = Self::new_dummy();
         let attr_len = dummy_self.get_packet_bytes_count();
         let dummy_message = message.prepare_dummy_message_bytes(dummy_self);
         let mut bytes_to_hash = Vec::with_capacity(dummy_message.get_packet_bytes_count());
@@ -62,19 +66,17 @@ impl MessageIntegrityAttribute {
 
     /// attributes used for check is not the attributes read from message,
     /// it should be constructed with new_short_term or new_long_term which has hash_key value
-    pub fn check(self, message: &Message) -> STUNMessageResult<()> {
-        if let Some(Attribute::MessageIntegrity(attr)) =
-            message.get_attribute(Self::STATIC_ATTR_TYPE.unwrap())
-        {
+    pub fn check(self, message: &Message) -> StunMessageResult<()> {
+        if let Some(attr) = message.get_attribute_ext::<Self>() {
             let dummy_attributes: Vec<_> = message
                 .attributes()
                 .iter()
-                .take_while(|item| matches!(item, Attribute::MessageIntegrity(_)))
+                .take_while(|item| matches!(item.attr_type, Self::STATIC_ATTR_TYPE))
                 .cloned()
                 .collect();
-            let dummy_message = Message::new(*message.header(), dummy_attributes);
+            let dummy_message = Message::new(message.header().clone(), dummy_attributes);
             let real = self.sign(dummy_message);
-            if !real.eq(attr) {
+            if !real.eq(&attr) {
                 return Err(crate::errors::StunMessageError::InvalidMessage(format!(
                     "{:?} not match message: {:?}",
                     attr, message
@@ -114,18 +116,16 @@ impl DynamicSizedPacket for MessageIntegrityAttribute {
     }
 }
 
-impl AttributeExt for MessageIntegrityAttribute {
-    const STATIC_ATTR_TYPE: Option<crate::attribute::AttrType> =
-        Some(crate::attribute::AttrType::MessageIntegrity);
-    fn get_type(&self) -> crate::attribute::AttrType {
-        Self::STATIC_ATTR_TYPE.unwrap()
-    }
+define_attribute!(0x0008, MessageIntegrityAttribute, "MESSAGE_INTEGRITY");
 
+impl MessageChecker for MessageIntegrityAttribute {}
+
+impl AttributeFactory for MessageIntegrityAttribute {
     fn from_raw_attr(
-        raw_attr: crate::attribute::RawAttribute,
+        raw_attr: crate::attributes::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
     ) -> Result<Self, crate::errors::StunMessageError> {
-        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE.unwrap())?;
+        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE)?;
         if raw_attr.value.len() != MESSAGE_INTEGRITY_LEN {
             return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "length of {:?} is not {}",
@@ -137,11 +137,10 @@ impl AttributeExt for MessageIntegrityAttribute {
             hash_key: vec![],
         })
     }
-
     fn into_raw_attr(
         self,
         _transaction_id: &crate::header::TransactionId,
-    ) -> crate::attribute::RawAttribute {
-        crate::attribute::RawAttribute::new(self.get_type(), self.key.into())
+    ) -> crate::attributes::RawAttribute {
+        crate::attributes::RawAttribute::new(self.get_type(), self.key.into())
     }
 }

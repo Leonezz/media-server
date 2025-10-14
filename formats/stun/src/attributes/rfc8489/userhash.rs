@@ -2,7 +2,11 @@ use std::fmt;
 
 use utils::traits::fixed_packet::FixedPacket;
 
-use crate::{attribute::AttributeExt, attributes::check_attr_match};
+use crate::{
+    MessageChecker,
+    attributes::{AttributeExtDynamic, AttributeExtStatic, AttributeFactory, check_attr_match},
+    define_attribute,
+};
 
 // The value of USERHASH has a fixed length of 32 bytes.
 pub const USERHASH_LEN: usize = 32;
@@ -39,17 +43,16 @@ impl FixedPacket for UserHashAttribute {
     }
 }
 
-impl AttributeExt for UserHashAttribute {
-    const STATIC_ATTR_TYPE: Option<crate::attribute::AttrType> =
-        Some(crate::attribute::AttrType::UserHash);
-    fn get_type(&self) -> crate::attribute::AttrType {
-        Self::STATIC_ATTR_TYPE.unwrap()
-    }
+define_attribute!(0x001E, UserHashAttribute, "USER_HASH");
+
+impl MessageChecker for UserHashAttribute {}
+
+impl AttributeFactory for UserHashAttribute {
     fn from_raw_attr(
-        raw_attr: crate::attribute::RawAttribute,
+        raw_attr: crate::attributes::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
     ) -> Result<Self, crate::errors::StunMessageError> {
-        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE.unwrap())?;
+        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE)?;
         if raw_attr.value.len() != USERHASH_LEN {
             return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "user hash value should be of 32 bytes, got {} bytes",
@@ -64,7 +67,7 @@ impl AttributeExt for UserHashAttribute {
     fn into_raw_attr(
         self,
         _transaction_id: &crate::header::TransactionId,
-    ) -> crate::attribute::RawAttribute {
-        crate::attribute::RawAttribute::new(self.get_type(), self.userhash.into())
+    ) -> crate::attributes::RawAttribute {
+        crate::attributes::RawAttribute::new(self.get_type(), self.userhash.into())
     }
 }

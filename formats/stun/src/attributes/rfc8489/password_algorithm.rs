@@ -1,9 +1,14 @@
 use std::{fmt, io};
 
 use crate::{
-    attribute::AttributeExt,
-    attributes::{STUN_ATTRIBUTE_PADDING_SIZE, check_attr_match, get_after_padding_size},
+    MessageChecker,
+    attributes::{
+        AttributeExtDynamic, AttributeExtStatic, AttributeFactory, STUN_ATTRIBUTE_PADDING_SIZE,
+        check_attr_match, get_after_padding_size,
+    },
+    define_attribute,
     errors::StunMessageError,
+    header::MessageClass,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use utils::traits::{dynamic_sized_packet::DynamicSizedPacket, reader::ReadFrom, writer::WriteTo};
@@ -96,28 +101,37 @@ impl fmt::Debug for PasswordAlgorithmAttribute {
     }
 }
 
-impl AttributeExt for PasswordAlgorithmAttribute {
-    const STATIC_ATTR_TYPE: Option<crate::attribute::AttrType> =
-        Some(crate::attribute::AttrType::PasswordAlgorithm);
-    fn get_type(&self) -> crate::attribute::AttrType {
-        Self::STATIC_ATTR_TYPE.unwrap()
-    }
+define_attribute!(0x001D, PasswordAlgorithmAttribute, "PASSWORD_ALGORITHM");
 
+impl MessageChecker for PasswordAlgorithmAttribute {
+    fn check(&self, message: &crate::message::Message) -> crate::errors::StunMessageResult<()> {
+        let class = message.message_class();
+        if !matches!(class, MessageClass::Request) {
+            return Err(StunMessageError::InvalidMessage(format!(
+                "{:?} in {:?} message is not allowed",
+                Self::STATIC_ATTR_TYPE,
+                class
+            )));
+        }
+        Ok(())
+    }
+}
+
+impl AttributeFactory for PasswordAlgorithmAttribute {
     fn from_raw_attr(
-        raw_attr: crate::attribute::RawAttribute,
+        raw_attr: crate::attributes::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
-    ) -> Result<Self, crate::errors::StunMessageError> {
-        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE.unwrap())?;
+    ) -> Result<Self, StunMessageError> {
+        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE)?;
         let algorithm = PasswordAlgorithm::read_from(&mut raw_attr.value.as_slice())?;
         Ok(Self(algorithm))
     }
-
     fn into_raw_attr(
         self,
         _transaction_id: &crate::header::TransactionId,
-    ) -> crate::attribute::RawAttribute {
+    ) -> crate::attributes::RawAttribute {
         let mut value = Vec::with_capacity(self.0.get_packet_bytes_count());
         self.0.write_to(&mut value).unwrap();
-        crate::attribute::RawAttribute::new(self.get_type(), value)
+        crate::attributes::RawAttribute::new(self.get_type(), value)
     }
 }

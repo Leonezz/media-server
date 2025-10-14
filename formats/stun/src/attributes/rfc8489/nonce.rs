@@ -3,9 +3,13 @@ use std::fmt;
 use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
 
 use crate::{
-    attribute::AttributeExt,
-    attributes::{STUN_ATTRIBUTE_PADDING_SIZE, check_attr_match, get_after_padding_size},
-    errors::STUNMessageResult,
+    MessageChecker,
+    attributes::{
+        AttributeExtDynamic, AttributeExtStatic, AttributeFactory, STUN_ATTRIBUTE_PADDING_SIZE,
+        check_attr_match, get_after_padding_size,
+    },
+    define_attribute,
+    errors::StunMessageResult,
 };
 
 #[derive(Clone)]
@@ -14,11 +18,11 @@ pub struct NonceAttribute {
 }
 
 impl NonceAttribute {
-    pub fn new(value: &str) -> STUNMessageResult<Self> {
+    pub fn new(value: &str) -> StunMessageResult<Self> {
         if value.len() > NONCE_VALUE_MAX_LEN {
             return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "value length for {:?}: {} exceeds max length: {}",
-                Self::STATIC_ATTR_TYPE.unwrap(),
+                Self::STATIC_ATTR_TYPE,
                 value.len(),
                 NONCE_VALUE_MAX_LEN
             )));
@@ -50,22 +54,20 @@ impl DynamicSizedPacket for NonceAttribute {
     }
 }
 
-impl AttributeExt for NonceAttribute {
-    const STATIC_ATTR_TYPE: Option<crate::attribute::AttrType> =
-        Some(crate::attribute::AttrType::Nonce);
-    fn get_type(&self) -> crate::attribute::AttrType {
-        Self::STATIC_ATTR_TYPE.unwrap()
-    }
+define_attribute!(0x0015, NonceAttribute, "NONCE");
 
+impl MessageChecker for NonceAttribute {}
+
+impl AttributeFactory for NonceAttribute {
     fn from_raw_attr(
-        raw_attr: crate::attribute::RawAttribute,
+        raw_attr: crate::attributes::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
     ) -> Result<Self, crate::errors::StunMessageError> {
-        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE.unwrap())?;
+        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE)?;
         if raw_attr.value.len() > NONCE_VALUE_MAX_LEN {
             return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "value length for {:?}: {} exceeds max length: {}",
-                Self::STATIC_ATTR_TYPE.unwrap(),
+                Self::STATIC_ATTR_TYPE,
                 raw_attr.value.len(),
                 NONCE_VALUE_MAX_LEN
             )));
@@ -75,11 +77,10 @@ impl AttributeExt for NonceAttribute {
             value: String::from_utf8(raw_attr.value)?,
         })
     }
-
     fn into_raw_attr(
         self,
         _transaction_id: &crate::header::TransactionId,
-    ) -> crate::attribute::RawAttribute {
-        crate::attribute::RawAttribute::new(self.get_type(), self.value.into_bytes())
+    ) -> crate::attributes::RawAttribute {
+        crate::attributes::RawAttribute::new(self.get_type(), self.value.into_bytes())
     }
 }

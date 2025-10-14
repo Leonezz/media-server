@@ -3,8 +3,12 @@ use std::{fmt, io::BufRead};
 use utils::traits::{dynamic_sized_packet::DynamicSizedPacket, reader::ReadFrom, writer::WriteTo};
 
 use crate::{
-    attribute::AttributeExt, attributes::check_attr_match,
-    rfc8489::password_algorithm::PasswordAlgorithm,
+    MessageChecker,
+    attributes::{
+        AttributeExtDynamic, AttributeExtStatic, AttributeFactory, check_attr_match,
+        rfc8489::password_algorithm::PasswordAlgorithm,
+    },
+    define_attribute,
 };
 
 ///  0                   1                   2                   3
@@ -43,18 +47,16 @@ impl DynamicSizedPacket for PasswordAlgorithmsAttribute {
     }
 }
 
-impl AttributeExt for PasswordAlgorithmsAttribute {
-    const STATIC_ATTR_TYPE: Option<crate::attribute::AttrType> =
-        Some(crate::attribute::AttrType::PasswordAlgorithms);
-    fn get_type(&self) -> crate::attribute::AttrType {
-        Self::STATIC_ATTR_TYPE.unwrap()
-    }
+define_attribute!(0x8002, PasswordAlgorithmsAttribute, "PASSWORD_ALGORITHMS");
 
+impl MessageChecker for PasswordAlgorithmsAttribute {}
+
+impl AttributeFactory for PasswordAlgorithmsAttribute {
     fn from_raw_attr(
-        raw_attr: crate::attribute::RawAttribute,
+        raw_attr: crate::attributes::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
     ) -> Result<Self, crate::errors::StunMessageError> {
-        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE.unwrap())?;
+        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE)?;
         let mut bytes = raw_attr.value.as_slice();
         let mut algorithms = Vec::new();
         while bytes.has_data_left()? {
@@ -62,15 +64,14 @@ impl AttributeExt for PasswordAlgorithmsAttribute {
         }
         Ok(Self { algorithms })
     }
-
     fn into_raw_attr(
         self,
         _transaction_id: &crate::header::TransactionId,
-    ) -> crate::attribute::RawAttribute {
+    ) -> crate::attributes::RawAttribute {
         let mut value = Vec::with_capacity(self.get_packet_bytes_count());
         self.algorithms.iter().for_each(|item| {
             item.write_to(&mut value).unwrap();
         });
-        crate::attribute::RawAttribute::new(self.get_type(), value)
+        crate::attributes::RawAttribute::new(self.get_type(), value)
     }
 }

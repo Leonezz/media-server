@@ -2,7 +2,13 @@ use std::{fmt, net::SocketAddr};
 
 use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
 
-use crate::{attribute::AttributeExt, rfc8489::MappedAddressAttribute};
+use crate::{
+    MessageChecker,
+    attributes::{
+        AttributeExtDynamic, AttributeExtStatic, AttributeFactory, rfc8489::MappedAddressAttribute,
+    },
+    define_attribute,
+};
 
 #[derive(Clone)]
 pub struct AlternateServerAttribute(MappedAddressAttribute);
@@ -31,15 +37,13 @@ impl DynamicSizedPacket for AlternateServerAttribute {
     }
 }
 
-impl AttributeExt for AlternateServerAttribute {
-    const STATIC_ATTR_TYPE: Option<crate::attribute::AttrType> =
-        Some(crate::attribute::AttrType::AlternateServer);
-    fn get_type(&self) -> crate::attribute::AttrType {
-        Self::STATIC_ATTR_TYPE.unwrap()
-    }
+define_attribute!(0x8023, AlternateServerAttribute, "ALTERNATE_SERVER");
 
+impl MessageChecker for AlternateServerAttribute {}
+
+impl AttributeFactory for AlternateServerAttribute {
     fn from_raw_attr(
-        raw_attr: crate::attribute::RawAttribute,
+        raw_attr: crate::attributes::RawAttribute,
         transaction_id: &crate::header::TransactionId,
     ) -> Result<Self, crate::errors::StunMessageError> {
         Ok(Self(MappedAddressAttribute::from_raw_attr(
@@ -47,11 +51,10 @@ impl AttributeExt for AlternateServerAttribute {
             transaction_id,
         )?))
     }
-
     fn into_raw_attr(
         self,
         transaction_id: &crate::header::TransactionId,
-    ) -> crate::attribute::RawAttribute {
+    ) -> crate::attributes::RawAttribute {
         self.0.into_raw_attr(transaction_id)
     }
 }

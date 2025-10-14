@@ -1,7 +1,11 @@
 use crate::config::AppConfig;
 use scopeguard::defer;
 use std::net::{SocketAddr, ToSocketAddrs};
-use stun_formats::{attribute::Attribute, header::TransactionId, message::Message};
+use stun_formats::{
+    attributes::rfc8489::{ErrorCodeAttribute, MappedAddressAttribute, XorMappedAddressAttribute},
+    header::TransactionId,
+    message::Message,
+};
 use stun_server::client::STUNClientResult;
 use tokio::{select, task::block_in_place};
 use utils::net::protocol::Protocol;
@@ -106,39 +110,26 @@ where
                     stun_formats::header::MessageClass::SuccessResponse => {
                         tracing::debug!("got success response: {:?}", response);
                         if let Some(addr) =
-                            response.get_attribute(stun_formats::attribute::AttrType::XorMappedAddress).or(
-                                response.get_attribute(stun_formats::attribute::AttrType::MappedAddress)
+                            response.get_attribute_ext::<XorMappedAddressAttribute>().map(|item| (item.address(), item.port())).or(
+                                response.get_attribute_ext::<MappedAddressAttribute>().map(|item| (item.address(), item.port()))
                             )
                         {
                             tracing::debug!("mapped address: {:?}", addr);
-                            let addr = match addr {
-                                Attribute::XorMappedAddress(addr) => {
-                                    tracing::info!("addr: [{}]:{}", addr.address(), addr.port());
-                                    Some((addr.address(), addr.port()))
-                                }
-                                  Attribute::MappedAddress(addr) => {
-                                    tracing::info!("addr: [{}]:{}", addr.address(), addr.port());
-                                    Some((addr.address(), addr.port()))
-                                  }
-                                _ => {
-                                    tracing::error!("unexpected attribute: {:?}", addr);
-                                    None
-                                }
-                            };
-                            if let Some((ip, port)) = addr {
-                                println!("bind test success, mapped address: [{}]:{}", ip, port);
-                            }
+                            let (ip, port) = addr;
+                            println!("bind test success, mapped address: [{}]:{}", ip, port);
+                        } else {
+                            eprintln!("bind resposne success but no address found");
                         }
                     }
                     stun_formats::header::MessageClass::ErrorResponse => {
                         tracing::debug!("got error response: {:?}", response);
-                        if let Some(Attribute::ErrorCode(error_code)) =
-                            response.get_attribute(stun_formats::attribute::AttrType::ErrorCode)
+                        if let Some(error_code) =
+                            response.get_attribute_ext::<ErrorCodeAttribute>()
                         {
                             eprintln!(
                                 "error_code: {:?}, reason: {}",
                                 error_code.error_code(),
-                                error_code.reason_phrase()
+                                error_code.reason()
                             );
                         }
                     }

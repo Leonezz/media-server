@@ -48,7 +48,7 @@ repository = "https://github.com/leonezz/media-server"
 [workspace.dependencies]
 tokio = { version = "1.47.1", features = ["full", "tracing"] }
 console-subscriber = "0.4.1"
-tokio-util = "0.7.16"
+tokio-util = { version = "0.7.16", features = ["full"] }
 tracing = "0.1.41"
 clap = { version = "4.5.48", features = ["string"] }
 thiserror = "2.0.17"
@@ -66,6 +66,7 @@ futures = "0.3.31"
 base64 = "0.22.1"
 url = "2.5.7"
 chrono = "0.4.40"
+inventory = "0.3.21"
 
 codec-aac = { path = "codec/aac" }
 codec-bitstream = { path = "codec/bitstream" }
@@ -82,6 +83,7 @@ rtsp-formats = { path = "formats/rtsp" }
 sdp-formats = { path = "formats/sdp" }
 stun-formats = { path = "formats/stun" }
 webrtc-formats = { path = "formats/webrtc" }
+iana-formats = { path = "formats/iana" }
 
 http-server = { path = "servers/http" }
 rtmp-server = { path = "servers/rtmp" }
