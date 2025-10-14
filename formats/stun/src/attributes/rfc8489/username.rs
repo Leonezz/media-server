@@ -18,7 +18,7 @@ impl UserNameAttribute {
         if username.len() > USERNAME_MAX_LEN {
             return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "length of {:?}: {} exceeds max length {}",
-                crate::attribute::AttrType::UserName,
+                Self::STATIC_ATTR_TYPE.unwrap(),
                 username,
                 USERNAME_MAX_LEN
             )));
@@ -61,20 +61,22 @@ impl DynamicSizedPacket for UserNameAttribute {
 pub const USERNAME_MAX_LEN: usize = 763;
 
 impl AttributeExt for UserNameAttribute {
+    const STATIC_ATTR_TYPE: Option<crate::attribute::AttrType> =
+        Some(crate::attribute::AttrType::UserName);
     fn get_type(&self) -> crate::attribute::AttrType {
-        crate::attribute::AttrType::UserName
+        Self::STATIC_ATTR_TYPE.unwrap()
     }
 
     fn from_raw_attr(
         raw_attr: crate::attribute::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
     ) -> Result<Self, crate::errors::StunMessageError> {
-        check_attr_match(raw_attr.attr_type, crate::attribute::AttrType::UserName)?;
+        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE.unwrap())?;
         let username = String::from_utf8(raw_attr.value)?;
         if username.len() > USERNAME_MAX_LEN {
             return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "length of {:?}: {} exceeds max length {}",
-                crate::attribute::AttrType::UserName,
+                Self::STATIC_ATTR_TYPE.unwrap(),
                 username,
                 USERNAME_MAX_LEN
             )));

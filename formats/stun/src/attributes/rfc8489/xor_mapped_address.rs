@@ -90,21 +90,22 @@ fn xor_inplace<const L: usize>(dst: &mut [u8; L], xor: &[u8; L]) {
 }
 
 impl AttributeExt for XorMappedAddressAttribute {
+    const STATIC_ATTR_TYPE: Option<AttrType> = Some(crate::attribute::AttrType::XorMappedAddress);
     fn get_type(&self) -> crate::attribute::AttrType {
-        crate::attribute::AttrType::XorMappedAddress
+        Self::STATIC_ATTR_TYPE.unwrap()
     }
 
     fn from_raw_attr(
         raw_attr: crate::attribute::RawAttribute,
         transaction_id: &crate::header::TransactionId,
     ) -> Result<Self, crate::errors::StunMessageError> {
-        check_attr_match(raw_attr.attr_type, AttrType::XorMappedAddress)?;
+        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE.unwrap())?;
         let mut bytes = raw_attr.value.as_slice();
         let first_byte = bytes.read_u8()?;
         if first_byte != 0 {
             return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "first byte of {:?} is not 0: {}",
-                AttrType::XorMappedAddress,
+                Self::STATIC_ATTR_TYPE.unwrap(),
                 first_byte
             )));
         }

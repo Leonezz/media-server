@@ -106,6 +106,18 @@ impl Message {
             .find(|item| item.get_type() == attr_type)
     }
 
+    pub fn get_attribute_ext<Attr: AttributeExt>(&self) -> Option<Attr> {
+        self.attributes.iter().find_map(|item| {
+            if let Some(static_attr_type) = Attr::STATIC_ATTR_TYPE
+                && static_attr_type == item.get_type()
+            {
+                let raw_attribute = item.clone().into_raw_attr(self.transaction_id());
+                return Attr::from_raw_attr(raw_attribute, self.transaction_id()).ok();
+            }
+            None
+        })
+    }
+
     pub fn require(&self, attr_type: AttrType) -> STUNMessageResult<()> {
         if self.get_attribute(attr_type).is_none() {
             return Err(StunMessageError::InvalidMessage(format!(

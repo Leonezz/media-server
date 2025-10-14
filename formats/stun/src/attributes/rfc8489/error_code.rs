@@ -69,7 +69,7 @@ impl ErrorCodeAttribute {
         if reason_phrase.len() > ERROR_CODE_REASON_PHRASE_MAX_LEN {
             return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "length of reason phrase of {:?}: {} exceeds max length: {}",
-                crate::attribute::AttrType::ErrorCode,
+                Self::STATIC_ATTR_TYPE.unwrap(),
                 reason_phrase.len(),
                 ERROR_CODE_REASON_PHRASE_MAX_LEN
             )));
@@ -114,15 +114,17 @@ impl DynamicSizedPacket for ErrorCodeAttribute {
 }
 
 impl AttributeExt for ErrorCodeAttribute {
+    const STATIC_ATTR_TYPE: Option<crate::attribute::AttrType> =
+        Some(crate::attribute::AttrType::ErrorCode);
     fn get_type(&self) -> crate::attribute::AttrType {
-        crate::attribute::AttrType::ErrorCode
+        Self::STATIC_ATTR_TYPE.unwrap()
     }
 
     fn from_raw_attr(
         raw_attr: crate::attribute::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
     ) -> Result<Self, crate::errors::StunMessageError> {
-        check_attr_match(raw_attr.attr_type, crate::attribute::AttrType::ErrorCode)?;
+        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE.unwrap())?;
         let mut bytes = raw_attr.value.as_slice();
         let class = (bytes.read_u24::<BigEndian>()? & 0b111) as u16;
         let number = bytes.read_u8()? as u16;
@@ -130,7 +132,7 @@ impl AttributeExt for ErrorCodeAttribute {
         if bytes.len() > ERROR_CODE_REASON_PHRASE_MAX_LEN {
             return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "length of reason phrase of {:?}: {} exceeds max length: {}",
-                crate::attribute::AttrType::ErrorCode,
+                Self::STATIC_ATTR_TYPE.unwrap(),
                 bytes.len(),
                 ERROR_CODE_REASON_PHRASE_MAX_LEN
             )));

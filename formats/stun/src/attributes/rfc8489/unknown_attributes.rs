@@ -38,15 +38,16 @@ impl DynamicSizedPacket for UnknownAttributes {
 }
 
 impl AttributeExt for UnknownAttributes {
+    const STATIC_ATTR_TYPE: Option<AttrType> = Some(AttrType::UnknownAttributes);
     fn get_type(&self) -> AttrType {
-        AttrType::UnknownAttributes
+        Self::STATIC_ATTR_TYPE.unwrap()
     }
 
     fn from_raw_attr(
         raw_attr: crate::attribute::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
     ) -> Result<Self, crate::errors::StunMessageError> {
-        check_attr_match(raw_attr.attr_type, AttrType::UnknownAttributes)?;
+        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE.unwrap())?;
         let mut attributes = Vec::with_capacity(raw_attr.value.len() / 2);
         let mut bytes = raw_attr.value.as_slice();
         while bytes.has_data_left()? {

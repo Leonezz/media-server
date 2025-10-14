@@ -40,14 +40,16 @@ impl FixedPacket for UserHashAttribute {
 }
 
 impl AttributeExt for UserHashAttribute {
+    const STATIC_ATTR_TYPE: Option<crate::attribute::AttrType> =
+        Some(crate::attribute::AttrType::UserHash);
     fn get_type(&self) -> crate::attribute::AttrType {
-        crate::attribute::AttrType::UserHash
+        Self::STATIC_ATTR_TYPE.unwrap()
     }
     fn from_raw_attr(
         raw_attr: crate::attribute::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
     ) -> Result<Self, crate::errors::StunMessageError> {
-        check_attr_match(raw_attr.attr_type, crate::attribute::AttrType::UserHash)?;
+        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE.unwrap())?;
         if raw_attr.value.len() != USERHASH_LEN {
             return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "user hash value should be of 32 bytes, got {} bytes",

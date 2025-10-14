@@ -32,8 +32,10 @@ impl DynamicSizedPacket for AlternateServerAttribute {
 }
 
 impl AttributeExt for AlternateServerAttribute {
+    const STATIC_ATTR_TYPE: Option<crate::attribute::AttrType> =
+        Some(crate::attribute::AttrType::AlternateServer);
     fn get_type(&self) -> crate::attribute::AttrType {
-        crate::attribute::AttrType::AlternateServer
+        Self::STATIC_ATTR_TYPE.unwrap()
     }
 
     fn from_raw_attr(

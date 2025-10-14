@@ -95,20 +95,20 @@ impl From<MappedAddressAttribute> for RawAttribute {
         buffer.write_u16::<BigEndian>(value.family()).unwrap();
         buffer.write_u16::<BigEndian>(value.port).unwrap();
         buffer.extend_from_slice(value.address.as_octets());
-        Self::new(AttrType::MappedAddress, buffer)
+        Self::new(Self::STATIC_ATTR_TYPE.unwrap(), buffer)
     }
 }
 
 impl TryFrom<RawAttribute> for MappedAddressAttribute {
     type Error = StunMessageError;
     fn try_from(value: RawAttribute) -> Result<Self, Self::Error> {
-        check_attr_match(value.attr_type, AttrType::MappedAddress)?;
+        check_attr_match(value.attr_type, Self::STATIC_ATTR_TYPE.unwrap())?;
         let mut bytes = value.value.as_slice();
         let first_byte = bytes.read_u8()?;
         if first_byte != 0 {
             return Err(StunMessageError::SyntaxError(format!(
                 "first byte of {:?} is not zero: {}",
-                AttrType::MappedAddress,
+                Self::STATIC_ATTR_TYPE.unwrap(),
                 first_byte
             )));
         }
@@ -142,6 +142,7 @@ impl TryFrom<RawAttribute> for MappedAddressAttribute {
 }
 
 impl AttributeExt for MappedAddressAttribute {
+    const STATIC_ATTR_TYPE: Option<AttrType> = Some(AttrType::MappedAddress);
     fn from_raw_attr(
         raw_attr: RawAttribute,
         _transaction_id: &crate::header::TransactionId,
@@ -153,6 +154,6 @@ impl AttributeExt for MappedAddressAttribute {
     }
 
     fn get_type(&self) -> AttrType {
-        AttrType::MappedAddress
+        Self::STATIC_ATTR_TYPE.unwrap()
     }
 }

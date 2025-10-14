@@ -171,6 +171,7 @@ pub trait AttributeExt: Sized {
         transaction_id: &TransactionId,
     ) -> Result<Self, StunMessageError>;
     fn into_raw_attr(self, transaction_id: &TransactionId) -> RawAttribute;
+    const STATIC_ATTR_TYPE: Option<AttrType> = None;
     fn get_type(&self) -> AttrType;
     fn is_comprehension_required(&self) -> bool {
         u16::from(self.get_type()) < 0x8000

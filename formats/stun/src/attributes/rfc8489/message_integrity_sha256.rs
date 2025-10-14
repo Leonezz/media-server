@@ -84,7 +84,7 @@ impl MessageIntegritySHA256Attribute {
     /// it should be constructed with new_short_term or new_long_term which has hash_key value
     pub fn check(self, message: &Message) -> STUNMessageResult<()> {
         if let Some(Attribute::MessageIntegritySHA256(attr)) =
-            message.get_attribute(crate::attribute::AttrType::MessageIntegritySHA256)
+            message.get_attribute(Self::STATIC_ATTR_TYPE.unwrap())
         {
             let dummy_attributes = message
                 .attributes()
@@ -141,25 +141,24 @@ pub const MESSAGE_INTEGRITY_SHA256_MIN_LEN: usize = 16;
 pub const MESSAGE_INTEGRITY_SHA256_MAX_LEN: usize = 32;
 
 impl AttributeExt for MessageIntegritySHA256Attribute {
+    const STATIC_ATTR_TYPE: Option<crate::attribute::AttrType> =
+        Some(crate::attribute::AttrType::MessageIntegritySHA256);
     fn get_type(&self) -> crate::attribute::AttrType {
-        crate::attribute::AttrType::MessageIntegritySHA256
+        Self::STATIC_ATTR_TYPE.unwrap()
     }
 
     fn from_raw_attr(
         raw_attr: crate::attribute::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
     ) -> Result<Self, crate::errors::StunMessageError> {
-        check_attr_match(
-            raw_attr.attr_type,
-            crate::attribute::AttrType::MessageIntegritySHA256,
-        )?;
+        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE.unwrap())?;
         if raw_attr.value.len() < MESSAGE_INTEGRITY_SHA256_MIN_LEN
             || raw_attr.value.len() > MESSAGE_INTEGRITY_SHA256_MAX_LEN
             || !raw_attr.value.len().is_multiple_of(4)
         {
             return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "length of value for {:?} is not valid: {}",
-                crate::attribute::AttrType::MessageIntegritySHA256,
+                Self::STATIC_ATTR_TYPE.unwrap(),
                 raw_attr.value.len()
             )));
         }

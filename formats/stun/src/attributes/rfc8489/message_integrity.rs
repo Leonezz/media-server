@@ -64,7 +64,7 @@ impl MessageIntegrityAttribute {
     /// it should be constructed with new_short_term or new_long_term which has hash_key value
     pub fn check(self, message: &Message) -> STUNMessageResult<()> {
         if let Some(Attribute::MessageIntegrity(attr)) =
-            message.get_attribute(crate::attribute::AttrType::MessageIntegrity)
+            message.get_attribute(Self::STATIC_ATTR_TYPE.unwrap())
         {
             let dummy_attributes: Vec<_> = message
                 .attributes()
@@ -115,18 +115,17 @@ impl DynamicSizedPacket for MessageIntegrityAttribute {
 }
 
 impl AttributeExt for MessageIntegrityAttribute {
+    const STATIC_ATTR_TYPE: Option<crate::attribute::AttrType> =
+        Some(crate::attribute::AttrType::MessageIntegrity);
     fn get_type(&self) -> crate::attribute::AttrType {
-        crate::attribute::AttrType::MessageIntegrity
+        Self::STATIC_ATTR_TYPE.unwrap()
     }
 
     fn from_raw_attr(
         raw_attr: crate::attribute::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
     ) -> Result<Self, crate::errors::StunMessageError> {
-        check_attr_match(
-            raw_attr.attr_type,
-            crate::attribute::AttrType::MessageIntegrity,
-        )?;
+        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE.unwrap())?;
         if raw_attr.value.len() != MESSAGE_INTEGRITY_LEN {
             return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "length of {:?} is not {}",

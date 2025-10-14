@@ -44,18 +44,17 @@ impl DynamicSizedPacket for PasswordAlgorithmsAttribute {
 }
 
 impl AttributeExt for PasswordAlgorithmsAttribute {
+    const STATIC_ATTR_TYPE: Option<crate::attribute::AttrType> =
+        Some(crate::attribute::AttrType::PasswordAlgorithms);
     fn get_type(&self) -> crate::attribute::AttrType {
-        crate::attribute::AttrType::PasswordAlgorithms
+        Self::STATIC_ATTR_TYPE.unwrap()
     }
 
     fn from_raw_attr(
         raw_attr: crate::attribute::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
     ) -> Result<Self, crate::errors::StunMessageError> {
-        check_attr_match(
-            raw_attr.attr_type,
-            crate::attribute::AttrType::PasswordAlgorithms,
-        )?;
+        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE.unwrap())?;
         let mut bytes = raw_attr.value.as_slice();
         let mut algorithms = Vec::new();
         while bytes.has_data_left()? {

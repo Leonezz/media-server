@@ -7,13 +7,13 @@ pub struct STUNMethodBinding;
 
 impl Debug for STUNMethodBinding {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(STUNMethodBinding::get_name())
+        f.write_str(STUNMethodBinding::static_name())
     }
 }
 
 impl MethodExt for STUNMethodBinding {
-    const VALUE: u16 = 0x001;
-    fn get_name() -> &'static str {
+    const STATIC_VALUE: u16 = 0x001;
+    fn static_name() -> &'static str {
         "Binding"
     }
 
