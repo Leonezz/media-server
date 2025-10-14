@@ -4,7 +4,7 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
 
 use crate::{
-    attribute::{AttrType, STUNAttributeExt},
+    attribute::{AttrType, AttributeExt},
     attributes::{STUN_ATTRIBUTE_PADDING_SIZE, check_attr_match, get_after_padding_size},
 };
 
@@ -37,15 +37,15 @@ impl DynamicSizedPacket for UnknownAttributes {
     }
 }
 
-impl STUNAttributeExt for UnknownAttributes {
+impl AttributeExt for UnknownAttributes {
     fn get_type(&self) -> AttrType {
         AttrType::UnknownAttributes
     }
 
     fn from_raw_attr(
-        raw_attr: crate::attribute::STUNRawAttribute,
+        raw_attr: crate::attribute::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
-    ) -> Result<Self, crate::errors::STUNMessageError> {
+    ) -> Result<Self, crate::errors::StunMessageError> {
         check_attr_match(raw_attr.attr_type, AttrType::UnknownAttributes)?;
         let mut attributes = Vec::with_capacity(raw_attr.value.len() / 2);
         let mut bytes = raw_attr.value.as_slice();
@@ -62,11 +62,11 @@ impl STUNAttributeExt for UnknownAttributes {
     fn into_raw_attr(
         self,
         _transaction_id: &crate::header::TransactionId,
-    ) -> crate::attribute::STUNRawAttribute {
+    ) -> crate::attribute::RawAttribute {
         let mut value = Vec::with_capacity(self.attributes.len() * 2);
         self.attributes.iter().for_each(|item| {
             value.write_u16::<BigEndian>((*item).into()).unwrap();
         });
-        crate::attribute::STUNRawAttribute::new(self.get_type(), value)
+        crate::attribute::RawAttribute::new(self.get_type(), value)
     }
 }

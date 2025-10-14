@@ -3,7 +3,7 @@ use std::fmt;
 use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
 
 use crate::{
-    attribute::STUNAttributeExt,
+    attribute::AttributeExt,
     attributes::{STUN_ATTRIBUTE_PADDING_SIZE, check_attr_match, get_after_padding_size},
     errors::STUNMessageResult,
 };
@@ -16,7 +16,7 @@ pub struct RealmAttribute {
 impl RealmAttribute {
     pub fn new(value: &str) -> STUNMessageResult<Self> {
         if value.len() > REALM_VALUE_MAX_LEN {
-            return Err(crate::errors::STUNMessageError::SyntaxError(format!(
+            return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "value length for {:?}: {} exceeds max length: {}",
                 crate::attribute::AttrType::Realm,
                 value.len(),
@@ -47,18 +47,18 @@ impl fmt::Debug for RealmAttribute {
 /// (which can be as long as 509 bytes when encoding them and as long as 763 bytes when decoding them)
 pub const REALM_VALUE_MAX_LEN: usize = 763;
 
-impl STUNAttributeExt for RealmAttribute {
+impl AttributeExt for RealmAttribute {
     fn get_type(&self) -> crate::attribute::AttrType {
         crate::attribute::AttrType::Realm
     }
 
     fn from_raw_attr(
-        raw_attr: crate::attribute::STUNRawAttribute,
+        raw_attr: crate::attribute::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
-    ) -> Result<Self, crate::errors::STUNMessageError> {
+    ) -> Result<Self, crate::errors::StunMessageError> {
         check_attr_match(raw_attr.attr_type, crate::attribute::AttrType::Realm)?;
         if raw_attr.value.len() > REALM_VALUE_MAX_LEN {
-            return Err(crate::errors::STUNMessageError::SyntaxError(format!(
+            return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "value length for {:?}: {} exceeds max length: {}",
                 crate::attribute::AttrType::Realm,
                 raw_attr.value.len(),
@@ -74,7 +74,7 @@ impl STUNAttributeExt for RealmAttribute {
     fn into_raw_attr(
         self,
         _transaction_id: &crate::header::TransactionId,
-    ) -> crate::attribute::STUNRawAttribute {
-        crate::attribute::STUNRawAttribute::new(self.get_type(), self.value.into_bytes())
+    ) -> crate::attribute::RawAttribute {
+        crate::attribute::RawAttribute::new(self.get_type(), self.value.into_bytes())
     }
 }

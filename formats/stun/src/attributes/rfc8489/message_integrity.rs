@@ -3,10 +3,10 @@ use std::fmt;
 use utils::traits::{dynamic_sized_packet::DynamicSizedPacket, writer::WriteTo};
 
 use crate::{
-    attribute::{STUNAttribute, STUNAttributeExt},
+    attribute::{Attribute, AttributeExt},
     attributes::{STUN_ATTRIBUTE_PADDING_SIZE, check_attr_match, get_after_padding_size},
     errors::STUNMessageResult,
-    message::STUNMessage,
+    message::Message,
 };
 
 #[derive(Clone)]
@@ -47,8 +47,8 @@ impl MessageIntegrityAttribute {
         }
     }
 
-    pub fn sign(self, message: STUNMessage) -> Self {
-        let dummy_self = STUNAttribute::MessageIntegrity(Self::new_dummy());
+    pub fn sign(self, message: Message) -> Self {
+        let dummy_self = Attribute::MessageIntegrity(Self::new_dummy());
         let attr_len = dummy_self.get_packet_bytes_count();
         let dummy_message = message.prepare_dummy_message_bytes(dummy_self);
         let mut bytes_to_hash = Vec::with_capacity(dummy_message.get_packet_bytes_count());
@@ -62,27 +62,27 @@ impl MessageIntegrityAttribute {
 
     /// attributes used for check is not the attributes read from message,
     /// it should be constructed with new_short_term or new_long_term which has hash_key value
-    pub fn check(self, message: &STUNMessage) -> STUNMessageResult<()> {
-        if let Some(STUNAttribute::MessageIntegrity(attr)) =
+    pub fn check(self, message: &Message) -> STUNMessageResult<()> {
+        if let Some(Attribute::MessageIntegrity(attr)) =
             message.get_attribute(crate::attribute::AttrType::MessageIntegrity)
         {
             let dummy_attributes: Vec<_> = message
                 .attributes()
                 .iter()
-                .take_while(|item| matches!(item, STUNAttribute::MessageIntegrity(_)))
+                .take_while(|item| matches!(item, Attribute::MessageIntegrity(_)))
                 .cloned()
                 .collect();
-            let dummy_message = STUNMessage::new(*message.header(), dummy_attributes);
+            let dummy_message = Message::new(*message.header(), dummy_attributes);
             let real = self.sign(dummy_message);
             if !real.eq(attr) {
-                return Err(crate::errors::STUNMessageError::InvalidMessage(format!(
+                return Err(crate::errors::StunMessageError::InvalidMessage(format!(
                     "{:?} not match message: {:?}",
                     attr, message
                 )));
             }
             Ok(())
         } else {
-            Err(crate::errors::STUNMessageError::InvalidMessage(format!(
+            Err(crate::errors::StunMessageError::InvalidMessage(format!(
                 "{:?} attribute not found in message {:?}",
                 self.get_type(),
                 message
@@ -114,21 +114,21 @@ impl DynamicSizedPacket for MessageIntegrityAttribute {
     }
 }
 
-impl STUNAttributeExt for MessageIntegrityAttribute {
+impl AttributeExt for MessageIntegrityAttribute {
     fn get_type(&self) -> crate::attribute::AttrType {
         crate::attribute::AttrType::MessageIntegrity
     }
 
     fn from_raw_attr(
-        raw_attr: crate::attribute::STUNRawAttribute,
+        raw_attr: crate::attribute::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
-    ) -> Result<Self, crate::errors::STUNMessageError> {
+    ) -> Result<Self, crate::errors::StunMessageError> {
         check_attr_match(
             raw_attr.attr_type,
             crate::attribute::AttrType::MessageIntegrity,
         )?;
         if raw_attr.value.len() != MESSAGE_INTEGRITY_LEN {
-            return Err(crate::errors::STUNMessageError::SyntaxError(format!(
+            return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "length of {:?} is not {}",
                 raw_attr.attr_type, MESSAGE_INTEGRITY_LEN,
             )));
@@ -142,7 +142,7 @@ impl STUNAttributeExt for MessageIntegrityAttribute {
     fn into_raw_attr(
         self,
         _transaction_id: &crate::header::TransactionId,
-    ) -> crate::attribute::STUNRawAttribute {
-        crate::attribute::STUNRawAttribute::new(self.get_type(), self.key.into())
+    ) -> crate::attribute::RawAttribute {
+        crate::attribute::RawAttribute::new(self.get_type(), self.key.into())
     }
 }

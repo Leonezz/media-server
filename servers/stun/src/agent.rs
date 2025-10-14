@@ -6,7 +6,7 @@ use std::{
 
 use stun_formats::{
     header::TransactionId,
-    message::STUNMessage,
+    message::Message,
     rfc8489::{ErrorCodeAttribute, XorMappedAddressAttribute, error_code::ERROR_CODE_BAD_REQUEST},
 };
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -15,7 +15,7 @@ use crate::errors::{STUNSessionError, STUNSessionResult};
 
 #[derive(Debug)]
 pub struct Transaction {
-    request: STUNMessage,
+    request: Message,
     deadline: Instant,
     retransmit_times: u32,
     transation_start: Instant,
@@ -27,8 +27,8 @@ pub enum AgentCommand {
     // any message a client or server received from socket,
     // a client received a resposne and emit it to agent through this,
     // a server received a request and emit it to agent through this,
-    IncomingMessage((STUNMessage, SocketAddr)),
-    SendRequest(STUNMessage), // MUST be a request
+    IncomingMessage((Message, SocketAddr)),
+    SendRequest(Message), // MUST be a request
 }
 
 /// AgentEvent goes from Agent -> App
@@ -37,9 +37,9 @@ pub enum AgentEvent {
     // any message a client or server received from socket,
     // a client will expect a response from this,
     // a server will expect a request from this,
-    OutgoingMessage(STUNMessage),
-    Retransmit(STUNMessage), // MUST be a request
-    Timeout(STUNMessage),    // a request has timed out, MUST be a request
+    OutgoingMessage(Message),
+    Retransmit(Message), // MUST be a request
+    Timeout(Message),    // a request has timed out, MUST be a request
 }
 
 #[derive(Debug)]
@@ -116,18 +116,18 @@ impl Agent {
 
     fn on_incoming_message(
         &mut self,
-        message: (STUNMessage, SocketAddr),
+        message: (Message, SocketAddr),
     ) -> STUNSessionResult<AgentEvent> {
         let (message, remote) = message;
         tracing::debug!("incoming message: {:?} from {}", message, remote);
         match message.message_class() {
-            stun_formats::header::STUNMessageClass::Request => match message.message_method() {
-                stun_formats::methods::STUNMethod::Binding(_) => {
-                    let response = STUNMessage::builder()
+            stun_formats::header::MessageClass::Request => match message.message_method() {
+                stun_formats::methods::Method::Binding(_) => {
+                    let response = Message::builder()
                         .success()
                         .binding()
                         .transaction_id(message.transaction_id().clone())
-                        .attribute(stun_formats::attribute::STUNAttribute::XorMappedAddress(
+                        .attribute(stun_formats::attribute::Attribute::XorMappedAddress(
                             XorMappedAddressAttribute::new(remote),
                         ))
                         .unwrap()
@@ -138,9 +138,9 @@ impl Agent {
                     Ok(AgentEvent::OutgoingMessage(response))
                 }
                 _ => {
-                    let response = STUNMessage::builder()
+                    let response = Message::builder()
                         .error()
-                        .attribute(stun_formats::attribute::STUNAttribute::ErrorCode(
+                        .attribute(stun_formats::attribute::Attribute::ErrorCode(
                             ErrorCodeAttribute::new(ERROR_CODE_BAD_REQUEST).unwrap(),
                         ))
                         .unwrap()
@@ -163,7 +163,7 @@ impl Agent {
         }
     }
 
-    fn on_send_request(&mut self, message: STUNMessage) -> STUNSessionResult<()> {
+    fn on_send_request(&mut self, message: Message) -> STUNSessionResult<()> {
         self.transactions.remove(message.transaction_id());
         let now = Instant::now();
         let transaction = Transaction {

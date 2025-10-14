@@ -4,7 +4,7 @@ use crate::{
 };
 use connection::connection::Outgoing;
 use std::{io, net::SocketAddr};
-use stun_formats::message::STUNMessage;
+use stun_formats::message::Message;
 use utils::net::protocol::Protocol;
 
 pub struct STUNServer {
@@ -65,7 +65,7 @@ impl STUNServer {
         };
 
         while let Ok((remote_addr, conn, message_tx, message_rx)) =
-            endpoint.accept::<STUNMessage>().await
+            endpoint.accept::<Message>().await
         {
             tracing::info!("got new connection from {}", remote_addr);
             tokio::spawn(async move {
@@ -99,8 +99,8 @@ impl STUNServer {
 
     async fn handle_connection(
         remote_addr: SocketAddr,
-        message_tx: tokio::sync::mpsc::Sender<Outgoing<STUNMessage>>,
-        mut message_rx: tokio::sync::mpsc::Receiver<STUNMessage>,
+        message_tx: tokio::sync::mpsc::Sender<Outgoing<Message>>,
+        mut message_rx: tokio::sync::mpsc::Receiver<Message>,
         agent_command_tx: tokio::sync::mpsc::Sender<AgentCommand>,
         mut agent_event_rx: tokio::sync::broadcast::Receiver<AgentEvent>,
     ) -> STUNSessionResult<()> {
@@ -108,7 +108,7 @@ impl STUNServer {
             tracing::info!("got stun message: {:?}", message);
             if !matches!(
                 message.message_class(),
-                stun_formats::header::STUNMessageClass::Request
+                stun_formats::header::MessageClass::Request
             ) {
                 tracing::warn!(
                     "got a stun message that is not a request: {:?}, ignore",

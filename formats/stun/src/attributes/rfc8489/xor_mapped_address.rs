@@ -8,7 +8,7 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use utils::traits::{dynamic_sized_packet::DynamicSizedPacket, writer::WriteTo};
 
 use crate::{
-    attribute::{AttrType, STUNAttributeExt},
+    attribute::{AttrType, AttributeExt},
     attributes::check_attr_match,
     header::{MAGIC_COOKIE, TRANSACTION_ID_LEN},
     rfc8489::mapped_address::{ADDRESS_FAMILY_V4, ADDRESS_FAMILY_V6, IPV4_LEN, IPV6_LEN},
@@ -89,20 +89,20 @@ fn xor_inplace<const L: usize>(dst: &mut [u8; L], xor: &[u8; L]) {
     }
 }
 
-impl STUNAttributeExt for XorMappedAddressAttribute {
+impl AttributeExt for XorMappedAddressAttribute {
     fn get_type(&self) -> crate::attribute::AttrType {
         crate::attribute::AttrType::XorMappedAddress
     }
 
     fn from_raw_attr(
-        raw_attr: crate::attribute::STUNRawAttribute,
+        raw_attr: crate::attribute::RawAttribute,
         transaction_id: &crate::header::TransactionId,
-    ) -> Result<Self, crate::errors::STUNMessageError> {
+    ) -> Result<Self, crate::errors::StunMessageError> {
         check_attr_match(raw_attr.attr_type, AttrType::XorMappedAddress)?;
         let mut bytes = raw_attr.value.as_slice();
         let first_byte = bytes.read_u8()?;
         if first_byte != 0 {
-            return Err(crate::errors::STUNMessageError::SyntaxError(format!(
+            return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "first byte of {:?} is not 0: {}",
                 AttrType::XorMappedAddress,
                 first_byte
@@ -128,7 +128,7 @@ impl STUNAttributeExt for XorMappedAddressAttribute {
                 IpAddr::V6(Ipv6Addr::from_octets(ipv6_bytes))
             }
             _ => {
-                return Err(crate::errors::STUNMessageError::SyntaxError(format!(
+                return Err(crate::errors::StunMessageError::SyntaxError(format!(
                     "invalid ip address family: {}",
                     family
                 )));
@@ -144,7 +144,7 @@ impl STUNAttributeExt for XorMappedAddressAttribute {
     fn into_raw_attr(
         self,
         transaction_id: &crate::header::TransactionId,
-    ) -> crate::attribute::STUNRawAttribute {
+    ) -> crate::attribute::RawAttribute {
         let mut value = Vec::with_capacity(self.get_packet_bytes_count());
         value.write_u16::<BigEndian>(self.family()).unwrap();
         value
@@ -165,6 +165,6 @@ impl STUNAttributeExt for XorMappedAddressAttribute {
                 value.extend_from_slice(&ipv6_bytes);
             }
         }
-        crate::attribute::STUNRawAttribute::new(self.get_type(), value)
+        crate::attribute::RawAttribute::new(self.get_type(), value)
     }
 }

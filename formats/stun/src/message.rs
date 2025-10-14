@@ -14,29 +14,29 @@ use utils::traits::{
 };
 
 use crate::{
-    attribute::{AttrType, STUNAttribute, STUNAttributeExt, STUNRawAttribute},
+    attribute::{AttrType, Attribute, AttributeExt, RawAttribute},
     builder::STUNMessageBuilder,
-    errors::{STUNMessageError, STUNMessageResult},
+    errors::{STUNMessageResult, StunMessageError},
     header::{STUNMessageHeader, TransactionId},
 };
 
 #[derive(Clone)]
-pub struct STUNMessage {
+pub struct Message {
     header: STUNMessageHeader,
-    attributes: Vec<STUNAttribute>,
+    attributes: Vec<Attribute>,
 }
 
-impl traits::protocol_message::ProtocolMessage for STUNMessage {
-    type Codec = STUNMessageFramed;
-    type Error = STUNMessageError;
-    type In = STUNMessage;
-    type Out = STUNMessage;
+impl traits::protocol_message::ProtocolMessage for Message {
+    type Codec = MessageFramed;
+    type Error = StunMessageError;
+    type In = Message;
+    type Out = Message;
     fn codec() -> Self::Codec {
-        STUNMessageFramed {}
+        MessageFramed {}
     }
 }
 
-impl fmt::Debug for STUNMessage {
+impl fmt::Debug for Message {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "{:?}", self.header)?;
         self.attributes
@@ -46,7 +46,7 @@ impl fmt::Debug for STUNMessage {
     }
 }
 
-impl DynamicSizedPacket for STUNMessage {
+impl DynamicSizedPacket for Message {
     fn get_packet_bytes_count(&self) -> usize {
         STUNMessageHeader::bytes_count()
             + self
@@ -56,19 +56,19 @@ impl DynamicSizedPacket for STUNMessage {
     }
 }
 
-impl STUNMessage {
+impl Message {
     pub fn builder() -> STUNMessageBuilder {
         Default::default()
     }
 
-    pub(crate) fn new(header: STUNMessageHeader, attrs: Vec<STUNAttribute>) -> Self {
-        STUNMessage {
+    pub(crate) fn new(header: STUNMessageHeader, attrs: Vec<Attribute>) -> Self {
+        Message {
             header,
             attributes: attrs,
         }
     }
 
-    pub fn attributes(&self) -> &Vec<STUNAttribute> {
+    pub fn attributes(&self) -> &Vec<Attribute> {
         &self.attributes
     }
 
@@ -79,15 +79,15 @@ impl STUNMessage {
     pub fn transaction_id(&self) -> &TransactionId {
         &self.header.transaction_id
     }
-    pub fn message_class(&self) -> crate::header::STUNMessageClass {
+    pub fn message_class(&self) -> crate::header::MessageClass {
         self.header.stun_message_type.message_class
     }
 
-    pub fn message_method(&self) -> crate::methods::STUNMethod {
+    pub fn message_method(&self) -> crate::methods::Method {
         self.header.stun_message_type.method
     }
 
-    pub fn prepare_dummy_message_bytes(mut self, attr: STUNAttribute) -> Self {
+    pub fn prepare_dummy_message_bytes(mut self, attr: Attribute) -> Self {
         self.attributes.push(attr);
         self
     }
@@ -100,7 +100,7 @@ impl STUNMessage {
         })
     }
 
-    pub fn get_attribute(&self, attr_type: AttrType) -> Option<&STUNAttribute> {
+    pub fn get_attribute(&self, attr_type: AttrType) -> Option<&Attribute> {
         self.attributes
             .iter()
             .find(|item| item.get_type() == attr_type)
@@ -108,7 +108,7 @@ impl STUNMessage {
 
     pub fn require(&self, attr_type: AttrType) -> STUNMessageResult<()> {
         if self.get_attribute(attr_type).is_none() {
-            return Err(STUNMessageError::InvalidMessage(format!(
+            return Err(StunMessageError::InvalidMessage(format!(
                 "no {:?} found in message: {:?}",
                 attr_type, self
             )));
@@ -117,8 +117,8 @@ impl STUNMessage {
     }
 }
 
-impl<W: io::Write> WriteTo<W> for STUNMessage {
-    type Error = STUNMessageError;
+impl<W: io::Write> WriteTo<W> for Message {
+    type Error = StunMessageError;
     fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         let body_len = self
             .attributes
@@ -136,8 +136,8 @@ impl<W: io::Write> WriteTo<W> for STUNMessage {
     }
 }
 
-impl<R: io::Read> ReadFrom<R> for STUNMessage {
-    type Error = STUNMessageError;
+impl<R: io::Read> ReadFrom<R> for Message {
+    type Error = StunMessageError;
     fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let header = STUNMessageHeader::read_from(reader)?;
         let mut remaining_bytes = vec![0_u8; header.message_length as usize];
@@ -145,11 +145,8 @@ impl<R: io::Read> ReadFrom<R> for STUNMessage {
         let mut bytes = remaining_bytes.as_slice();
         let mut attributes = Vec::new();
         while bytes.has_data_left()? {
-            let raw_attr = STUNRawAttribute::read_from(&mut bytes)?;
-            attributes.push(STUNAttribute::from_raw_attr(
-                raw_attr,
-                &header.transaction_id,
-            )?);
+            let raw_attr = RawAttribute::read_from(&mut bytes)?;
+            attributes.push(Attribute::from_raw_attr(raw_attr, &header.transaction_id)?);
         }
         let message = Self { header, attributes };
         message.message_method().check(&message)?;
@@ -158,12 +155,12 @@ impl<R: io::Read> ReadFrom<R> for STUNMessage {
 }
 
 #[derive(Debug)]
-pub struct STUNMessageFramed;
-impl Encoder<STUNMessage> for STUNMessageFramed {
-    type Error = STUNMessageError;
+pub struct MessageFramed;
+impl Encoder<Message> for MessageFramed {
+    type Error = StunMessageError;
     fn encode(
         &mut self,
-        item: STUNMessage,
+        item: Message,
         dst: &mut tokio_util::bytes::BytesMut,
     ) -> Result<(), Self::Error> {
         item.write_to(&mut dst.writer())?;
@@ -171,9 +168,9 @@ impl Encoder<STUNMessage> for STUNMessageFramed {
     }
 }
 
-impl Decoder for STUNMessageFramed {
-    type Error = STUNMessageError;
-    type Item = STUNMessage;
+impl Decoder for MessageFramed {
+    type Error = StunMessageError;
+    type Item = Message;
     fn decode(
         &mut self,
         src: &mut tokio_util::bytes::BytesMut,
@@ -183,7 +180,7 @@ impl Decoder for STUNMessageFramed {
         }
         let (res, position) = {
             let mut cursor = io::Cursor::new(&src);
-            let res = STUNMessage::read_from(cursor.by_ref());
+            let res = Message::read_from(cursor.by_ref());
             (res, cursor.position())
         };
         if let Ok(res) = res {

@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use crate::methods::STUNMethodExt;
+use crate::methods::MethodExt;
 
 #[derive(Clone, Copy)]
 pub struct STUNMethodBinding;
@@ -11,18 +11,18 @@ impl Debug for STUNMethodBinding {
     }
 }
 
-impl STUNMethodExt for STUNMethodBinding {
+impl MethodExt for STUNMethodBinding {
     const VALUE: u16 = 0x001;
     fn get_name() -> &'static str {
         "Binding"
     }
 
-    fn check(&self, message: &crate::message::STUNMessage) -> crate::errors::STUNMessageResult<()> {
+    fn check(&self, message: &crate::message::Message) -> crate::errors::STUNMessageResult<()> {
         match message.message_class() {
-            crate::header::STUNMessageClass::ErrorResponse => {
+            crate::header::MessageClass::ErrorResponse => {
                 message.require(crate::attribute::AttrType::ErrorCode)
             }
-            crate::header::STUNMessageClass::SuccessResponse => {
+            crate::header::MessageClass::SuccessResponse => {
                 message.require(crate::attribute::AttrType::XorMappedAddress)
             }
             _ => Ok(()),

@@ -3,10 +3,10 @@ use std::fmt;
 use utils::traits::{dynamic_sized_packet::DynamicSizedPacket, writer::WriteTo};
 
 use crate::{
-    attribute::{STUNAttribute, STUNAttributeExt},
+    attribute::{Attribute, AttributeExt},
     attributes::{STUN_ATTRIBUTE_PADDING_SIZE, check_attr_match, get_after_padding_size},
     errors::STUNMessageResult,
-    message::STUNMessage,
+    message::Message,
 };
 
 #[derive(Clone)]
@@ -67,8 +67,8 @@ impl MessageIntegritySHA256Attribute {
         }
     }
 
-    pub fn sign(self, message: STUNMessage) -> Self {
-        let dummy_self = STUNAttribute::MessageIntegritySHA256(Self::new_dummy());
+    pub fn sign(self, message: Message) -> Self {
+        let dummy_self = Attribute::MessageIntegritySHA256(Self::new_dummy());
         let attr_len = dummy_self.get_packet_bytes_count();
         let dummy_message = message.prepare_dummy_message_bytes(dummy_self);
         let mut bytes_to_hash = Vec::with_capacity(dummy_message.get_packet_bytes_count());
@@ -82,27 +82,27 @@ impl MessageIntegritySHA256Attribute {
 
     /// attributes used for check is not the attributes read from message,
     /// it should be constructed with new_short_term or new_long_term which has hash_key value
-    pub fn check(self, message: &STUNMessage) -> STUNMessageResult<()> {
-        if let Some(STUNAttribute::MessageIntegritySHA256(attr)) =
+    pub fn check(self, message: &Message) -> STUNMessageResult<()> {
+        if let Some(Attribute::MessageIntegritySHA256(attr)) =
             message.get_attribute(crate::attribute::AttrType::MessageIntegritySHA256)
         {
             let dummy_attributes = message
                 .attributes()
                 .iter()
-                .take_while(|item| matches!(item, STUNAttribute::MessageIntegritySHA256(_)))
+                .take_while(|item| matches!(item, Attribute::MessageIntegritySHA256(_)))
                 .cloned()
                 .collect();
-            let dummy_message = STUNMessage::new(*message.header(), dummy_attributes);
+            let dummy_message = Message::new(*message.header(), dummy_attributes);
             let real = self.sign(dummy_message);
             if real.ne(attr) {
-                return Err(crate::errors::STUNMessageError::InvalidMessage(format!(
+                return Err(crate::errors::StunMessageError::InvalidMessage(format!(
                     "{:?} not match message: {:?}",
                     attr, message
                 )));
             }
             Ok(())
         } else {
-            Err(crate::errors::STUNMessageError::InvalidMessage(format!(
+            Err(crate::errors::StunMessageError::InvalidMessage(format!(
                 "{:?} not found in message: {:?}",
                 self.get_type(),
                 message
@@ -140,15 +140,15 @@ impl DynamicSizedPacket for MessageIntegritySHA256Attribute {
 pub const MESSAGE_INTEGRITY_SHA256_MIN_LEN: usize = 16;
 pub const MESSAGE_INTEGRITY_SHA256_MAX_LEN: usize = 32;
 
-impl STUNAttributeExt for MessageIntegritySHA256Attribute {
+impl AttributeExt for MessageIntegritySHA256Attribute {
     fn get_type(&self) -> crate::attribute::AttrType {
         crate::attribute::AttrType::MessageIntegritySHA256
     }
 
     fn from_raw_attr(
-        raw_attr: crate::attribute::STUNRawAttribute,
+        raw_attr: crate::attribute::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
-    ) -> Result<Self, crate::errors::STUNMessageError> {
+    ) -> Result<Self, crate::errors::StunMessageError> {
         check_attr_match(
             raw_attr.attr_type,
             crate::attribute::AttrType::MessageIntegritySHA256,
@@ -157,7 +157,7 @@ impl STUNAttributeExt for MessageIntegritySHA256Attribute {
             || raw_attr.value.len() > MESSAGE_INTEGRITY_SHA256_MAX_LEN
             || !raw_attr.value.len().is_multiple_of(4)
         {
-            return Err(crate::errors::STUNMessageError::SyntaxError(format!(
+            return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "length of value for {:?} is not valid: {}",
                 crate::attribute::AttrType::MessageIntegritySHA256,
                 raw_attr.value.len()
@@ -173,9 +173,9 @@ impl STUNAttributeExt for MessageIntegritySHA256Attribute {
     fn into_raw_attr(
         self,
         _transaction_id: &crate::header::TransactionId,
-    ) -> crate::attribute::STUNRawAttribute {
+    ) -> crate::attribute::RawAttribute {
         assert!(self.key.len() >= MESSAGE_INTEGRITY_SHA256_MIN_LEN);
         assert!(self.key.len() <= MESSAGE_INTEGRITY_SHA256_MAX_LEN);
-        crate::attribute::STUNRawAttribute::new(self.get_type(), self.key)
+        crate::attribute::RawAttribute::new(self.get_type(), self.key)
     }
 }

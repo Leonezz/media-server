@@ -2,7 +2,7 @@ use std::{fmt, net::SocketAddr};
 
 use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
 
-use crate::{attribute::STUNAttributeExt, rfc8489::MappedAddressAttribute};
+use crate::{attribute::AttributeExt, rfc8489::MappedAddressAttribute};
 
 #[derive(Clone)]
 pub struct AlternateServerAttribute(MappedAddressAttribute);
@@ -31,15 +31,15 @@ impl DynamicSizedPacket for AlternateServerAttribute {
     }
 }
 
-impl STUNAttributeExt for AlternateServerAttribute {
+impl AttributeExt for AlternateServerAttribute {
     fn get_type(&self) -> crate::attribute::AttrType {
         crate::attribute::AttrType::AlternateServer
     }
 
     fn from_raw_attr(
-        raw_attr: crate::attribute::STUNRawAttribute,
+        raw_attr: crate::attribute::RawAttribute,
         transaction_id: &crate::header::TransactionId,
-    ) -> Result<Self, crate::errors::STUNMessageError> {
+    ) -> Result<Self, crate::errors::StunMessageError> {
         Ok(Self(MappedAddressAttribute::from_raw_attr(
             raw_attr,
             transaction_id,
@@ -49,7 +49,7 @@ impl STUNAttributeExt for AlternateServerAttribute {
     fn into_raw_attr(
         self,
         transaction_id: &crate::header::TransactionId,
-    ) -> crate::attribute::STUNRawAttribute {
+    ) -> crate::attribute::RawAttribute {
         self.0.into_raw_attr(transaction_id)
     }
 }

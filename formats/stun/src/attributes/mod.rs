@@ -1,12 +1,12 @@
 use crate::{
     attribute::AttrType,
-    errors::{STUNMessageError, STUNMessageResult},
+    errors::{StunMessageError, STUNMessageResult},
 };
 
 pub mod rfc8489;
 pub fn check_attr_match(from_attr: AttrType, to_attr: AttrType) -> STUNMessageResult<()> {
     if from_attr != to_attr {
-        return Err(STUNMessageError::SyntaxError(format!(
+        return Err(StunMessageError::SyntaxError(format!(
             "attr {:?} and {:?} not match",
             from_attr, to_attr
         )));

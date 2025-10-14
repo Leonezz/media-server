@@ -2,7 +2,7 @@ use std::fmt;
 
 use utils::traits::fixed_packet::FixedPacket;
 
-use crate::{attribute::STUNAttributeExt, attributes::check_attr_match};
+use crate::{attribute::AttributeExt, attributes::check_attr_match};
 
 // The value of USERHASH has a fixed length of 32 bytes.
 pub const USERHASH_LEN: usize = 32;
@@ -39,17 +39,17 @@ impl FixedPacket for UserHashAttribute {
     }
 }
 
-impl STUNAttributeExt for UserHashAttribute {
+impl AttributeExt for UserHashAttribute {
     fn get_type(&self) -> crate::attribute::AttrType {
         crate::attribute::AttrType::UserHash
     }
     fn from_raw_attr(
-        raw_attr: crate::attribute::STUNRawAttribute,
+        raw_attr: crate::attribute::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
-    ) -> Result<Self, crate::errors::STUNMessageError> {
+    ) -> Result<Self, crate::errors::StunMessageError> {
         check_attr_match(raw_attr.attr_type, crate::attribute::AttrType::UserHash)?;
         if raw_attr.value.len() != USERHASH_LEN {
-            return Err(crate::errors::STUNMessageError::SyntaxError(format!(
+            return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "user hash value should be of 32 bytes, got {} bytes",
                 raw_attr.value.len()
             )));
@@ -62,7 +62,7 @@ impl STUNAttributeExt for UserHashAttribute {
     fn into_raw_attr(
         self,
         _transaction_id: &crate::header::TransactionId,
-    ) -> crate::attribute::STUNRawAttribute {
-        crate::attribute::STUNRawAttribute::new(self.get_type(), self.userhash.into())
+    ) -> crate::attribute::RawAttribute {
+        crate::attribute::RawAttribute::new(self.get_type(), self.userhash.into())
     }
 }

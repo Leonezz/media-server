@@ -1,21 +1,21 @@
 use std::fmt;
 
-use crate::{errors::STUNMessageResult, message::STUNMessage, methods::rfc8489::STUNMethodBinding};
+use crate::{errors::STUNMessageResult, message::Message, methods::rfc8489::STUNMethodBinding};
 
 pub mod rfc8489;
-pub trait STUNMethodExt {
+pub trait MethodExt {
     const VALUE: u16;
     fn get_name() -> &'static str;
-    fn check(&self, message: &STUNMessage) -> STUNMessageResult<()>;
+    fn check(&self, message: &Message) -> STUNMessageResult<()>;
 }
 
 #[derive(Clone, Copy)]
-pub enum STUNMethod {
+pub enum Method {
     Binding(rfc8489::STUNMethodBinding),
     Reserved(u16),
 }
 
-impl fmt::Debug for STUNMethod {
+impl fmt::Debug for Method {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Binding(_) => f.write_str(STUNMethodBinding::get_name()),
@@ -24,7 +24,7 @@ impl fmt::Debug for STUNMethod {
     }
 }
 
-impl From<u16> for STUNMethod {
+impl From<u16> for Method {
     fn from(value: u16) -> Self {
         match value {
             rfc8489::STUNMethodBinding::VALUE => Self::Binding(STUNMethodBinding {}),
@@ -33,17 +33,17 @@ impl From<u16> for STUNMethod {
     }
 }
 
-impl From<STUNMethod> for u16 {
-    fn from(val: STUNMethod) -> Self {
+impl From<Method> for u16 {
+    fn from(val: Method) -> Self {
         match val {
-            STUNMethod::Binding(_) => STUNMethodBinding::VALUE,
-            STUNMethod::Reserved(v) => v,
+            Method::Binding(_) => STUNMethodBinding::VALUE,
+            Method::Reserved(v) => v,
         }
     }
 }
 
-impl STUNMethod {
-    pub fn check(&self, message: &STUNMessage) -> STUNMessageResult<()> {
+impl Method {
+    pub fn check(&self, message: &Message) -> STUNMessageResult<()> {
         match self {
             Self::Binding(b) => b.check(message),
             Self::Reserved(_) => Ok(()),

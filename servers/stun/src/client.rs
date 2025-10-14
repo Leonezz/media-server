@@ -2,7 +2,7 @@ use connection::connection::Outgoing;
 use futures::{FutureExt, select};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use stun_formats::message::STUNMessage;
+use stun_formats::message::Message;
 use tokio::sync::{
     RwLock,
     mpsc::{Receiver, Sender, channel},
@@ -15,20 +15,20 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub enum STUNClientResult {
-    Response(STUNMessage),
+    Response(Message),
     Error(String),
 }
 
 pub struct STUNClient {
-    message_tx: tokio::sync::mpsc::Sender<Outgoing<STUNMessage>>,
+    message_tx: tokio::sync::mpsc::Sender<Outgoing<Message>>,
     agent_command_tx: Arc<Sender<AgentCommand>>,
     close_tx: Sender<()>,
 }
 
 impl STUNClient {
     pub async fn new(
-        message_tx: tokio::sync::mpsc::Sender<Outgoing<STUNMessage>>,
-        message_rx: tokio::sync::mpsc::Receiver<STUNMessage>,
+        message_tx: tokio::sync::mpsc::Sender<Outgoing<Message>>,
+        message_rx: tokio::sync::mpsc::Receiver<Message>,
         local_addr: SocketAddr,
         result_tx: Sender<STUNClientResult>,
     ) -> Self {
@@ -65,7 +65,7 @@ impl STUNClient {
         }
     }
 
-    pub async fn send(&self, request: STUNMessage) -> STUNSessionResult<()> {
+    pub async fn send(&self, request: Message) -> STUNSessionResult<()> {
         let (flush_tx, flush_rx) = tokio::sync::oneshot::channel();
         self.message_tx
             .send((request.clone(), Some(flush_tx)))
@@ -91,7 +91,7 @@ impl STUNClient {
     }
 
     async fn run_observe(
-        message_tx: tokio::sync::mpsc::Sender<Outgoing<STUNMessage>>,
+        message_tx: tokio::sync::mpsc::Sender<Outgoing<Message>>,
         agent_event_rx: Arc<RwLock<Receiver<AgentEvent>>>,
         result_tx: Arc<Sender<STUNClientResult>>,
     ) {
@@ -139,7 +139,7 @@ impl STUNClient {
 
     async fn run_read(
         mut close_rx: Receiver<()>,
-        mut message_rx: tokio::sync::mpsc::Receiver<STUNMessage>,
+        mut message_rx: tokio::sync::mpsc::Receiver<Message>,
         local_addr: SocketAddr,
         agent_command_tx: Arc<Sender<AgentCommand>>,
         result_tx: Arc<Sender<STUNClientResult>>,

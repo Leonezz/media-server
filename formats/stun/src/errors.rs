@@ -2,7 +2,7 @@ use std::string::FromUtf8Error;
 
 use thiserror::Error;
 #[derive(Debug, Error)]
-pub enum STUNMessageError {
+pub enum StunMessageError {
     #[error("io error: {0}")]
     IoError(#[from] std::io::Error),
     #[error("Syntax error: {0}")]
@@ -15,4 +15,4 @@ pub enum STUNMessageError {
     InvalidMessage(String),
 }
 
-pub type STUNMessageResult<T> = Result<T, STUNMessageError>;
+pub type STUNMessageResult<T> = Result<T, StunMessageError>;

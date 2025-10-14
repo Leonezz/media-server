@@ -8,9 +8,9 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
 
 use crate::{
-    attribute::{AttrType, STUNAttributeExt, STUNRawAttribute},
+    attribute::{AttrType, AttributeExt, RawAttribute},
     attributes::check_attr_match,
-    errors::STUNMessageError,
+    errors::StunMessageError,
 };
 
 ///  0                   1                   2                   3
@@ -89,7 +89,7 @@ impl DynamicSizedPacket for MappedAddressAttribute {
     }
 }
 
-impl From<MappedAddressAttribute> for STUNRawAttribute {
+impl From<MappedAddressAttribute> for RawAttribute {
     fn from(value: MappedAddressAttribute) -> Self {
         let mut buffer = Vec::with_capacity(value.get_packet_bytes_count());
         buffer.write_u16::<BigEndian>(value.family()).unwrap();
@@ -99,14 +99,14 @@ impl From<MappedAddressAttribute> for STUNRawAttribute {
     }
 }
 
-impl TryFrom<STUNRawAttribute> for MappedAddressAttribute {
-    type Error = STUNMessageError;
-    fn try_from(value: STUNRawAttribute) -> Result<Self, Self::Error> {
+impl TryFrom<RawAttribute> for MappedAddressAttribute {
+    type Error = StunMessageError;
+    fn try_from(value: RawAttribute) -> Result<Self, Self::Error> {
         check_attr_match(value.attr_type, AttrType::MappedAddress)?;
         let mut bytes = value.value.as_slice();
         let first_byte = bytes.read_u8()?;
         if first_byte != 0 {
-            return Err(STUNMessageError::SyntaxError(format!(
+            return Err(StunMessageError::SyntaxError(format!(
                 "first byte of {:?} is not zero: {}",
                 AttrType::MappedAddress,
                 first_byte
@@ -127,7 +127,7 @@ impl TryFrom<STUNRawAttribute> for MappedAddressAttribute {
                 IpAddr::V6(Ipv6Addr::from_octets(octets))
             }
             _ => {
-                return Err(STUNMessageError::SyntaxError(format!(
+                return Err(StunMessageError::SyntaxError(format!(
                     "invalid ip address family: {}",
                     family
                 )));
@@ -141,16 +141,17 @@ impl TryFrom<STUNRawAttribute> for MappedAddressAttribute {
     }
 }
 
-impl STUNAttributeExt for MappedAddressAttribute {
+impl AttributeExt for MappedAddressAttribute {
     fn from_raw_attr(
-        raw_attr: STUNRawAttribute,
+        raw_attr: RawAttribute,
         _transaction_id: &crate::header::TransactionId,
-    ) -> Result<Self, STUNMessageError> {
+    ) -> Result<Self, StunMessageError> {
         raw_attr.try_into()
     }
-    fn into_raw_attr(self, _transaction_id: &crate::header::TransactionId) -> STUNRawAttribute {
+    fn into_raw_attr(self, _transaction_id: &crate::header::TransactionId) -> RawAttribute {
         self.into()
     }
+
     fn get_type(&self) -> AttrType {
         AttrType::MappedAddress
     }

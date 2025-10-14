@@ -7,9 +7,9 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
 
 use crate::{
-    attribute::STUNAttributeExt,
+    attribute::AttributeExt,
     attributes::{STUN_ATTRIBUTE_PADDING_SIZE, check_attr_match, get_after_padding_size},
-    errors::{STUNMessageError, STUNMessageResult},
+    errors::{STUNMessageResult, StunMessageError},
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -67,7 +67,7 @@ impl ErrorCodeAttribute {
 
     pub fn new_with_reason(error_code: ErrorCode, reason_phrase: &str) -> STUNMessageResult<Self> {
         if reason_phrase.len() > ERROR_CODE_REASON_PHRASE_MAX_LEN {
-            return Err(crate::errors::STUNMessageError::SyntaxError(format!(
+            return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "length of reason phrase of {:?}: {} exceeds max length: {}",
                 crate::attribute::AttrType::ErrorCode,
                 reason_phrase.len(),
@@ -113,22 +113,22 @@ impl DynamicSizedPacket for ErrorCodeAttribute {
     }
 }
 
-impl STUNAttributeExt for ErrorCodeAttribute {
+impl AttributeExt for ErrorCodeAttribute {
     fn get_type(&self) -> crate::attribute::AttrType {
         crate::attribute::AttrType::ErrorCode
     }
 
     fn from_raw_attr(
-        raw_attr: crate::attribute::STUNRawAttribute,
+        raw_attr: crate::attribute::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
-    ) -> Result<Self, crate::errors::STUNMessageError> {
+    ) -> Result<Self, crate::errors::StunMessageError> {
         check_attr_match(raw_attr.attr_type, crate::attribute::AttrType::ErrorCode)?;
         let mut bytes = raw_attr.value.as_slice();
         let class = (bytes.read_u24::<BigEndian>()? & 0b111) as u16;
         let number = bytes.read_u8()? as u16;
         let error_code = class * 100 + number;
         if bytes.len() > ERROR_CODE_REASON_PHRASE_MAX_LEN {
-            return Err(crate::errors::STUNMessageError::SyntaxError(format!(
+            return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "length of reason phrase of {:?}: {} exceeds max length: {}",
                 crate::attribute::AttrType::ErrorCode,
                 bytes.len(),
@@ -146,7 +146,7 @@ impl STUNAttributeExt for ErrorCodeAttribute {
     fn into_raw_attr(
         self,
         _transaction_id: &crate::header::TransactionId,
-    ) -> crate::attribute::STUNRawAttribute {
+    ) -> crate::attribute::RawAttribute {
         assert!(self.reason_phrase.len() < ERROR_CODE_REASON_PHRASE_MAX_LEN);
         let mut value = Vec::with_capacity(self.get_packet_bytes_count());
         value
@@ -155,7 +155,7 @@ impl STUNAttributeExt for ErrorCodeAttribute {
         value.write_u8(self.error_code.get_number()).unwrap();
         value.write_all(self.reason_phrase.as_bytes()).unwrap();
 
-        crate::attribute::STUNRawAttribute::new(self.get_type(), value)
+        crate::attribute::RawAttribute::new(self.get_type(), value)
     }
 }
 
@@ -208,7 +208,7 @@ pub const ERROR_CODE_SERVER_ERROR: ErrorCode = ErrorCode(500);
 pub const ERROR_REASON_SERVER_ERROR: &str = "Server Error";
 
 impl TryFrom<ErrorCode> for &'static str {
-    type Error = STUNMessageError;
+    type Error = StunMessageError;
     fn try_from(value: ErrorCode) -> Result<Self, Self::Error> {
         let reason = match value {
             ERROR_CODE_TRY_ALTERNATE => ERROR_REASON_TRY_ALTERNATE,
@@ -217,7 +217,7 @@ impl TryFrom<ErrorCode> for &'static str {
             ERROR_CODE_UNKNOWN_ATTRIBUTE => ERROR_REASON_UNKNOWN_ATTRIBUTE,
             ERROR_CODE_STALE_NONCE => ERROR_REASON_STALE_NONCE,
             ERROR_CODE_SERVER_ERROR => ERROR_REASON_SERVER_ERROR,
-            _ => return Err(STUNMessageError::UnknownErrorCode(value)),
+            _ => return Err(StunMessageError::UnknownErrorCode(value)),
         };
         Ok(reason)
     }

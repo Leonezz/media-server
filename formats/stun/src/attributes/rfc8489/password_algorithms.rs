@@ -3,7 +3,7 @@ use std::{fmt, io::BufRead};
 use utils::traits::{dynamic_sized_packet::DynamicSizedPacket, reader::ReadFrom, writer::WriteTo};
 
 use crate::{
-    attribute::STUNAttributeExt, attributes::check_attr_match,
+    attribute::AttributeExt, attributes::check_attr_match,
     rfc8489::password_algorithm::PasswordAlgorithm,
 };
 
@@ -43,15 +43,15 @@ impl DynamicSizedPacket for PasswordAlgorithmsAttribute {
     }
 }
 
-impl STUNAttributeExt for PasswordAlgorithmsAttribute {
+impl AttributeExt for PasswordAlgorithmsAttribute {
     fn get_type(&self) -> crate::attribute::AttrType {
         crate::attribute::AttrType::PasswordAlgorithms
     }
 
     fn from_raw_attr(
-        raw_attr: crate::attribute::STUNRawAttribute,
+        raw_attr: crate::attribute::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
-    ) -> Result<Self, crate::errors::STUNMessageError> {
+    ) -> Result<Self, crate::errors::StunMessageError> {
         check_attr_match(
             raw_attr.attr_type,
             crate::attribute::AttrType::PasswordAlgorithms,
@@ -67,11 +67,11 @@ impl STUNAttributeExt for PasswordAlgorithmsAttribute {
     fn into_raw_attr(
         self,
         _transaction_id: &crate::header::TransactionId,
-    ) -> crate::attribute::STUNRawAttribute {
+    ) -> crate::attribute::RawAttribute {
         let mut value = Vec::with_capacity(self.get_packet_bytes_count());
         self.algorithms.iter().for_each(|item| {
             item.write_to(&mut value).unwrap();
         });
-        crate::attribute::STUNRawAttribute::new(self.get_type(), value)
+        crate::attribute::RawAttribute::new(self.get_type(), value)
     }
 }

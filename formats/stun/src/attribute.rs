@@ -1,6 +1,6 @@
 use crate::{
     attributes::{STUN_ATTRIBUTE_PADDING_SIZE, get_after_padding_size},
-    errors::STUNMessageError,
+    errors::StunMessageError,
     header::TransactionId,
     rfc8489::{self, FingerPrintAttribute, UserHashAttribute},
 };
@@ -121,30 +121,30 @@ impl From<u16> for AttrType {
 }
 
 #[derive(Clone)]
-pub struct STUNRawAttribute {
+pub struct RawAttribute {
     pub attr_type: AttrType,
     length: u16,
     pub value: Vec<u8>,
 }
 
-impl STUNAttributeExt for STUNRawAttribute {
+impl AttributeExt for RawAttribute {
     fn get_type(&self) -> AttrType {
         self.attr_type
     }
 
     fn from_raw_attr(
-        raw_attr: STUNRawAttribute,
+        raw_attr: RawAttribute,
         _transaction_id: &TransactionId,
-    ) -> Result<Self, STUNMessageError> {
+    ) -> Result<Self, StunMessageError> {
         Ok(raw_attr)
     }
 
-    fn into_raw_attr(self, _transaction_id: &TransactionId) -> STUNRawAttribute {
+    fn into_raw_attr(self, _transaction_id: &TransactionId) -> RawAttribute {
         self
     }
 }
 
-impl fmt::Debug for STUNRawAttribute {
+impl fmt::Debug for RawAttribute {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -154,7 +154,7 @@ impl fmt::Debug for STUNRawAttribute {
     }
 }
 
-impl STUNRawAttribute {
+impl RawAttribute {
     pub fn new(attr_type: AttrType, value: Vec<u8>) -> Self {
         assert_eq!(value.len().to_u16(), Some(value.len() as u16));
         Self {
@@ -165,28 +165,28 @@ impl STUNRawAttribute {
     }
 }
 
-pub trait STUNAttributeExt: Sized {
+pub trait AttributeExt: Sized {
     fn from_raw_attr(
-        raw_attr: STUNRawAttribute,
+        raw_attr: RawAttribute,
         transaction_id: &TransactionId,
-    ) -> Result<Self, STUNMessageError>;
-    fn into_raw_attr(self, transaction_id: &TransactionId) -> STUNRawAttribute;
+    ) -> Result<Self, StunMessageError>;
+    fn into_raw_attr(self, transaction_id: &TransactionId) -> RawAttribute;
     fn get_type(&self) -> AttrType;
     fn is_comprehension_required(&self) -> bool {
         u16::from(self.get_type()) < 0x8000
     }
 }
 
-impl<R: io::Read> ReadFrom<R> for STUNRawAttribute {
-    type Error = STUNMessageError;
+impl<R: io::Read> ReadFrom<R> for RawAttribute {
+    type Error = StunMessageError;
     fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let attr_type = reader.read_u16::<BigEndian>()?.into();
         Self::read_remaining_from(attr_type, reader)
     }
 }
 
-impl<R: io::Read> ReadRemainingFrom<AttrType, R> for STUNRawAttribute {
-    type Error = STUNMessageError;
+impl<R: io::Read> ReadRemainingFrom<AttrType, R> for RawAttribute {
+    type Error = StunMessageError;
     fn read_remaining_from(header: AttrType, reader: &mut R) -> Result<Self, Self::Error> {
         let length = reader.read_u16::<BigEndian>()?;
         let mut value = vec![0_u8; length as usize];
@@ -204,8 +204,8 @@ impl<R: io::Read> ReadRemainingFrom<AttrType, R> for STUNRawAttribute {
     }
 }
 
-impl<W: io::Write> WriteTo<W> for STUNRawAttribute {
-    type Error = STUNMessageError;
+impl<W: io::Write> WriteTo<W> for RawAttribute {
+    type Error = StunMessageError;
     fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         debug_assert_eq!(self.value.len().to_u16(), Some(self.length));
         writer.write_u16::<BigEndian>(self.attr_type.into())?;
@@ -222,7 +222,7 @@ impl<W: io::Write> WriteTo<W> for STUNRawAttribute {
 }
 
 #[derive(Clone)]
-pub enum STUNAttribute {
+pub enum Attribute {
     MappedAddress(rfc8489::MappedAddressAttribute),
     UserName(rfc8489::UserNameAttribute),
     MessageIntegrity(rfc8489::MessageIntegrityAttribute),
@@ -240,10 +240,10 @@ pub enum STUNAttribute {
     PasswordAlgorithms(rfc8489::PasswordAlgorithmsAttribute),
     AlternateDomain(rfc8489::AlternateDomainAttribute),
 
-    Raw(STUNRawAttribute),
+    Raw(RawAttribute),
 }
 
-impl fmt::Debug for STUNAttribute {
+impl fmt::Debug for Attribute {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::MappedAddress(s) => write!(f, "{:?}", s),
@@ -267,7 +267,7 @@ impl fmt::Debug for STUNAttribute {
     }
 }
 
-impl STUNAttributeExt for STUNAttribute {
+impl AttributeExt for Attribute {
     fn get_type(&self) -> AttrType {
         match self {
             Self::MappedAddress(s) => s.get_type(),
@@ -291,66 +291,69 @@ impl STUNAttributeExt for STUNAttribute {
     }
 
     fn from_raw_attr(
-        raw_attr: STUNRawAttribute,
+        raw_attr: RawAttribute,
         transaction_id: &TransactionId,
-    ) -> Result<Self, STUNMessageError> {
+    ) -> Result<Self, StunMessageError> {
         let attr = match raw_attr.attr_type {
-            AttrType::MappedAddress => STUNAttribute::MappedAddress(
+            AttrType::MappedAddress => Attribute::MappedAddress(
                 rfc8489::MappedAddressAttribute::from_raw_attr(raw_attr, transaction_id)?,
             ),
-            AttrType::UserName => STUNAttribute::UserName(
-                rfc8489::UserNameAttribute::from_raw_attr(raw_attr, transaction_id)?,
-            ),
-            AttrType::MessageIntegrity => STUNAttribute::MessageIntegrity(
+            AttrType::UserName => Attribute::UserName(rfc8489::UserNameAttribute::from_raw_attr(
+                raw_attr,
+                transaction_id,
+            )?),
+            AttrType::MessageIntegrity => Attribute::MessageIntegrity(
                 rfc8489::MessageIntegrityAttribute::from_raw_attr(raw_attr, transaction_id)?,
             ),
-            AttrType::ErrorCode => STUNAttribute::ErrorCode(
+            AttrType::ErrorCode => Attribute::ErrorCode(
                 rfc8489::ErrorCodeAttribute::from_raw_attr(raw_attr, transaction_id)?,
             ),
-            AttrType::UnknownAttributes => STUNAttribute::UnknownAttributes(
+            AttrType::UnknownAttributes => Attribute::UnknownAttributes(
                 rfc8489::UnknownAttributes::from_raw_attr(raw_attr, transaction_id)?,
             ),
-            AttrType::Realm => STUNAttribute::Realm(rfc8489::RealmAttribute::from_raw_attr(
+            AttrType::Realm => Attribute::Realm(rfc8489::RealmAttribute::from_raw_attr(
                 raw_attr,
                 transaction_id,
             )?),
-            AttrType::Nonce => STUNAttribute::Nonce(rfc8489::NonceAttribute::from_raw_attr(
+            AttrType::Nonce => Attribute::Nonce(rfc8489::NonceAttribute::from_raw_attr(
                 raw_attr,
                 transaction_id,
             )?),
-            AttrType::XorMappedAddress => STUNAttribute::XorMappedAddress(
+            AttrType::XorMappedAddress => Attribute::XorMappedAddress(
                 rfc8489::XorMappedAddressAttribute::from_raw_attr(raw_attr, transaction_id)?,
             ),
-            AttrType::MessageIntegritySHA256 => STUNAttribute::MessageIntegritySHA256(
+            AttrType::MessageIntegritySHA256 => Attribute::MessageIntegritySHA256(
                 rfc8489::MessageIntegritySHA256Attribute::from_raw_attr(raw_attr, transaction_id)?,
             ),
-            AttrType::PasswordAlgorithm => STUNAttribute::PasswordAlgorithm(
+            AttrType::PasswordAlgorithm => Attribute::PasswordAlgorithm(
                 rfc8489::PasswordAlgorithmAttribute::from_raw_attr(raw_attr, transaction_id)?,
             ),
-            AttrType::UserHash => STUNAttribute::UserHash(
-                rfc8489::UserHashAttribute::from_raw_attr(raw_attr, transaction_id)?,
-            ),
-            AttrType::Software => STUNAttribute::Software(
-                rfc8489::SoftwareAttribute::from_raw_attr(raw_attr, transaction_id)?,
-            ),
-            AttrType::AlternateServer => STUNAttribute::AlternateServer(
+            AttrType::UserHash => Attribute::UserHash(rfc8489::UserHashAttribute::from_raw_attr(
+                raw_attr,
+                transaction_id,
+            )?),
+            AttrType::Software => Attribute::Software(rfc8489::SoftwareAttribute::from_raw_attr(
+                raw_attr,
+                transaction_id,
+            )?),
+            AttrType::AlternateServer => Attribute::AlternateServer(
                 rfc8489::AlternateServerAttribute::from_raw_attr(raw_attr, transaction_id)?,
             ),
-            AttrType::FingerPrint => STUNAttribute::FingerPrint(
+            AttrType::FingerPrint => Attribute::FingerPrint(
                 rfc8489::FingerPrintAttribute::from_raw_attr(raw_attr, transaction_id)?,
             ),
-            AttrType::PasswordAlgorithms => STUNAttribute::PasswordAlgorithms(
+            AttrType::PasswordAlgorithms => Attribute::PasswordAlgorithms(
                 rfc8489::PasswordAlgorithmsAttribute::from_raw_attr(raw_attr, transaction_id)?,
             ),
-            AttrType::AlternateDomain => STUNAttribute::AlternateDomain(
+            AttrType::AlternateDomain => Attribute::AlternateDomain(
                 rfc8489::AlternateDomainAttribute::from_raw_attr(raw_attr, transaction_id)?,
             ),
-            AttrType::Reserved(_) => STUNAttribute::Raw(raw_attr),
+            AttrType::Reserved(_) => Attribute::Raw(raw_attr),
         };
         Ok(attr)
     }
 
-    fn into_raw_attr(self, transaction_id: &TransactionId) -> STUNRawAttribute {
+    fn into_raw_attr(self, transaction_id: &TransactionId) -> RawAttribute {
         match self {
             Self::MappedAddress(s) => s.into_raw_attr(transaction_id),
             Self::UserName(s) => s.into_raw_attr(transaction_id),
@@ -373,7 +376,7 @@ impl STUNAttributeExt for STUNAttribute {
     }
 }
 
-impl DynamicSizedPacket for STUNAttribute {
+impl DynamicSizedPacket for Attribute {
     fn get_packet_bytes_count(&self) -> usize {
         2 + 2
             + match self {

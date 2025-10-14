@@ -3,7 +3,7 @@ use std::fmt;
 use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
 
 use crate::{
-    attribute::STUNAttributeExt,
+    attribute::AttributeExt,
     attributes::{STUN_ATTRIBUTE_PADDING_SIZE, check_attr_match, get_after_padding_size},
     errors::STUNMessageResult,
 };
@@ -16,7 +16,7 @@ pub struct AlternateDomainAttribute {
 impl AlternateDomainAttribute {
     pub fn new(domain: String) -> STUNMessageResult<Self> {
         if domain.len() > ALTERNATE_DOMAIN_MAX_LEN {
-            return Err(crate::errors::STUNMessageError::SyntaxError(format!(
+            return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "value length for {:?}: {} exceeds max length: {}",
                 crate::attribute::AttrType::AlternateDomain,
                 domain.len(),
@@ -25,7 +25,7 @@ impl AlternateDomainAttribute {
         }
 
         if !domain.is_ascii() {
-            return Err(crate::errors::STUNMessageError::SyntaxError(format!(
+            return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "domain name of {:?} attr is not an ascii string: {}",
                 crate::attribute::AttrType::AlternateDomain,
                 domain,
@@ -55,21 +55,21 @@ impl DynamicSizedPacket for AlternateDomainAttribute {
 // It MUST be a valid DNS name [RFC1123] (including A-labels [RFC5890]) of 255 or fewer ASCII characters.
 pub const ALTERNATE_DOMAIN_MAX_LEN: usize = 255;
 
-impl STUNAttributeExt for AlternateDomainAttribute {
+impl AttributeExt for AlternateDomainAttribute {
     fn get_type(&self) -> crate::attribute::AttrType {
         crate::attribute::AttrType::AlternateDomain
     }
 
     fn from_raw_attr(
-        raw_attr: crate::attribute::STUNRawAttribute,
+        raw_attr: crate::attribute::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
-    ) -> Result<Self, crate::errors::STUNMessageError> {
+    ) -> Result<Self, crate::errors::StunMessageError> {
         check_attr_match(
             raw_attr.attr_type,
             crate::attribute::AttrType::AlternateDomain,
         )?;
         if raw_attr.value.len() > ALTERNATE_DOMAIN_MAX_LEN {
-            return Err(crate::errors::STUNMessageError::SyntaxError(format!(
+            return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "value length for {:?}: {} exceeds max length: {}",
                 crate::attribute::AttrType::AlternateDomain,
                 raw_attr.value.len(),
@@ -78,7 +78,7 @@ impl STUNAttributeExt for AlternateDomainAttribute {
         }
         let domain = String::from_utf8(raw_attr.value)?;
         if !domain.is_ascii() {
-            return Err(crate::errors::STUNMessageError::SyntaxError(format!(
+            return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "domain name of {:?} attr is not an ascii string: {}",
                 crate::attribute::AttrType::AlternateDomain,
                 domain,
@@ -91,7 +91,7 @@ impl STUNAttributeExt for AlternateDomainAttribute {
     fn into_raw_attr(
         self,
         _transaction_id: &crate::header::TransactionId,
-    ) -> crate::attribute::STUNRawAttribute {
-        crate::attribute::STUNRawAttribute::new(self.get_type(), self.domain.into_bytes())
+    ) -> crate::attribute::RawAttribute {
+        crate::attribute::RawAttribute::new(self.get_type(), self.domain.into_bytes())
     }
 }

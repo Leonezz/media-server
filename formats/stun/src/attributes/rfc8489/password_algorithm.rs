@@ -1,9 +1,9 @@
 use std::{fmt, io};
 
 use crate::{
-    attribute::STUNAttributeExt,
+    attribute::AttributeExt,
     attributes::{STUN_ATTRIBUTE_PADDING_SIZE, check_attr_match, get_after_padding_size},
-    errors::STUNMessageError,
+    errors::StunMessageError,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use utils::traits::{dynamic_sized_packet::DynamicSizedPacket, reader::ReadFrom, writer::WriteTo};
@@ -55,7 +55,7 @@ impl DynamicSizedPacket for PasswordAlgorithm {
 }
 
 impl<R: io::Read> ReadFrom<R> for PasswordAlgorithm {
-    type Error = STUNMessageError;
+    type Error = StunMessageError;
     fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let algorithm = reader.read_u16::<BigEndian>()?;
         let length = reader.read_u16::<BigEndian>()?;
@@ -70,7 +70,7 @@ impl<R: io::Read> ReadFrom<R> for PasswordAlgorithm {
 }
 
 impl<W: io::Write> WriteTo<W> for PasswordAlgorithm {
-    type Error = STUNMessageError;
+    type Error = StunMessageError;
     fn write_to(&self, writer: &mut W) -> Result<(), Self::Error> {
         writer.write_u16::<BigEndian>(self.algorithm.0)?;
         writer.write_u16::<BigEndian>(self.parameters.len() as u16)?;
@@ -96,15 +96,15 @@ impl fmt::Debug for PasswordAlgorithmAttribute {
     }
 }
 
-impl STUNAttributeExt for PasswordAlgorithmAttribute {
+impl AttributeExt for PasswordAlgorithmAttribute {
     fn get_type(&self) -> crate::attribute::AttrType {
         crate::attribute::AttrType::PasswordAlgorithm
     }
 
     fn from_raw_attr(
-        raw_attr: crate::attribute::STUNRawAttribute,
+        raw_attr: crate::attribute::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
-    ) -> Result<Self, crate::errors::STUNMessageError> {
+    ) -> Result<Self, crate::errors::StunMessageError> {
         check_attr_match(
             raw_attr.attr_type,
             crate::attribute::AttrType::PasswordAlgorithm,
@@ -116,9 +116,9 @@ impl STUNAttributeExt for PasswordAlgorithmAttribute {
     fn into_raw_attr(
         self,
         _transaction_id: &crate::header::TransactionId,
-    ) -> crate::attribute::STUNRawAttribute {
+    ) -> crate::attribute::RawAttribute {
         let mut value = Vec::with_capacity(self.0.get_packet_bytes_count());
         self.0.write_to(&mut value).unwrap();
-        crate::attribute::STUNRawAttribute::new(self.get_type(), value)
+        crate::attribute::RawAttribute::new(self.get_type(), value)
     }
 }
