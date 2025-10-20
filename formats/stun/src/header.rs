@@ -1,7 +1,7 @@
 use crate::{
     attributes::rfc8489,
     errors::{StunMessageError, StunMessageResult},
-    methods::{MethodExtDynamic, MethodExtStatic, from_value},
+    methods::{CloneableMethodExt, MethodExtStatic, from_value},
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::{fmt, io};
@@ -32,6 +32,18 @@ pub enum MessageClass {
     Indication,
     SuccessResponse,
     ErrorResponse,
+}
+
+impl fmt::Display for MessageClass {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let str = match self {
+            Self::Request => "request",
+            Self::ErrorResponse => "error",
+            Self::Indication => "indication",
+            Self::SuccessResponse => "success",
+        };
+        f.write_str(str)
+    }
 }
 
 impl fmt::Debug for MessageClass {
@@ -98,7 +110,7 @@ impl MessageClass {
 }
 
 pub struct MessageType {
-    pub method: Box<dyn MethodExtDynamic>, // 12 bits
+    pub method: Box<dyn CloneableMethodExt>, // 12 bits
     pub message_class: MessageClass,
 }
 
@@ -108,6 +120,18 @@ impl Clone for MessageType {
             method: from_value(self.method.value()).unwrap(),
             message_class: self.message_class,
         }
+    }
+}
+
+impl fmt::Display for MessageType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}: {}({})",
+            self.message_class,
+            self.method.name(),
+            self.method.value()
+        )
     }
 }
 
@@ -122,7 +146,7 @@ impl MessageType {
         Self::new_method(from_value(M::STATIC_VALUE).unwrap(), class)
     }
 
-    pub fn new_method(method: Box<dyn MethodExtDynamic>, class: MessageClass) -> Self {
+    pub fn new_method(method: Box<dyn CloneableMethodExt>, class: MessageClass) -> Self {
         Self {
             method,
             message_class: class,
@@ -166,6 +190,15 @@ pub const TRANSACTION_ID_LEN: usize = 12;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TransactionId([u8; TRANSACTION_ID_LEN]);
+
+impl fmt::Display for TransactionId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for b in self.0 {
+            write!(f, "{}", b)?;
+        }
+        Ok(())
+    }
+}
 
 impl fmt::Debug for TransactionId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -223,6 +256,16 @@ pub struct MessageHeader {
     /// The Magic Cookie field MUST contain the fixed value 0x2112A442 in network byte order.
     magic_cookie: u32,
     pub transaction_id: TransactionId,
+}
+
+impl fmt::Display for MessageHeader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}, len: {}, trans_id: {}",
+            self.stun_message_type, self.message_length, self.transaction_id
+        )
+    }
 }
 
 impl fmt::Debug for MessageHeader {

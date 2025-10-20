@@ -1,6 +1,6 @@
 use stun_formats::{
     MessageChecker, define_method,
-    methods::{MethodExtDynamicInner, MethodExtStatic},
+    methods::{MethodExtDynamic, MethodExtDynamicInner, MethodExtStatic},
 };
 
 define_method!(0x006, SEND, "Send");
@@ -13,4 +13,3 @@ impl MessageChecker for SEND {
         )
     }
 }
-impl stun_formats::methods::MethodExtDynamic for SEND {}

@@ -5,10 +5,7 @@ use std::{
 };
 
 use stun_formats::{
-    attributes::rfc8489::{ErrorCodeAttribute, XorMappedAddressAttribute},
-    error_codes::{ErrorCodeExtStatic, rfc8489::BAD_REQUEST},
-    header::TransactionId,
-    message::Message,
+    attributes::rfc8489::XorMappedAddressAttribute, header::TransactionId, message::Message,
     methods::MethodExtStatic,
 };
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -40,8 +37,9 @@ pub enum AgentEvent {
     // a client will expect a response from this,
     // a server will expect a request from this,
     OutgoingMessage(Message),
-    Retransmit(Message), // MUST be a request
-    Timeout(Message),    // a request has timed out, MUST be a request
+    FurtherProcess((Message, SocketAddr)), // a message not understood by stun agent, further process needed
+    Retransmit(Message),                   // MUST be a request
+    Timeout(Message),                      // a request has timed out, MUST be a request
 }
 
 #[derive(Debug)]
@@ -121,7 +119,7 @@ impl Agent {
         message: (Message, SocketAddr),
     ) -> StunSessionResult<AgentEvent> {
         let (message, remote) = message;
-        tracing::debug!("incoming message: {:?} from {}", message, remote);
+        tracing::debug!("incoming message: {} from {}", message, remote);
         match message.message_class() {
             stun_formats::header::MessageClass::Request => match message.message_method().value() {
                 stun_formats::methods::rfc8489::BINDING::STATIC_VALUE => {
@@ -137,18 +135,11 @@ impl Agent {
                         .unwrap();
                     Ok(AgentEvent::OutgoingMessage(response))
                 }
-                _ => {
-                    let response = Message::builder()
-                        .error()
-                        .attribute(
-                            ErrorCodeAttribute::new(BAD_REQUEST::STATIC_CODE.into()).unwrap(),
-                        )
-                        .unwrap()
-                        .build()
-                        .unwrap();
-                    Ok(AgentEvent::OutgoingMessage(response))
-                }
+                _ => Ok(AgentEvent::FurtherProcess((message, remote))),
             },
+            stun_formats::header::MessageClass::Indication => {
+                Ok(AgentEvent::FurtherProcess((message, remote)))
+            }
             _ => {
                 if let Some(entry) = self.transactions.remove(message.transaction_id()) {
                     tracing::debug!(

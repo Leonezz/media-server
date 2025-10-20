@@ -1,6 +1,6 @@
 use crate::{
     MessageChecker,
-    errors::{StunMessageResult, StunMessageError},
+    errors::{StunMessageError, StunMessageResult},
     header::TransactionId,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
@@ -68,11 +68,22 @@ impl DynamicSizedPacket for RawAttribute {
     }
 }
 
+impl fmt::Display for RawAttribute {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = inventory::iter::<AttributeExtEntry>
+            .into_iter()
+            .find(|item| item.attr_type == self.attr_type)
+            .map(|item| item.name)
+            .unwrap_or("unknown");
+        write!(f, "{}({}), len: {}", name, self.attr_type, self.length)
+    }
+}
+
 impl fmt::Debug for RawAttribute {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "AttrType: {:?}, value: 0x{:x?}",
+            "AttrType: 0x{:x?}, value: 0x{:x?}",
             self.attr_type, self.value
         )
     }
@@ -154,6 +165,7 @@ pub trait AttributeExtDynamic: MessageChecker + Debug + Send + Sync {
 }
 
 pub struct AttributeExtEntry {
+    pub name: &'static str,
     pub attr_type: u16,
     pub factory:
         fn(RawAttribute, &TransactionId) -> StunMessageResult<Box<dyn AttributeExtDynamic>>,
@@ -181,6 +193,7 @@ macro_rules! define_attribute {
 
         inventory::submit! {
             $crate::attributes::AttributeExtEntry {
+                name: $name,
                 attr_type: $attr_type,
                 factory: |raw_attr, transaction_id| Ok(Box::new($attr::from_raw_attr(raw_attr, transaction_id)?))
             }

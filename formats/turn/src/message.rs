@@ -1,4 +1,7 @@
-use std::io::{self, Read};
+use std::{
+    fmt,
+    io::{self, Read},
+};
 
 use crate::{channel_data::ChannelData, errors::TurnMessageError};
 use byteorder::ReadBytesExt;
@@ -8,7 +11,7 @@ use tokio_util::{
 };
 use utils::traits::{
     protocol_message::ProtocolMessage,
-    reader::{ReadFrom, ReadRemainingFrom},
+    reader::{ReadFrom, ReadRemainingFrom, TryReadFrom, TryReadRemainingFrom},
     writer::WriteTo,
 };
 
@@ -16,6 +19,27 @@ use utils::traits::{
 pub enum Message {
     Stun(stun_formats::message::Message),
     ChannelData(ChannelData),
+}
+
+impl fmt::Display for Message {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ChannelData(data) => write!(f, "{}", data),
+            Self::Stun(stun) => write!(f, "{}", stun),
+        }
+    }
+}
+
+impl From<stun_formats::message::Message> for Message {
+    fn from(value: stun_formats::message::Message) -> Self {
+        Self::Stun(value)
+    }
+}
+
+impl From<ChannelData> for Message {
+    fn from(value: ChannelData) -> Self {
+        Self::ChannelData(value)
+    }
 }
 
 impl<R: std::io::Read> ReadFrom<R> for Message {
@@ -31,6 +55,30 @@ impl<R: std::io::Read> ReadFrom<R> for Message {
             64..=79 => {
                 let channel_data = ChannelData::read_remaining_from(first_byte, reader)?;
                 Ok(Self::ChannelData(channel_data))
+            }
+            _ => Err(TurnMessageError::UnknownFirstByte(first_byte)),
+        }
+    }
+}
+
+impl<R: AsRef<[u8]>> TryReadFrom<R> for Message {
+    type Error = TurnMessageError;
+    fn try_read_from(reader: &mut io::Cursor<R>) -> Result<Option<Self>, Self::Error> {
+        if !reader.has_remaining() {
+            return Ok(None);
+        }
+        let first_byte = reader.read_u8()?;
+        match first_byte {
+            0..=3 => {
+                let stun_message =
+                    stun_formats::message::Message::try_read_remaining_from(first_byte, reader)?
+                        .map(|item| Self::Stun(item));
+                Ok(stun_message)
+            }
+            64..=79 => {
+                let channel_data = ChannelData::try_read_remaining_from(first_byte, reader)?
+                    .map(|item| Self::ChannelData(item));
+                Ok(channel_data)
             }
             _ => Err(TurnMessageError::UnknownFirstByte(first_byte)),
         }
@@ -73,14 +121,13 @@ impl Decoder for MessageFramed {
     ) -> Result<Option<Self::Item>, Self::Error> {
         let (res, position) = {
             let mut cursor = io::Cursor::new(&src);
-            let res = Message::read_from(cursor.by_ref());
+            let res = Message::try_read_from(cursor.by_ref());
             (res, cursor.position())
         };
-        if let Ok(res) = res {
+        if res.is_ok() && res.as_ref().unwrap().is_some() {
             src.advance(position as usize);
-            return Ok(Some(res));
         }
-        Err(res.unwrap_err())
+        res
     }
 }
 

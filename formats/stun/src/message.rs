@@ -12,7 +12,7 @@ use utils::traits::{
     self,
     dynamic_sized_packet::DynamicSizedPacket,
     fixed_packet::FixedPacket,
-    reader::{ReadFrom, ReadRemainingFrom},
+    reader::{ReadFrom, ReadRemainingFrom, TryReadRemainingFrom},
     writer::WriteTo,
 };
 
@@ -24,7 +24,7 @@ use crate::{
     builder::MessageBuilder,
     errors::{StunMessageError, StunMessageResult},
     header::{MessageHeader, TransactionId},
-    methods::MethodExtDynamic,
+    methods::CloneableMethodExt,
 };
 
 #[derive(Clone)]
@@ -40,6 +40,15 @@ impl traits::protocol_message::ProtocolMessage for Message {
     type Out = Message;
     fn codec() -> Self::Codec {
         MessageFramed {}
+    }
+}
+
+impl fmt::Display for Message {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}, ", self.header)?;
+        self.attributes
+            .iter()
+            .try_for_each(|item| write!(f, " attr: {} ", item))
     }
 }
 
@@ -79,6 +88,17 @@ impl Message {
         &self.attributes
     }
 
+    pub fn attributes_ext<Attr: AttributeExtDynamic + AttributeFactory>(
+        &self,
+    ) -> impl Iterator<Item = Attr> {
+        self.attributes
+            .iter()
+            .filter(|item| item.attr_type == Attr::STATIC_ATTR_TYPE)
+            .map(|item| Attr::from_raw_attr(item.clone(), self.transaction_id()).ok())
+            .filter(|item| item.is_some())
+            .map(|item| item.unwrap())
+    }
+
     pub fn header(&self) -> &MessageHeader {
         &self.header
     }
@@ -90,7 +110,7 @@ impl Message {
         self.header.stun_message_type.message_class
     }
 
-    pub fn message_method(&self) -> &Box<dyn MethodExtDynamic> {
+    pub fn message_method(&self) -> &Box<dyn CloneableMethodExt> {
         &self.header.stun_message_type.method
     }
 
@@ -203,6 +223,47 @@ impl<R: io::Read> ReadRemainingFrom<u8, R> for Message {
         reader.read_exact(&mut message_header_bytes[1..])?;
         let message_header = MessageHeader::read_from(&mut message_header_bytes.reader())?;
         Self::read_remaining_from(message_header, reader)
+    }
+}
+
+impl<R: AsRef<[u8]>> TryReadRemainingFrom<u8, R> for Message {
+    type Error = StunMessageError;
+    fn try_read_remaining_from(
+        header: u8,
+        reader: &mut io::Cursor<R>,
+    ) -> Result<Option<Self>, Self::Error> {
+        assert!(header <= 3);
+        if reader.remaining() < MessageHeader::bytes_count() - 1 {
+            return Ok(None);
+        }
+        let mut message_header_bytes = vec![0; MessageHeader::bytes_count()];
+        message_header_bytes[0] = header;
+        reader.read_exact(&mut message_header_bytes[1..])?;
+        let message_header = MessageHeader::read_from(&mut message_header_bytes.reader())?;
+        Self::try_read_remaining_from(message_header, reader)
+    }
+}
+
+impl<R: AsRef<[u8]>> TryReadRemainingFrom<MessageHeader, R> for Message {
+    type Error = StunMessageError;
+    fn try_read_remaining_from(
+        header: MessageHeader,
+        reader: &mut io::Cursor<R>,
+    ) -> Result<Option<Self>, Self::Error> {
+        if reader.remaining() < header.message_length as usize {
+            return Ok(None);
+        }
+        let mut remaining_bytes = vec![0_u8; header.message_length as usize];
+        reader.read_exact(&mut remaining_bytes)?;
+        let mut bytes = remaining_bytes.as_slice();
+        let mut attributes = Vec::new();
+        while bytes.has_data_left()? {
+            let raw_attr = RawAttribute::read_from(&mut bytes)?;
+            attributes.push(raw_attr);
+        }
+        let message = Self { header, attributes };
+        message.check()?;
+        Ok(Some(message))
     }
 }
 

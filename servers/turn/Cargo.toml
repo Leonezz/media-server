@@ -1,0 +1,26 @@
+[package]
+name = "turn-server"
+description = "client and server for TURN protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tokio-util = { workspace = true }
+socket2 = "0.6.1"
+pnet = "0.35.0"
+futures = { workspace = true }
+
+stun-formats = { workspace = true }
+turn-formats = { workspace = true }
+iana-formats = { workspace = true }
+stun-server = { workspace = true }
+utils = { workspace = true }
+connection = { workspace = true }

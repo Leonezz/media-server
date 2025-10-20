@@ -20,6 +20,16 @@ pub struct IcmpAttribute {
     error_data: u32,
 }
 
+impl IcmpAttribute {
+    pub fn new(icmp_type: u8, icmp_code: u8, error_data: u32) -> Self {
+        Self {
+            icmp_type,
+            icmp_code,
+            error_data,
+        }
+    }
+}
+
 const ICMP_ATTR_LEN: usize = 8;
 
 impl fmt::Debug for IcmpAttribute {

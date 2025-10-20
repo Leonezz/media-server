@@ -2,7 +2,7 @@ use stun_formats::{
     MessageChecker,
     attributes::AttributeExtStatic,
     define_method,
-    methods::{MethodExtDynamicInner, MethodExtStatic},
+    methods::{MethodExtDynamic, MethodExtDynamicInner, MethodExtStatic},
 };
 
 use crate::attributes::rfc8656;
@@ -38,5 +38,3 @@ impl MessageChecker for CHANNEL_BIND {
         Ok(())
     }
 }
-
-impl stun_formats::methods::MethodExtDynamic for CHANNEL_BIND {}

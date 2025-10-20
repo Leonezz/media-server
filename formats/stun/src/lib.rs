@@ -1,5 +1,6 @@
 #![feature(ip_as_octets)]
 #![feature(buf_read_has_data_left)]
+#![feature(error_generic_member_access)]
 //! see: RFC 8489 Session Traversal Utilities for NAT (STUN)
 
 use std::fmt::Debug;
@@ -23,11 +24,11 @@ pub trait MessageChecker: Debug {
     fn check_message_class(&self, message: &message::Message) -> StunMessageResult<()> {
         if !self.allowed_in(message.message_class()) {
             return Err(crate::errors::StunMessageError::InvalidMessage(format!(
-                "{:?} not allowed in {:?} class message",
-                self,
-                message.message_class()
+                    "{:?} not allowed in {:?} class message",
+                    self,
+                    message.message_class()
             )));
-        }
+            }
         Ok(())
     }
     #[allow(unused_variables)]

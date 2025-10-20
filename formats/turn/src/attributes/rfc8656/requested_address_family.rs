@@ -1,4 +1,5 @@
 use byteorder::{BigEndian, ReadBytesExt};
+use iana_formats::addrress_family::AddressFamilyStatic;
 use std::{fmt, io};
 use stun_formats::{
     MessageChecker,
@@ -16,28 +17,31 @@ use crate::attributes::rfc8656;
 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 #[derive(Clone, Copy)]
 pub struct RequestedAddressFamilyAttribute {
-    family: u8,
+    family: iana_formats::addrress_family::AddressFamily,
 }
 
 impl RequestedAddressFamilyAttribute {
-    pub fn family(&self) -> u8 {
+    pub fn family(&self) -> iana_formats::addrress_family::AddressFamily {
         self.family
     }
     pub fn read_without_type<R: io::Read>(reader: &mut R) -> StunMessageResult<Self> {
         let family = reader.read_u8()?;
-        if family != stun_formats::attributes::rfc8489::ADDRESS_FAMILY_V4
-            && family != stun_formats::attributes::rfc8489::ADDRESS_FAMILY_V6
+        if family as u16 != iana_formats::addrress_family::IPv4::DECIMAL
+            && family as u16 != iana_formats::addrress_family::IPv6::DECIMAL
         {
             return Err(stun_formats::errors::StunMessageError::InvalidMessage(
                 format!("invalid family: {}", family),
             ));
         }
+        let family = iana_formats::addrress_family::from_number(family as u16)
+            .unwrap()
+            .address_family();
         let reserved = reader.read_u24::<BigEndian>()?;
         debug_assert_eq!(reserved, 0);
         Ok(Self { family })
     }
     pub fn write_without_type<W: io::Write>(&self, writer: &mut W) -> StunMessageResult<()> {
-        writer.write_all(&[self.family, 0, 0, 0])?;
+        writer.write_all(&[self.family.inner() as u8, 0, 0, 0])?;
         Ok(())
     }
 }
@@ -98,7 +102,7 @@ impl AttributeFactory for RequestedAddressFamilyAttribute {
         self,
         _transaction_id: &stun_formats::header::TransactionId,
     ) -> stun_formats::attributes::RawAttribute {
-        let value = vec![self.family, 0, 0, 0];
+        let value = vec![self.family.inner() as u8, 0, 0, 0];
         stun_formats::attributes::RawAttribute::new(Self::STATIC_ATTR_TYPE, value)
     }
 }

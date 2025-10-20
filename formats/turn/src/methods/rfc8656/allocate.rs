@@ -3,7 +3,7 @@ use stun_formats::{
     MessageChecker,
     attributes::{AttributeExtStatic, rfc8489},
     define_method,
-    methods::{MethodExtDynamicInner, MethodExtStatic},
+    methods::{MethodExtDynamic, MethodExtDynamicInner, MethodExtStatic},
 };
 define_method!(0x003, ALLOCATE, "Allocate");
 
@@ -58,5 +58,3 @@ impl MessageChecker for ALLOCATE {
         Ok(())
     }
 }
-
-impl stun_formats::methods::MethodExtDynamic for ALLOCATE {}

@@ -14,7 +14,27 @@ use stun_formats::{
 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 #[derive(Clone, Copy)]
 pub struct RequestedTransportAttribute {
-    protocol: u8,
+    protocol: iana_formats::protocol_numbers::Protocol,
+}
+
+impl RequestedTransportAttribute {
+    pub fn new(protocol: u8) -> Option<Self> {
+        iana_formats::protocol_numbers::Protocol::new(protocol).map(|item| Self { protocol: item })
+    }
+
+    pub fn new_from_protocol(protocol: iana_formats::protocol_numbers::Protocol) -> Self {
+        Self { protocol }
+    }
+
+    pub fn value(&self) -> u8 {
+        self.protocol.inner()
+    }
+
+    pub fn protocol(
+        &self,
+    ) -> Option<Box<dyn iana_formats::protocol_numbers::ProtocolNumberDynamic>> {
+        iana_formats::protocol_numbers::from_number(self.value())
+    }
 }
 
 const REQUESTED_TRANSPORT_ATTR_LEN: usize = 4;
@@ -47,6 +67,8 @@ impl AttributeFactory for RequestedTransportAttribute {
         let mut buffer = raw_attr.value.as_slice();
         let protocol = buffer.read_u8()?;
         assert_eq!(protocol, iana_formats::protocol_numbers::UDP::DECIMAL);
+        let protocol = iana_formats::protocol_numbers::Protocol::new(protocol)
+            .expect(format!("{} is not a registered protocol", protocol).as_str());
         let rffu = buffer.read_u24::<BigEndian>()?;
         debug_assert_eq!(rffu, 0);
         Ok(Self { protocol })
@@ -56,7 +78,7 @@ impl AttributeFactory for RequestedTransportAttribute {
         self,
         _transaction_id: &stun_formats::header::TransactionId,
     ) -> stun_formats::attributes::RawAttribute {
-        let value = vec![self.protocol, 0, 0, 0];
+        let value = vec![self.protocol.inner(), 0, 0, 0];
         stun_formats::attributes::RawAttribute::new(Self::STATIC_ATTR_TYPE, value)
     }
 }

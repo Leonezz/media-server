@@ -16,11 +16,31 @@ pub struct ReservationTokenAttribute {
     token: [u8; RESERVATION_TOKEN_ATTR_LEN],
 }
 
+impl ReservationTokenAttribute {
+    pub fn new(token: [u8; RESERVATION_TOKEN_ATTR_LEN]) -> Self {
+        Self { token }
+    }
+    pub fn new_random() -> Self {
+        let mut token = [0_u8; RESERVATION_TOKEN_ATTR_LEN];
+        utils::random::random_fill(&mut token);
+        Self { token }
+    }
+    pub fn token(&self) -> &[u8; RESERVATION_TOKEN_ATTR_LEN] {
+        &self.token
+    }
+}
+
 const RESERVATION_TOKEN_ATTR_LEN: usize = 8;
+
+impl fmt::Display for ReservationTokenAttribute {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "reservation token: 0x{:x?}", self.token)
+    }
+}
 
 impl fmt::Debug for ReservationTokenAttribute {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "reservation token: 0x{:x?}", self.token)
+        write!(f, "{}", self)
     }
 }
 

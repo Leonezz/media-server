@@ -2,10 +2,13 @@
 // It specifies the address and port that the server allocated to the client.
 // It is encoded in the same way as the XORMAPPED-ADDRESS attribute.
 
-use std::fmt;
+use std::{fmt, net::SocketAddr};
 use stun_formats::{
     MessageChecker,
-    attributes::{AttributeExtDynamic, AttributeExtStatic, AttributeFactory, check_attr_match},
+    attributes::{
+        AttributeExtDynamic, AttributeExtStatic, AttributeFactory, check_attr_match,
+        rfc8489::XorMappedAddressAttribute,
+    },
     define_attribute,
 };
 
@@ -17,9 +20,15 @@ impl fmt::Debug for XorRelayedAddressAttribute {
         write!(
             f,
             "xor relayed address: [{}]:{}",
-            self.0.address(),
+            self.0.ip(),
             self.0.port()
         )
+    }
+}
+
+impl XorRelayedAddressAttribute {
+    pub fn new(addr: SocketAddr) -> Self {
+        Self(XorMappedAddressAttribute::new(addr))
     }
 }
 

@@ -130,6 +130,9 @@ impl STUNClient {
                                 tracing::error!("error sending timeout to observer: {}", err);
                             });
                     }
+                    AgentEvent::FurtherProcess((message, remote)) => {
+                        tracing::warn!("unexpected message: {:?} from {}", message, remote);
+                    }
                 }
             } else {
                 return;

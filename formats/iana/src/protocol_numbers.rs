@@ -1,6 +1,51 @@
+use crate::rfc_url;
+use std::fmt;
 /// https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Protocol(#[allow(unused)] u8);
+
+impl Protocol {
+    pub fn new(value: u8) -> Option<Self> {
+        if is_registered(value) {
+            return Some(Self(value));
+        }
+        None
+    }
+
+    pub fn inner(&self) -> u8 {
+        self.0
+    }
+}
+
+impl fmt::Display for Protocol {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let p = from_protocol(*self);
+        if let Some(p) = p {
+            write!(f, "{}({})", p.keyword(), p.decimal())
+        } else {
+            write!(f, "unknown({})", self.0)
+        }
+    }
+}
+
+impl fmt::Debug for Protocol {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let p = from_protocol(*self);
+        if let Some(p) = p {
+            f.debug_struct("Protocol")
+                .field("deciman", &p.decimal())
+                .field("keyword", &p.keyword())
+                .field("protocol_name", &p.protocol_name())
+                .field("ipv6_extension_header", &p.ipv6_extension_header())
+                .field("reference", &p.reference())
+                .field("deprecated", &p.deprecated())
+                .finish()
+        } else {
+            write!(f, "unknown")
+        }
+    }
+}
+
 pub trait ProtocolNumberStatic {
     const DECIMAL: u8;
     const PROTOCOL: Protocol;
@@ -10,7 +55,7 @@ pub trait ProtocolNumberStatic {
     const REFERENCE: &'static str;
     const DEPRECATED: bool;
 }
-pub trait ProtocolNumberDynamic {
+pub trait ProtocolNumberDynamic: Send + Sync {
     fn decimal(&self) -> u8;
     fn protocol(&self) -> Protocol;
     fn keyword(&self) -> &'static str;
@@ -27,13 +72,18 @@ struct ProtocolEntry {
 
 inventory::collect!(ProtocolEntry);
 
+fn entry(number: u8) -> Option<&'static ProtocolEntry> {
+    inventory::iter::<ProtocolEntry>
+        .into_iter()
+        .find(|item| item.number == number)
+}
+
+pub fn is_registered(number: u8) -> bool {
+    entry(number).is_some()
+}
+
 pub fn from_number(number: u8) -> Option<Box<dyn ProtocolNumberDynamic>> {
-    for entry in inventory::iter::<ProtocolEntry> {
-        if entry.number == number {
-            return Some((entry.factory)());
-        }
-    }
-    None
+    entry(number).map(|item| (item.factory)())
 }
 
 pub fn from_protocol(protocol: Protocol) -> Option<Box<dyn ProtocolNumberDynamic>> {
@@ -44,6 +94,23 @@ macro_rules! define_protocol_number {
     ($number:tt, $name:tt, $deprecated: tt, $protocol:tt, $ipv6:tt, $reference: expr) => {
         #[allow(non_camel_case_types)]
         pub struct $name;
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "{}({})", $name, $number)
+            }
+        }
+        impl std::fmt::Debug for $name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.debug_struct(stringify!($name))
+                    .field("decimal", &$number)
+                    .field("keyword", &stringify!($name))
+                    .field("protocol_name", &$protocol)
+                    .field("ipv6_extension_header", &$ipv6)
+                    .field("deprecated", &$deprecated)
+                    .field("reference", &$reference)
+                    .finish()
+            }
+        }
         impl ProtocolNumberStatic for $name {
             const DECIMAL: u8 = $number;
             const PROTOCOL: Protocol = Protocol($number);
@@ -82,26 +149,6 @@ macro_rules! define_protocol_number {
                 factory: || Box::new($name{})
             }
         }
-    };
-}
-
-macro_rules! rfc_url {
-    ($rfc:ident) => {
-        concat!(
-            "[",
-            stringify!($rfc),
-            "]",
-            "(https://www.rfc-editor.org/rfc/",
-            stringify!($rfc),
-            ".html)"
-        )
-    };
-    ($rfc:ident, $($rest:ident),+ $(,)?) => {
-        concat!(
-            rfc_url!($rfc),
-            ", ",
-            rfc_url!($($rest),+)
-        )
     };
 }
 

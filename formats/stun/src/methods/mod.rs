@@ -36,11 +36,11 @@ impl Clone for Box<dyn CloneableMethodExt> {
 
 pub struct MethodExtEntry {
     pub value: u16,
-    pub factory: fn() -> Box<dyn MethodExtDynamic>,
+    pub factory: fn() -> Box<dyn CloneableMethodExt>,
 }
 
 inventory::collect!(MethodExtEntry);
-pub fn from_value(value: u16) -> Option<Box<dyn MethodExtDynamic>> {
+pub fn from_value(value: u16) -> Option<Box<dyn CloneableMethodExt>> {
     for entry in inventory::iter::<MethodExtEntry> {
         if entry.value == value {
             return Some((entry.factory)());
@@ -81,6 +81,8 @@ macro_rules! define_method {
                 $name
             }
         }
+
+        impl MethodExtDynamic for $id {}
 
         inventory::submit! {
             $crate::methods::MethodExtEntry {
@@ -128,9 +130,7 @@ mod test {
         }
     }
 
-    impl MethodExtDynamic for test_method_fff {}
-
-    fn test_method_factory() -> Box<dyn MethodExtDynamic> {
+    fn test_method_factory() -> Box<dyn CloneableMethodExt> {
         Box::new(test_method_fff::default())
     }
 

@@ -19,5 +19,3 @@ impl MessageChecker for BINDING {
         message.require_ext::<rfc8489::XorMappedAddressAttribute>()
     }
 }
-
-impl MethodExtDynamic for BINDING {}

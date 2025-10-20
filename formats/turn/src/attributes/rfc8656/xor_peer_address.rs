@@ -1,4 +1,7 @@
-use std::fmt;
+use std::{
+    fmt,
+    net::{IpAddr, SocketAddr},
+};
 use stun_formats::{
     MessageChecker,
     attributes::{AttributeExtDynamic, AttributeExtStatic, AttributeFactory, check_attr_match},
@@ -12,14 +15,33 @@ use stun_formats::{
 #[derive(Clone)]
 pub struct XorPeerAddressAttribute(stun_formats::attributes::rfc8489::XorMappedAddressAttribute);
 
+impl XorPeerAddressAttribute {
+    pub fn new(addr: SocketAddr) -> Self {
+        Self(
+            stun_formats::attributes::rfc8489::XorMappedAddressAttribute::new(SocketAddr::new(
+                addr.ip(),
+                addr.port(),
+            )),
+        )
+    }
+
+    pub fn ip(&self) -> IpAddr {
+        self.0.ip()
+    }
+
+    pub fn address(&self) -> SocketAddr {
+        self.0.address()
+    }
+}
+
+impl fmt::Display for XorPeerAddressAttribute {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "xor peer address: [{}]:{}", self.0.ip(), self.0.port())
+    }
+}
 impl fmt::Debug for XorPeerAddressAttribute {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "xor peer address: [{}]:{}",
-            self.0.address(),
-            self.0.port()
-        )
+        write!(f, "{}", self)
     }
 }
 

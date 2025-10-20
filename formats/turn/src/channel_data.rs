@@ -1,7 +1,13 @@
+use std::{fmt, io::Read};
+
 use crate::errors::TurnMessageError;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use num::ToPrimitive;
-use utils::traits::{reader::ReadRemainingFrom, writer::WriteTo};
+use tokio_util::bytes::Buf;
+use utils::traits::{
+    reader::{ReadRemainingFrom, TryReadRemainingFrom},
+    writer::WriteTo,
+};
 
 //  0                   1                   2                   3
 //  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
@@ -17,9 +23,19 @@ use utils::traits::{reader::ReadRemainingFrom, writer::WriteTo};
 // +-------------------------------+
 #[derive(Debug, Clone)]
 pub struct ChannelData {
-    channel_number: u16,
-    length: u16,
-    application_data: Vec<u8>,
+    pub channel_number: u16,
+    pub length: u16,
+    pub application_data: Vec<u8>,
+}
+
+impl fmt::Display for ChannelData {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "channel_number: {}, length: {}",
+            self.channel_number, self.length
+        )
+    }
 }
 
 impl ChannelData {
@@ -43,13 +59,41 @@ impl<R: std::io::Read> ReadRemainingFrom<u8, R> for ChannelData {
         let second_byte = reader.read_u8()?;
         let channel_number = u16::from_be_bytes([header, second_byte]);
         let length = reader.read_u16::<BigEndian>()?;
-        let mut application_data = Vec::with_capacity(length as usize);
+        let mut application_data = vec![0_u8; length as usize];
         reader.read_exact(&mut application_data)?;
         Ok(Self {
             channel_number,
             length,
             application_data,
         })
+    }
+}
+
+impl<R: AsRef<[u8]>> TryReadRemainingFrom<u8, R> for ChannelData {
+    type Error = TurnMessageError;
+    fn try_read_remaining_from(
+        header: u8,
+        reader: &mut std::io::Cursor<R>,
+    ) -> Result<Option<Self>, Self::Error> {
+        if header < TURN_CHANNEL_DATA_FIRST_BYTE_MIN || header > TURN_CHANNEL_DATA_FIRST_BYTE_MAX {
+            return Err(TurnMessageError::NotChannelData(header));
+        }
+        if reader.remaining() < 3 {
+            return Ok(None);
+        }
+        let second_byte = reader.read_u8()?;
+        let channel_number = u16::from_be_bytes([header, second_byte]);
+        let length = reader.read_u16::<BigEndian>()?;
+        if reader.remaining() < length as usize {
+            return Ok(None);
+        }
+        let mut application_data = vec![0_u8; length as usize];
+        reader.read_exact(&mut application_data)?;
+        Ok(Some(Self {
+            channel_number,
+            length,
+            application_data,
+        }))
     }
 }
 

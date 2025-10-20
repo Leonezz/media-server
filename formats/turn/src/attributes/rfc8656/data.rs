@@ -20,6 +20,16 @@ pub struct DataAttribute {
     data: Vec<u8>,
 }
 
+impl DataAttribute {
+    pub fn new(data: Vec<u8>) -> Self {
+        Self { data }
+    }
+
+    pub fn data(self) -> Vec<u8> {
+        self.data
+    }
+}
+
 impl fmt::Debug for DataAttribute {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "data: {} bytes", self.data.len())

@@ -35,10 +35,10 @@ where
         tracing::debug!("trying server address: {}", remote);
         let endpoint = match config.protocol {
             Protocol::Tcp => connection::endpoint::ClientEndpoint::new_tcp(local_addr),
-            Protocol::Udp => connection::endpoint::ClientEndpoint::new_udp(local_addr),
+            Protocol::Udp => connection::endpoint::ClientEndpoint::new_udp(local_addr).await,
         }
         .inspect_err(|err| {
-            eprintln!("error creating client endpoint: {}", err);
+            eprintln!("error creating socket: {}", err);
             std::process::exit(1);
         })
         .unwrap();
@@ -110,7 +110,7 @@ where
                     stun_formats::header::MessageClass::SuccessResponse => {
                         tracing::debug!("got success response: {:?}", response);
                         if let Some(addr) =
-                            response.get_attribute_ext::<XorMappedAddressAttribute>().map(|item| (item.address(), item.port())).or(
+                            response.get_attribute_ext::<XorMappedAddressAttribute>().map(|item| (item.ip(), item.port())).or(
                                 response.get_attribute_ext::<MappedAddressAttribute>().map(|item| (item.address(), item.port()))
                             )
                         {

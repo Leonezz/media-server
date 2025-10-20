@@ -81,8 +81,12 @@ impl XorMappedAddressAttribute {
         self.xport
     }
 
-    pub fn address(&self) -> IpAddr {
+    pub fn ip(&self) -> IpAddr {
         self.xaddress
+    }
+
+    pub fn address(&self) -> SocketAddr {
+        SocketAddr::new(self.ip(), self.port())
     }
 
     pub fn read_without_type<R: io::Read>(

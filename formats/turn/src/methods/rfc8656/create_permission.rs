@@ -1,6 +1,6 @@
 use stun_formats::{
     MessageChecker, define_method,
-    methods::{MethodExtDynamicInner, MethodExtStatic},
+    methods::{MethodExtDynamic, MethodExtDynamicInner, MethodExtStatic},
 };
 
 use crate::attributes::rfc8656;
@@ -21,4 +21,3 @@ impl MessageChecker for CREATE_PERMISSION {
         message.require_ext::<rfc8656::XorPeerAddressAttribute>()
     }
 }
-impl stun_formats::methods::MethodExtDynamic for CREATE_PERMISSION {}

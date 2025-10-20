@@ -36,12 +36,12 @@ impl StunMessageError {
         message_builder: &mut MessageBuilder,
     ) -> StunMessageResult<()> {
         match self {
-            Self::IoError(_) => Err(self),
+            Self::IoError(..) => Err(self),
             Self::BuilderError(_) => Err(self),
             Self::SyntaxError(_)
             | Self::InvalidUtf8String(_)
             | Self::InvalidMessage(_)
-            | Self::UnknownMethod(_)
+            | Self::UnknownMethod(..)
             | Self::UnknownErrorCode(_) => {
                 message_builder
                     .error_mut()

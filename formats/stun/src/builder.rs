@@ -30,6 +30,16 @@ impl MessageBuilder {
         self
     }
 
+    pub fn method_ext<M: CloneableMethodExt + 'static>(mut self, method: M) -> Self {
+        self.message_method = Some(Box::new(method));
+        self
+    }
+
+    pub fn method(mut self, method: Box<dyn CloneableMethodExt>) -> Self {
+        self.message_method = Some(method);
+        self
+    }
+
     pub fn request(mut self) -> Self {
         self.message_class = Some(MessageClass::Request);
         self
@@ -45,7 +55,7 @@ impl MessageBuilder {
         self
     }
 
-    pub(crate) fn error_mut(&mut self) -> &mut Self {
+    pub fn error_mut(&mut self) -> &mut Self {
         self.message_class = Some(MessageClass::ErrorResponse);
         self
     }
@@ -60,10 +70,7 @@ impl MessageBuilder {
         Ok(self)
     }
 
-    pub(crate) fn attribute_mut<A: AttributeFactory>(
-        &mut self,
-        attr: A,
-    ) -> StunMessageResult<&mut Self> {
+    pub fn attribute_mut<A: AttributeFactory>(&mut self, attr: A) -> StunMessageResult<&mut Self> {
         if self.transaction_id.is_none() {
             return Err(crate::errors::StunMessageError::BuilderError(format!(
                 "unable to set attribute before transaction id is set"

@@ -1,5 +1,6 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use std::fmt;
+use num::ToPrimitive;
+use std::{fmt, time::Duration};
 use stun_formats::{
     MessageChecker,
     attributes::{AttributeExtDynamic, AttributeExtStatic, AttributeFactory},
@@ -15,6 +16,18 @@ use stun_formats::{
 #[derive(Clone, Copy)]
 pub struct LifeTimeAttribute {
     lifetime_seconds: u32,
+}
+
+impl LifeTimeAttribute {
+    pub fn new(lifetime: Duration) -> Self {
+        Self {
+            lifetime_seconds: lifetime.as_secs().to_u32().unwrap(),
+        }
+    }
+
+    pub fn lifetime(&self) -> Duration {
+        Duration::from_secs(self.lifetime_seconds as u64)
+    }
 }
 
 const LIFE_TIME_ATTR_LEN: usize = 4;
