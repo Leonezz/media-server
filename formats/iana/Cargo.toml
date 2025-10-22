@@ -12,3 +12,4 @@ crate-type = ["lib"]
 [dependencies]
 thiserror = { workspace = true }
 num = { workspace = true }
+inventory = { workspace = true }

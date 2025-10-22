@@ -1,19 +1,43 @@
 /// https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Protocol(#[allow(unused)] u8);
 pub trait ProtocolNumberStatic {
     const DECIMAL: u8;
+    const PROTOCOL: Protocol;
     const KEYWORD: &'static str;
-    const PROTOCOL: &'static str;
+    const PROTOCOL_NAME: &'static str;
     const IPV6_EXTENSION_HEADER: bool;
     const REFERENCE: &'static str;
     const DEPRECATED: bool;
 }
 pub trait ProtocolNumberDynamic {
     fn decimal(&self) -> u8;
+    fn protocol(&self) -> Protocol;
     fn keyword(&self) -> &'static str;
-    fn protocol(&self) -> &'static str;
+    fn protocol_name(&self) -> &'static str;
     fn ipv6_extension_header(&self) -> bool;
     fn reference(&self) -> &'static str;
     fn deprecated(&self) -> bool;
+}
+
+struct ProtocolEntry {
+    number: u8,
+    factory: fn() -> Box<dyn ProtocolNumberDynamic>,
+}
+
+inventory::collect!(ProtocolEntry);
+
+pub fn from_number(number: u8) -> Option<Box<dyn ProtocolNumberDynamic>> {
+    for entry in inventory::iter::<ProtocolEntry> {
+        if entry.number == number {
+            return Some((entry.factory)());
+        }
+    }
+    None
+}
+
+pub fn from_protocol(protocol: Protocol) -> Option<Box<dyn ProtocolNumberDynamic>> {
+    from_number(protocol.0)
 }
 
 macro_rules! define_protocol_number {
@@ -22,30 +46,40 @@ macro_rules! define_protocol_number {
         pub struct $name;
         impl ProtocolNumberStatic for $name {
             const DECIMAL: u8 = $number;
+            const PROTOCOL: Protocol = Protocol($number);
             const KEYWORD: &'static str = stringify!($name);
-            const PROTOCOL: &'static str = $protocol;
+            const PROTOCOL_NAME: &'static str = $protocol;
             const IPV6_EXTENSION_HEADER: bool = $ipv6;
             const REFERENCE: &str = $reference;
             const DEPRECATED: bool = $deprecated;
         }
         impl ProtocolNumberDynamic for $name {
             fn decimal(&self) -> u8 {
-                $number
+                Self::DECIMAL
+            }
+            fn protocol(&self) -> Protocol {
+                Self::PROTOCOL
             }
             fn keyword(&self) -> &'static str {
-                stringify!($name)
+                Self::KEYWORD
             }
-            fn protocol(&self) -> &'static str {
-                $protocol
+            fn protocol_name(&self) -> &'static str {
+                Self::PROTOCOL_NAME
             }
             fn ipv6_extension_header(&self) -> bool {
-                $ipv6
+                Self::IPV6_EXTENSION_HEADER
             }
             fn reference(&self) -> &'static str {
-                $reference
+                Self::REFERENCE
             }
             fn deprecated(&self) -> bool {
-                $deprecated
+                Self::DEPRECATED
+            }
+        }
+        inventory::submit! {
+            ProtocolEntry {
+                number: $number,
+                factory: || Box::new($name{})
             }
         }
     };
@@ -1392,7 +1426,7 @@ mod test {
                 proto.decimal(),
                 proto.keyword(),
                 proto.deprecated(),
-                proto.protocol(),
+                proto.protocol_name(),
                 proto.reference(),
             );
         }
@@ -1402,7 +1436,7 @@ mod test {
     fn test_protocol_number_static_trait() {
         assert_eq!(TCP::DECIMAL, 6);
         assert_eq!(TCP::KEYWORD, "TCP");
-        assert_eq!(TCP::PROTOCOL, "Transmission Control");
+        assert_eq!(TCP::PROTOCOL_NAME, "Transmission Control");
         assert_eq!(TCP::IPV6_EXTENSION_HEADER, false);
         assert!(TCP::REFERENCE.contains("rfc9293"));
         assert_eq!(TCP::DEPRECATED, false);
@@ -1413,7 +1447,7 @@ mod test {
         let udp = UDP;
         assert_eq!(udp.decimal(), 17);
         assert_eq!(udp.keyword(), "UDP");
-        assert_eq!(udp.protocol(), "User Datagram");
+        assert_eq!(udp.protocol_name(), "User Datagram");
         assert_eq!(udp.ipv6_extension_header(), false);
         assert!(udp.reference().contains("rfc768"));
         assert_eq!(udp.deprecated(), false);
