@@ -1,46 +1,31 @@
-#[cfg(tokio_unstable)]
-use std::time::Duration;
-
-use time::macros::format_description;
-use tracing_appender::rolling::Rotation;
-use tracing_subscriber::{
-    EnvFilter, fmt::time::LocalTime, layer::SubscriberExt, util::SubscriberInitExt,
-};
+use app_utils::{logger::setup_logger, signal};
+use clap::{CommandFactory, FromArgMatches, crate_authors, crate_version};
 
 #[tokio::main]
-
 async fn main() {
-    let writer = tracing_appender::rolling::Builder::new()
-        .filename_prefix("turn_server")
-        .rotation(Rotation::HOURLY)
-        .build("./logs/turn")
-        .expect("build log writer for turn server");
-    let (nonblocking_writer, _guard) = tracing_appender::non_blocking(writer);
-
-    let registry = tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_timer(LocalTime::new(format_description!(
-                    "[hour]:[minute]:[second]"
-                )))
-                .with_file(true)
-                .with_line_number(true)
-                .compact()
-                .with_ansi(false) // enable color when sink to stdout
-                .with_writer(nonblocking_writer),
+    let cmd = turn_server::cli::AppCli::command()
+        .name("turn_server")
+        .version(crate_version!())
+        .author(crate_authors!())
+        .about("a simple turn server implements rfc 8656, happy traversal")
+        .help_template(
+            "{name} v{version} by {author-section}{about-section}\n{usage-heading}\n{usage}\n\n{all-args}",
         )
-        .with(EnvFilter::try_from_default_env().unwrap_or(EnvFilter::new(format!("{},tokio=trace,runtime=trace", "debug"))));
-    #[cfg(tokio_unstable)]
-    let registry = registry.with(
-        console_subscriber::ConsoleLayer::builder()
-            // set how long the console will retain data from completed tasks
-            .retention(Duration::from_secs(60))
-            // set the address the server is bound to
-            .server_addr(([127, 0, 0, 1], 6669))
-            .spawn(),
-    );
-
-    registry.init();
-    tracing::info!("turn server running at: udp://127.0.0.1:5799");
-    turn_server::app_run(signal::stop()).await
+        .arg_required_else_help(false);
+    let matches = cmd.get_matches();
+    let cli = turn_server::cli::AppCli::from_arg_matches(&matches);
+    if let Err(err) = cli {
+        eprintln!("argument parse failed: {}", err);
+        std::process::exit(1);
+    }
+    let cli = cli.unwrap().merge();
+    if let Err(err) = cli {
+        eprintln!("argument parse failed: {}", err);
+        std::process::exit(1);
+    }
+    let mut cli = cli.unwrap();
+    cli.inner.inner = cli.inner.inner.resolve();
+    let _guard = setup_logger(None, Some("turn_server"), &cli.inner.logger);
+    println!("turn_server is running with config:\n{}", cli);
+    turn_server::app_run(signal::stop(), cli.inner.inner).await
 }

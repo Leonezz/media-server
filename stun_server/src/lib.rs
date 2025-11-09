@@ -1,9 +1,9 @@
-pub mod config;
+pub mod cli;
 pub mod errors;
 
-use config::AppConfig;
+use cli::StunServerCli;
 use tokio::select;
-pub async fn app_run<F>(config: AppConfig, stop: F)
+pub async fn app_run<F>(stop: F, config: StunServerCli)
 where
     F: Future<Output = ()> + Send + 'static,
 {

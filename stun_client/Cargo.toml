@@ -13,6 +13,8 @@ crate-type = ["lib"]
 tokio = { workspace = true }
 tracing = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
+serde = { workspace = true }
+iana-formats = { workspace = true }
 thiserror = { workspace = true }
 scopeguard = "1.2.0"
 

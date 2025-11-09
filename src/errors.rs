@@ -8,8 +8,6 @@ pub enum AppError {
     LogLevelNotValid(String),
     #[error("config not found: {0}")]
     ConfigNotFound(String),
-    #[error("config parse failed: {0}")]
-    ConfigError(#[from] config::ConfigError),
 }
 
 pub type AppResult<T> = Result<T, AppError>;

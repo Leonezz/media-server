@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    net::{IpAddr, SocketAddr, SocketAddrV4, SocketAddrV6},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -27,8 +27,10 @@ const RESERVATION_LIFETIME: Duration = Duration::from_mins(1);
 
 #[derive(Debug)]
 pub struct Session {
-    local_ipv4_address: SocketAddrV4,
-    local_ipv6_address: SocketAddrV6,
+    local_ipv4_address: Ipv4Addr,
+    local_ipv6_address: Option<Ipv6Addr>,
+    use_icmp: bool,
+
     fivetuple: FiveTuple,
     message_tx: mpsc::Sender<(Message, Option<oneshot::Sender<()>>)>,
     message_rx: mpsc::Receiver<Message>,
@@ -52,10 +54,11 @@ impl Session {
         protocol: Protocol,
         local_addr: SocketAddr,
         remote_addr: SocketAddr,
-        local_ipv4_addr: SocketAddrV4,
-        local_ipv6_addr: SocketAddrV6,
+        local_ipv4_addr: Ipv4Addr,
+        local_ipv6_addr: Option<Ipv6Addr>,
         message_tx: mpsc::Sender<(Message, Option<oneshot::Sender<()>>)>,
         message_rx: mpsc::Receiver<Message>,
+        use_icmp: bool,
     ) -> Self {
         Self {
             fivetuple: FiveTuple::new(protocol, local_addr.into(), remote_addr.into()),
@@ -66,6 +69,7 @@ impl Session {
             message_rx,
             message_tx,
             reservation: None,
+            use_icmp,
         }
     }
     pub async fn run(mut self) -> TurnSessionResult<()> {
@@ -709,9 +713,15 @@ impl Session {
         debug_assert!(maxport.is_multiple_of(2));
         let next_port = maxport + 2;
         let addr = if family == iana_formats::addrress_family::IPv4::ADDRESS_FAMILY {
-            SocketAddr::new(IpAddr::V4(self.local_ipv4_address.ip().clone()), next_port)
+            SocketAddr::new(IpAddr::V4(self.local_ipv4_address), next_port)
         } else {
-            SocketAddr::new(IpAddr::V6(self.local_ipv6_address.ip().clone()), next_port)
+            if let Some(local_ipv6_addr) = self.local_ipv6_address {
+                SocketAddr::new(IpAddr::V6(local_ipv6_addr), next_port)
+            } else {
+                return Err(TurnSessionError::UnsupportedAddressFamily(
+                    iana_formats::addrress_family::IPv6::ADDRESS_FAMILY,
+                ));
+            }
         };
         let socket = socket2::Socket::new(
             Domain::for_address(addr),

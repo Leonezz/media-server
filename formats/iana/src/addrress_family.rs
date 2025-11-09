@@ -1,6 +1,7 @@
 use std::{
     fmt,
     net::{IpAddr, SocketAddr},
+    str::FromStr,
 };
 
 use crate::rfc_url;
@@ -19,6 +20,57 @@ impl AddressFamily {
 
     pub fn inner(&self) -> u16 {
         self.0
+    }
+}
+
+impl FromStr for AddressFamily {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Some(entry) = entry_from_name(s) {
+            return Ok(Self::new(entry.number).unwrap());
+        }
+        Err(s.to_owned())
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for AddressFamily {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct PostVistor;
+        impl<'de> serde::de::Visitor<'de> for PostVistor {
+            type Value = AddressFamily;
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("expecting address family like IPv4 or ipv4 etc.")
+            }
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                v.parse::<Self::Value>().map_err(|err| {
+                    serde::de::Error::custom(format!("invalid address family: {}", err))
+                })
+            }
+        }
+        deserializer.deserialize_str(PostVistor)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for AddressFamily {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if let Some(family) = from_address_family(*self) {
+            return serializer.serialize_str(family.name());
+        }
+        Err(serde::ser::Error::custom(format!(
+            "unknown address family: {}",
+            self
+        )))
     }
 }
 
@@ -67,6 +119,7 @@ pub trait AddressFamilyDynamic: Send + Sync {
 
 struct AddressFamilyEntry {
     number: u16,
+    name: &'static str,
     factory: fn() -> Box<dyn AddressFamilyDynamic>,
 }
 
@@ -76,6 +129,13 @@ fn entry(number: u16) -> Option<&'static AddressFamilyEntry> {
     inventory::iter::<AddressFamilyEntry>
         .into_iter()
         .find(|item| item.number == number)
+}
+
+fn entry_from_name(name: &str) -> Option<&'static AddressFamilyEntry> {
+    let lower = name.to_lowercase();
+    inventory::iter::<AddressFamilyEntry>
+        .into_iter()
+        .find(|item| item.name.to_lowercase() == lower)
 }
 
 pub fn is_registered(number: u16) -> bool {
@@ -146,6 +206,7 @@ macro_rules! define_address_family {
         inventory::submit! {
             AddressFamilyEntry {
                 number: $number,
+                name: stringify!($name),
                 factory: || Box::new($name{})
             }
         }

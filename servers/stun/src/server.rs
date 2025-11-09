@@ -5,15 +5,14 @@ use crate::{
 use connection::connection::Outgoing;
 use std::{io, net::SocketAddr};
 use stun_formats::message::Message;
-use utils::net::protocol::Protocol;
 
 pub struct STUNServer {
-    protocol: Protocol,
+    protocol: iana_formats::protocol_numbers::Protocol,
     address: SocketAddr,
 }
 
 impl STUNServer {
-    pub fn new(protocol: Protocol, address: SocketAddr) -> Self {
+    pub fn new(protocol: iana_formats::protocol_numbers::Protocol, address: SocketAddr) -> Self {
         Self { protocol, address }
     }
 
@@ -59,10 +58,8 @@ impl STUNServer {
             }
         });
 
-        let mut endpoint = match self.protocol {
-            Protocol::Tcp => connection::endpoint::ServerEndpoint::new_tcp(self.address).await?,
-            Protocol::Udp => connection::endpoint::ServerEndpoint::new_udp(self.address).await?,
-        };
+        let mut endpoint =
+            connection::endpoint::ServerEndpoint::new(self.protocol, self.address).await?;
 
         while let Ok((remote_addr, conn, message_tx, message_rx)) =
             endpoint.accept::<Message>().await

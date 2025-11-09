@@ -1,28 +1,36 @@
-use crate::{config::RtspServerConfig, errors::RtspServerResult, middleware, session::RtspSession};
+use std::net::IpAddr;
+
+use crate::{errors::RtspServerResult, middleware, session::RtspSession};
 use tokio::sync::mpsc::UnboundedSender;
 use unified_io::tcp::TcpIO;
 
 #[derive(Debug)]
 pub struct RtspServer {
     stream_center_event_sender: UnboundedSender<stream_center::events::StreamCenterEvent>,
-    config: RtspServerConfig,
+    address: IpAddr,
+    port: u16,
 }
 
 impl RtspServer {
     pub fn new(
         stream_center_event_sender: UnboundedSender<stream_center::events::StreamCenterEvent>,
-        config: RtspServerConfig,
+        address: IpAddr,
+        port: u16,
     ) -> Self {
         Self {
             stream_center_event_sender,
-            config,
+            address,
+            port,
         }
     }
 
     pub async fn run(&self) -> RtspServerResult<()> {
-        tracing::info!("rtsp server is starting with config: {:?}", self.config);
-        let listener =
-            tokio::net::TcpListener::bind((self.config.address, self.config.port)).await?;
+        tracing::info!(
+            "rtsp server is running at: tcp://{}:{}",
+            self.address,
+            self.port
+        );
+        let listener = tokio::net::TcpListener::bind((self.address, self.port)).await?;
         loop {
             let (tcp_stream, addr) = listener.accept().await?;
             tracing::info!("got new rtsp connection, peer addr: {}", addr);

@@ -144,11 +144,11 @@ impl TryFrom<u8> for AudioChannel {
             return Ok(AUDIO_CHANNEL_INDEXES[value as usize]);
         }
 
-        if value == AudioChannel::Unused.into() {
+        if value == <AudioChannel as Into<u8>>::into(AudioChannel::Unused) {
             return Ok(AudioChannel::Unused);
         }
 
-        if value == AudioChannel::Unknown.into() {
+        if value == <AudioChannel as Into<u8>>::into(AudioChannel::Unknown) {
             return Ok(AudioChannel::Unknown);
         }
 

@@ -17,3 +17,8 @@ ring = { workspace = true }
 md5 = "0.8.0"
 crc = "3.3.0"
 tokio-util = { workspace = true }
+clap = { workspace = true }
+figment = { workspace = true, features = ["yaml"] }
+serde = { workspace = true }
+serde_ini = "0.2.0"
+iana-formats = { workspace = true }

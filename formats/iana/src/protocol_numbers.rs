@@ -1,5 +1,5 @@
 use crate::rfc_url;
-use std::fmt;
+use std::{fmt, str::FromStr};
 /// https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Protocol(#[allow(unused)] u8);
@@ -14,6 +14,57 @@ impl Protocol {
 
     pub fn inner(&self) -> u8 {
         self.0
+    }
+}
+
+impl FromStr for Protocol {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Some(entry) = entry_from_keyword(s) {
+            return Ok(Protocol::new(entry.number).unwrap());
+        }
+        Err(s.to_owned())
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for Protocol {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct PostVistor;
+        impl<'de> serde::de::Visitor<'de> for PostVistor {
+            type Value = Protocol;
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("expect protocol names like TCP or tcp")
+            }
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                v.parse::<Self::Value>()
+                    .map_err(|err| serde::de::Error::custom(format!("invalid protocol: {}", err)))
+            }
+        }
+
+        deserializer.deserialize_str(PostVistor)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for Protocol {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if let Some(protocol) = from_protocol(*self) {
+            return serializer.serialize_str(protocol.keyword());
+        }
+        Err(serde::ser::Error::custom(format!(
+            "unknown protocol: {}",
+            self
+        )))
     }
 }
 
@@ -67,6 +118,7 @@ pub trait ProtocolNumberDynamic: Send + Sync {
 
 struct ProtocolEntry {
     number: u8,
+    keyword: &'static str,
     factory: fn() -> Box<dyn ProtocolNumberDynamic>,
 }
 
@@ -76,6 +128,13 @@ fn entry(number: u8) -> Option<&'static ProtocolEntry> {
     inventory::iter::<ProtocolEntry>
         .into_iter()
         .find(|item| item.number == number)
+}
+
+fn entry_from_keyword(keyword: &str) -> Option<&'static ProtocolEntry> {
+    let lower = keyword.to_lowercase();
+    inventory::iter::<ProtocolEntry>
+        .into_iter()
+        .find(|item| item.keyword.to_lowercase() == lower)
 }
 
 pub fn is_registered(number: u8) -> bool {
@@ -146,6 +205,7 @@ macro_rules! define_protocol_number {
         inventory::submit! {
             ProtocolEntry {
                 number: $number,
+                keyword: stringify!($name),
                 factory: || Box::new($name{})
             }
         }

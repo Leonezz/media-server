@@ -17,5 +17,6 @@ tokio-util = { workspace = true }
 futures = { workspace = true }
 
 stun-formats = { workspace = true }
+iana-formats = { workspace = true }
 utils = { workspace = true }
 connection = { workspace = true }

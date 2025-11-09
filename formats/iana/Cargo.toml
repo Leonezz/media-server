@@ -13,3 +13,7 @@ crate-type = ["lib"]
 thiserror = { workspace = true }
 num = { workspace = true }
 inventory = { workspace = true }
+serde = { workspace = true, optional = true }
+
+[features]
+serde = ["dep:serde"]

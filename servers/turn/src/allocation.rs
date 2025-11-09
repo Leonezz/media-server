@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     fmt,
     mem::MaybeUninit,
-    net::{IpAddr, SocketAddr, SocketAddrV4, SocketAddrV6},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     sync::{Arc, atomic::AtomicBool},
     time::{Duration, Instant},
 };
@@ -143,7 +143,7 @@ pub struct Allocation {
     fivetuple: FiveTuple,
     relayed_address: SocketAddr,
     relay_endpoint: tokio::net::UdpSocket,
-    relay_icmp_endpoint: socket2::Socket,
+    relay_icmp_endpoint: Option<socket2::Socket>,
     time_to_expiry: Arc<RwLock<Instant>>,
     authenticate_info: AuthenticateInfo,
     permissions: Arc<RwLock<HashMap<IpAddr, Permission>>>,
@@ -154,8 +154,9 @@ pub const ALLOCATION_LIFETIME: Duration = Duration::from_mins(10);
 pub struct AllocationBuilder {
     protocol: iana_formats::protocol_numbers::Protocol,
     local_addr: Option<SocketAddr>,
-    local_ipv4_address: Option<SocketAddrV4>,
-    local_ipv6_address: Option<SocketAddrV6>,
+    local_ipv4_address: Option<Ipv4Addr>,
+    local_ipv6_address: Option<Ipv6Addr>,
+    use_icmp: bool,
     remote_addr: Option<SocketAddr>,
     requested_address_family: iana_formats::addrress_family::AddressFamily, // default to ipv4
     lifetime: Duration,
@@ -170,7 +171,7 @@ impl Allocation {
     pub fn new(
         five_tuple: FiveTuple,
         relay_endpoint: tokio::net::UdpSocket,
-        relay_icmp_endpoint: socket2::Socket,
+        relay_icmp_endpoint: Option<socket2::Socket>,
         time_to_expiry: Instant,
         authenticate_info: AuthenticateInfo,
     ) -> Self {
@@ -275,7 +276,7 @@ impl Allocation {
     fn setup_relay(
         relay_time_to_expiry: Arc<RwLock<Instant>>,
         relay_endpoint: tokio::net::UdpSocket,
-        relay_icmp_endpoint: socket2::Socket,
+        relay_icmp_endpoint: Option<socket2::Socket>,
         relayed_address: SocketAddr,
         outgoing_message: mpsc::Receiver<(IpAddr, Vec<u8>, SocketAddr)>,
         allocation_event_tx: mpsc::Sender<AllocationEvent>,
@@ -308,24 +309,26 @@ impl Allocation {
                 relayed_address
             );
         });
-        let permission_for_relay_icmp = permissions.clone();
-        let allocation_event_tx_for_icmp = allocation_event_tx.clone();
-        let relay_time_to_expiry_for_icmp = relay_time_to_expiry.clone();
-        tokio::spawn(async move {
-            let res = Self::relay_icmp_endpoint_loop(
-                relay_time_to_expiry_for_icmp,
-                relayed_address,
-                relay_icmp_endpoint,
-                permission_for_relay_icmp,
-                allocation_event_tx_for_icmp,
-            )
-            .await;
-            tracing::info!(
-                "relay recving icmp loop stopped, res: {:?}, relay addr: {}",
-                res,
-                relayed_address
-            );
-        });
+        if let Some(icmp_endpoint) = relay_icmp_endpoint {
+            let permission_for_relay_icmp = permissions.clone();
+            let allocation_event_tx_for_icmp = allocation_event_tx.clone();
+            let relay_time_to_expiry_for_icmp = relay_time_to_expiry.clone();
+            tokio::spawn(async move {
+                let res = Self::relay_icmp_endpoint_loop(
+                    relay_time_to_expiry_for_icmp,
+                    relayed_address,
+                    icmp_endpoint,
+                    permission_for_relay_icmp,
+                    allocation_event_tx_for_icmp,
+                )
+                .await;
+                tracing::info!(
+                    "relay recving icmp loop stopped, res: {:?}, relay addr: {}",
+                    res,
+                    relayed_address
+                );
+            });
+        }
 
         tokio::spawn(async move {
             let res =
@@ -930,6 +933,7 @@ impl Default for AllocationBuilder {
             protocol: iana_formats::protocol_numbers::UDP::PROTOCOL,
             local_ipv4_address: None,
             local_ipv6_address: None,
+            use_icmp: false,
             require_even_port: false,
             reservation: None,
         }
@@ -951,13 +955,18 @@ impl AllocationBuilder {
         self
     }
 
-    pub fn local_ipv4_addr(mut self, addr: SocketAddrV4) -> Self {
+    pub fn local_ipv4_addr(mut self, addr: Ipv4Addr) -> Self {
         self.local_ipv4_address = Some(addr);
         self
     }
 
-    pub fn local_ipv6_addr(mut self, addr: SocketAddrV6) -> Self {
-        self.local_ipv6_address = Some(addr);
+    pub fn local_ipv6_addr(mut self, addr: Option<Ipv6Addr>) -> Self {
+        self.local_ipv6_address = addr;
+        self
+    }
+
+    pub fn use_icmp(mut self, use_icmp: bool) -> Self {
+        self.use_icmp = use_icmp;
         self
     }
 
@@ -1038,10 +1047,7 @@ impl AllocationBuilder {
         self
     }
 
-    fn make_endpoint(
-        address: SocketAddr,
-        require_even_port: bool,
-    ) -> TurnSessionResult<(UdpSocket, socket2::Socket)> {
+    fn make_endpoint(address: SocketAddr, require_even_port: bool) -> TurnSessionResult<UdpSocket> {
         let mut count = 0;
         let mut socket;
         loop {
@@ -1068,9 +1074,8 @@ impl AllocationBuilder {
         }
         let std_socket: std::net::UdpSocket = socket.into();
         let udp_socket = UdpSocket::from_std(std_socket)?;
-        let icmp_socket = Self::make_icmp_endpoint(address)?;
 
-        Ok((udp_socket, icmp_socket))
+        Ok(udp_socket)
     }
 
     fn make_icmp_endpoint(address: SocketAddr) -> TurnSessionResult<socket2::Socket> {
@@ -1085,30 +1090,42 @@ impl AllocationBuilder {
         Ok(icmp_socket)
     }
 
-    async fn make_ipv4_endpoint(&self) -> TurnSessionResult<Option<(UdpSocket, socket2::Socket)>> {
+    async fn make_ipv4_endpoint(
+        &self,
+    ) -> TurnSessionResult<Option<(UdpSocket, Option<socket2::Socket>)>> {
         if self.local_ipv4_address.is_none() {
             return Ok(None);
         }
 
-        let socket = Self::make_endpoint(
-            SocketAddr::new(IpAddr::V4(*self.local_ipv4_address.unwrap().ip()), 0),
-            self.require_even_port,
-        )?;
-        Ok(Some(socket))
+        let address = SocketAddr::new(IpAddr::V4(self.local_ipv4_address.unwrap()), 0);
+        let socket = Self::make_endpoint(address, self.require_even_port)?;
+        let icmp_socket = if self.use_icmp {
+            Some(Self::make_icmp_endpoint(address)?)
+        } else {
+            None
+        };
+        Ok(Some((socket, icmp_socket)))
     }
 
-    async fn make_ipv6_endpoint(&self) -> TurnSessionResult<Option<(UdpSocket, socket2::Socket)>> {
+    async fn make_ipv6_endpoint(
+        &self,
+    ) -> TurnSessionResult<Option<(UdpSocket, Option<socket2::Socket>)>> {
         if self.local_ipv6_address.is_none() {
             return Ok(None);
         }
-        let socket = Self::make_endpoint(
-            SocketAddr::new(IpAddr::V6(*self.local_ipv6_address.unwrap().ip()), 0),
-            self.require_even_port,
-        )?;
-        Ok(Some(socket))
+        let address = SocketAddr::new(IpAddr::V6(self.local_ipv6_address.unwrap()), 0);
+        let socket = Self::make_endpoint(address, self.require_even_port)?;
+        let icmp_socket = if self.use_icmp {
+            Some(Self::make_icmp_endpoint(address)?)
+        } else {
+            None
+        };
+        Ok(Some((socket, icmp_socket)))
     }
 
-    async fn make_requested_endpoint(&self) -> TurnSessionResult<(UdpSocket, socket2::Socket)> {
+    async fn make_requested_endpoint(
+        &self,
+    ) -> TurnSessionResult<(UdpSocket, Option<socket2::Socket>)> {
         if self.requested_address_family == iana_formats::addrress_family::IPv4::ADDRESS_FAMILY {
             return self.make_ipv4_endpoint().await?.ok_or(
                 crate::errors::TurnSessionError::UnsupportedAddressFamily(
@@ -1148,7 +1165,11 @@ impl AllocationBuilder {
             let relay_address = socket.local_addr()?;
             self.requested_address_family =
                 iana_formats::addrress_family::for_address(&relay_address);
-            let icmp_endpoint = Self::make_icmp_endpoint(relay_address)?;
+            let icmp_endpoint = if self.use_icmp {
+                Some(Self::make_icmp_endpoint(relay_address)?)
+            } else {
+                None
+            };
             (socket, icmp_endpoint)
         } else {
             self.make_requested_endpoint().await?
