@@ -1,3 +1,4 @@
+use rootcause::{Report, bail};
 use std::fmt;
 use stun_formats::{
     MessageChecker,
@@ -27,15 +28,15 @@ impl AttributeFactory for DontFragmentAttribute {
     fn from_raw_attr(
         raw_attr: stun_formats::attributes::RawAttribute,
         _transaction_id: &stun_formats::header::TransactionId,
-    ) -> Result<Self, stun_formats::errors::StunMessageError> {
+    ) -> Result<Self, Report> {
         stun_formats::attributes::check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE)?;
         if !raw_attr.value.is_empty() {
-            return Err(stun_formats::errors::StunMessageError::SyntaxError(
+            bail!(stun_formats::errors::StunMessageError::SyntaxError(
                 format!(
                     "dont fragment attribute expects 0 bytes, got {} bytes instead",
                     raw_attr.value.len()
                 ),
-            ));
+            ))
         }
 
         Ok(Self {})

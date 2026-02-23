@@ -5,6 +5,7 @@ use crate::{
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use num::ToPrimitive;
+use rootcause::bail;
 use std::{
     any::Any,
     fmt::{self, Debug},
@@ -18,7 +19,7 @@ use utils::traits::{
 pub mod rfc8489;
 pub fn check_attr_match(from_attr: u16, to_attr: u16) -> StunMessageResult<()> {
     if from_attr != to_attr {
-        return Err(StunMessageError::SyntaxError(format!(
+        bail!(StunMessageError::SyntaxError(format!(
             "attr {:?} and {:?} not match",
             from_attr, to_attr
         )));
@@ -152,7 +153,7 @@ pub trait AttributeFactory: AttributeExtStatic + Sized {
     fn from_raw_attr(
         raw_attr: RawAttribute,
         transaction_id: &TransactionId,
-    ) -> Result<Self, StunMessageError>;
+    ) -> StunMessageResult<Self>;
     fn into_raw_attr(self, transaction_id: &TransactionId) -> RawAttribute;
 }
 

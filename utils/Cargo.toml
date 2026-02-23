@@ -22,3 +22,4 @@ figment = { workspace = true, features = ["yaml"] }
 serde = { workspace = true }
 serde_ini = "0.2.0"
 iana-formats = { workspace = true }
+rootcause = { workspace = true }

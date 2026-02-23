@@ -4,7 +4,8 @@ use std::{
 };
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
+use rootcause::{bail, prelude::ResultExt};
+use utils::{errors::context::LocationExt, traits::dynamic_sized_packet::DynamicSizedPacket};
 
 use crate::{
     MessageChecker,
@@ -73,9 +74,9 @@ impl ErrorCodeAttribute {
     pub fn new(error_code: ErrorCode) -> StunMessageResult<Self> {
         let err = from_code(error_code.0);
         if err.is_none() {
-            return Err(crate::errors::StunMessageError::UnknownErrorCode(
+            bail!(crate::errors::StunMessageError::UnknownErrorCode(
                 error_code,
-            ));
+            ))
         }
         Ok(Self(err.unwrap()))
     }
@@ -97,19 +98,19 @@ impl ErrorCodeAttribute {
     ) -> StunMessageResult<Self> {
         let reason = reason_phrase.into();
         if reason.len() > ERROR_CODE_REASON_PHRASE_MAX_LEN {
-            return Err(crate::errors::StunMessageError::SyntaxError(format!(
+            bail!(crate::errors::StunMessageError::SyntaxError(format!(
                 "length of reason phrase of {:?}: {} exceeds max length: {}",
                 Self::STATIC_ATTR_TYPE,
                 reason.len(),
                 ERROR_CODE_REASON_PHRASE_MAX_LEN
-            )));
+            )))
         }
 
         let err = from_code_with_reason(error_code.0, &reason);
         if err.is_none() {
-            return Err(crate::errors::StunMessageError::UnknownErrorCode(
+            bail!(crate::errors::StunMessageError::UnknownErrorCode(
                 error_code,
-            ));
+            ))
         }
         Ok(Self(err.unwrap()))
     }
@@ -156,25 +157,27 @@ impl MessageChecker for ErrorCodeAttribute {
         let error_code = message.get_attribute_ext::<ErrorCodeAttribute>().unwrap();
         match error_code.error_code().code() {
             UNKNOWN_ATTRIBUTE::STATIC_CODE => {
-                message.require_ext::<rfc8489::UnknownAttributesAttribute>()?;
+                message
+                    .require_ext::<rfc8489::UnknownAttributesAttribute>()
+                    .trace()?;
             }
-            TRY_ALTERNATE::STATIC_CODE => {
-                message.require_ext::<rfc8489::AlternateServerAttribute>()?
-            }
+            TRY_ALTERNATE::STATIC_CODE => message
+                .require_ext::<rfc8489::AlternateServerAttribute>()
+                .trace()?,
             UNAUTHENTICATED::STATIC_CODE => {
                 if message.has_authentication() {
-                    return Err(StunMessageError::InvalidMessage(format!(
+                    bail!(StunMessageError::InvalidMessage(format!(
                         "no authentication attributes should be inside a {:?} message",
                         error_code
-                    )));
+                    )))
                 }
             }
             v if v >= 300 && v <= 699 => {}
             v => {
-                return Err(StunMessageError::InvalidMessage(format!(
+                bail!(StunMessageError::InvalidMessage(format!(
                     "unknown error code: {}",
                     v
-                )));
+                )))
             }
         }
         Ok(())
@@ -185,22 +188,32 @@ impl AttributeFactory for ErrorCodeAttribute {
     fn from_raw_attr(
         raw_attr: crate::attributes::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
-    ) -> Result<Self, StunMessageError> {
-        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE)?;
+    ) -> StunMessageResult<Self> {
+        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE).trace()?;
         let mut bytes = raw_attr.value.as_slice();
-        let class = (bytes.read_u24::<BigEndian>()? & 0b111) as u16;
-        let number = bytes.read_u8()? as u16;
+        let class = (bytes
+            .read_u24::<BigEndian>()
+            .map_err(StunMessageError::from)
+            .attach("read error code class")?
+            & 0b111) as u16;
+        let number = bytes
+            .read_u8()
+            .map_err(StunMessageError::from)
+            .attach("read error code number")? as u16;
         let error_code = class * 100 + number;
         if bytes.len() > ERROR_CODE_REASON_PHRASE_MAX_LEN {
-            return Err(crate::errors::StunMessageError::SyntaxError(format!(
+            bail!(crate::errors::StunMessageError::SyntaxError(format!(
                 "length of reason phrase of {:?}: {} exceeds max length: {}",
                 Self::STATIC_ATTR_TYPE,
                 bytes.len(),
                 ERROR_CODE_REASON_PHRASE_MAX_LEN
-            )));
+            )))
         }
         let mut reason_phrase = String::new();
-        bytes.read_to_string(&mut reason_phrase)?;
+        bytes
+            .read_to_string(&mut reason_phrase)
+            .map_err(StunMessageError::from)
+            .attach("read error reason phrase")?;
         Self::new_with_reason(error_code.into(), reason_phrase)
     }
     fn into_raw_attr(
@@ -211,9 +224,13 @@ impl AttributeFactory for ErrorCodeAttribute {
         let mut value = Vec::with_capacity(self.get_packet_bytes_count());
         value
             .write_u24::<BigEndian>(self.error_code().get_class() as u32)
-            .unwrap();
-        value.write_u8(self.error_code().get_number()).unwrap();
-        value.write_all(self.reason().as_bytes()).unwrap();
+            .expect("write error code class into buffer");
+        value
+            .write_u8(self.error_code().get_number())
+            .expect("write error code number into buffer");
+        value
+            .write_all(self.reason().as_bytes())
+            .expect("write error reason phrase into buffer");
 
         crate::attributes::RawAttribute::new(self.get_type(), value)
     }

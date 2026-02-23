@@ -1,3 +1,4 @@
+use rootcause::{Report, bail};
 use std::fmt;
 use stun_formats::{
     MessageChecker,
@@ -52,16 +53,16 @@ impl AttributeFactory for ReservationTokenAttribute {
     fn from_raw_attr(
         raw_attr: stun_formats::attributes::RawAttribute,
         _transaction_id: &stun_formats::header::TransactionId,
-    ) -> Result<Self, stun_formats::errors::StunMessageError> {
+    ) -> Result<Self, Report> {
         stun_formats::attributes::check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE)?;
         if raw_attr.value.len() != RESERVATION_TOKEN_ATTR_LEN {
-            return Err(stun_formats::errors::StunMessageError::SyntaxError(
+            bail!(stun_formats::errors::StunMessageError::SyntaxError(
                 format!(
                     "reservation token attribute expects {} bytes, got {} bytes instead",
                     RESERVATION_TOKEN_ATTR_LEN,
                     raw_attr.value.len()
                 ),
-            ));
+            ))
         }
         let token: [u8; 8] = raw_attr.value.try_into().unwrap();
         Ok(Self { token })

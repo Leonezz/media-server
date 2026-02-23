@@ -1,3 +1,4 @@
+use rootcause::{Report, bail};
 use std::fmt;
 use stun_formats::{
     MessageChecker,
@@ -37,7 +38,7 @@ impl MessageChecker for EvenPortAttribute {
                 .get_attribute(rfc8656::AdditionalAddressFamilyAttribute::STATIC_ATTR_TYPE)
                 .is_some()
         {
-            return Err(stun_formats::errors::StunMessageError::InvalidMessage(
+            bail!(stun_formats::errors::StunMessageError::InvalidMessage(
                 format!(
                     "{} request with {} attribute of r={} cannot have {} also",
                     Self::STATIC_NAME,
@@ -45,7 +46,7 @@ impl MessageChecker for EvenPortAttribute {
                     true,
                     rfc8656::AdditionalAddressFamilyAttribute::STATIC_NAME
                 ),
-            ));
+            ))
         }
         Ok(())
     }
@@ -55,16 +56,16 @@ impl AttributeFactory for EvenPortAttribute {
     fn from_raw_attr(
         raw_attr: stun_formats::attributes::RawAttribute,
         _transaction_id: &stun_formats::header::TransactionId,
-    ) -> Result<Self, stun_formats::errors::StunMessageError> {
+    ) -> Result<Self, Report> {
         stun_formats::attributes::check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE)?;
         if raw_attr.value.len() != EVEN_PORT_ATTR_LEN {
-            return Err(stun_formats::errors::StunMessageError::SyntaxError(
+            bail!(stun_formats::errors::StunMessageError::SyntaxError(
                 format!(
                     "event port attribute expects {} bytes, got {} bytes instead",
                     EVEN_PORT_ATTR_LEN,
                     raw_attr.value.len()
                 ),
-            ));
+            ))
         }
         let byte = raw_attr.value[0];
         debug_assert_eq!(byte, 0b1000_0000);

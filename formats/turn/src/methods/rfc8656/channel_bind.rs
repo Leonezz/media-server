@@ -1,3 +1,4 @@
+use rootcause::bail;
 use stun_formats::{
     MessageChecker,
     attributes::AttributeExtStatic,
@@ -27,12 +28,12 @@ impl MessageChecker for CHANNEL_BIND {
             .unwrap()
             .channel_number;
         if channel_number < 0x4000 || channel_number > 0x4FFF {
-            return Err(stun_formats::errors::StunMessageError::InvalidMessage(
+            bail!(stun_formats::errors::StunMessageError::InvalidMessage(
                 format!(
                     "{} should be in [0x4000, 0x4FFF]",
                     rfc8656::ChannelNumberAttribute::STATIC_NAME
                 ),
-            ));
+            ))
         }
         message.require_ext::<rfc8656::XorPeerAddressAttribute>()?;
         Ok(())

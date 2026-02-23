@@ -1,11 +1,13 @@
 use std::fmt;
 
-use utils::traits::fixed_packet::FixedPacket;
+use rootcause::bail;
+use utils::{errors::context::LocationExt, traits::fixed_packet::FixedPacket};
 
 use crate::{
     MessageChecker,
     attributes::{AttributeExtDynamic, AttributeExtStatic, AttributeFactory, check_attr_match},
     define_attribute,
+    errors::StunMessageResult,
 };
 
 // The value of USERHASH has a fixed length of 32 bytes.
@@ -51,13 +53,13 @@ impl AttributeFactory for UserHashAttribute {
     fn from_raw_attr(
         raw_attr: crate::attributes::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
-    ) -> Result<Self, crate::errors::StunMessageError> {
-        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE)?;
+    ) -> StunMessageResult<Self> {
+        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE).trace()?;
         if raw_attr.value.len() != USERHASH_LEN {
-            return Err(crate::errors::StunMessageError::SyntaxError(format!(
+            bail!(crate::errors::StunMessageError::SyntaxError(format!(
                 "user hash value should be of 32 bytes, got {} bytes",
                 raw_attr.value.len()
-            )));
+            )))
         }
         Ok(Self {
             userhash: raw_attr.value.try_into().unwrap(),

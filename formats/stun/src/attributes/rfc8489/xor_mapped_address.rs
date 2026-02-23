@@ -4,7 +4,11 @@ use std::{
 };
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use utils::traits::{dynamic_sized_packet::DynamicSizedPacket, writer::WriteTo};
+use rootcause::bail;
+use utils::{
+    errors::context::LocationExt,
+    traits::{dynamic_sized_packet::DynamicSizedPacket, writer::WriteTo},
+};
 
 use crate::{
     MessageChecker,
@@ -13,7 +17,7 @@ use crate::{
         rfc8489::mapped_address::{ADDRESS_FAMILY_V4, ADDRESS_FAMILY_V6, IPV4_LEN, IPV6_LEN},
     },
     define_attribute,
-    errors::StunMessageResult,
+    errors::{StunMessageError, StunMessageResult},
     header::{MAGIC_COOKIE, TRANSACTION_ID_LEN},
 };
 
@@ -93,27 +97,33 @@ impl XorMappedAddressAttribute {
         reader: &mut R,
         transaction_id: &crate::header::TransactionId,
     ) -> StunMessageResult<Self> {
-        let first_byte = reader.read_u8()?;
+        let first_byte = reader.read_u8().map_err(StunMessageError::from)?;
         if first_byte != 0 {
-            return Err(crate::errors::StunMessageError::SyntaxError(format!(
+            bail!(crate::errors::StunMessageError::SyntaxError(format!(
                 "first byte of {:?} is not 0: {}",
                 Self::STATIC_ATTR_TYPE,
                 first_byte
-            )));
+            )))
         }
-        let family = reader.read_u8()?;
-        let port = reader.read_u16::<BigEndian>()?;
+        let family = reader.read_u8().map_err(StunMessageError::from)?;
+        let port = reader
+            .read_u16::<BigEndian>()
+            .map_err(StunMessageError::from)?;
         let port = port ^ (MAGIC_COOKIE >> 16) as u16;
         let address = match family {
             ADDRESS_FAMILY_V4 => {
                 let mut ipv4_bytes = [0_u8; IPV4_LEN];
-                reader.read_exact(&mut ipv4_bytes)?;
+                reader
+                    .read_exact(&mut ipv4_bytes)
+                    .map_err(StunMessageError::from)?;
                 xor_inplace(&mut ipv4_bytes, &MAGIC_COOKIE.to_be_bytes());
                 IpAddr::V4(Ipv4Addr::from_octets(ipv4_bytes))
             }
             ADDRESS_FAMILY_V6 => {
                 let mut ipv6_bytes = [0_u8; IPV6_LEN];
-                reader.read_exact(&mut ipv6_bytes)?;
+                reader
+                    .read_exact(&mut ipv6_bytes)
+                    .map_err(StunMessageError::from)?;
                 let mut xor_value = Vec::with_capacity(4 + TRANSACTION_ID_LEN);
                 xor_value.extend_from_slice(&MAGIC_COOKIE.to_be_bytes());
                 transaction_id.write_to(&mut xor_value).unwrap();
@@ -121,10 +131,10 @@ impl XorMappedAddressAttribute {
                 IpAddr::V6(Ipv6Addr::from_octets(ipv6_bytes))
             }
             _ => {
-                return Err(crate::errors::StunMessageError::SyntaxError(format!(
+                bail!(crate::errors::StunMessageError::SyntaxError(format!(
                     "invalid ip address family: {}",
                     family
-                )));
+                )))
             }
         };
         Ok(Self {
@@ -139,13 +149,19 @@ impl XorMappedAddressAttribute {
         writer: &mut W,
         transaction_id: &crate::header::TransactionId,
     ) -> StunMessageResult<()> {
-        writer.write_u16::<BigEndian>(self.family())?;
-        writer.write_u16::<BigEndian>(self.xport ^ (MAGIC_COOKIE >> 16) as u16)?;
+        writer
+            .write_u16::<BigEndian>(self.family())
+            .map_err(StunMessageError::from)?;
+        writer
+            .write_u16::<BigEndian>(self.xport ^ (MAGIC_COOKIE >> 16) as u16)
+            .map_err(StunMessageError::from)?;
         match self.xaddress {
             IpAddr::V4(ipv4) => {
                 let mut ipv4_bytes = ipv4.octets();
                 xor_inplace(&mut ipv4_bytes, &MAGIC_COOKIE.to_be_bytes());
-                writer.write_all(&ipv4_bytes)?;
+                writer
+                    .write_all(&ipv4_bytes)
+                    .map_err(StunMessageError::from)?;
             }
             IpAddr::V6(ipv6) => {
                 let mut ipv6_bytes = ipv6.octets();
@@ -153,7 +169,9 @@ impl XorMappedAddressAttribute {
                 xor_value.extend_from_slice(&MAGIC_COOKIE.to_be_bytes());
                 transaction_id.write_to(&mut xor_value).unwrap();
                 xor_inplace(&mut ipv6_bytes, &xor_value.try_into().unwrap());
-                writer.write_all(&ipv6_bytes)?;
+                writer
+                    .write_all(&ipv6_bytes)
+                    .map_err(StunMessageError::from)?;
             }
         }
         Ok(())
@@ -174,8 +192,8 @@ impl AttributeFactory for XorMappedAddressAttribute {
     fn from_raw_attr(
         raw_attr: crate::attributes::RawAttribute,
         transaction_id: &crate::header::TransactionId,
-    ) -> Result<Self, crate::errors::StunMessageError> {
-        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE)?;
+    ) -> StunMessageResult<Self> {
+        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE).trace()?;
         let mut bytes = raw_attr.value.as_slice();
         Self::read_without_type(&mut bytes, transaction_id)
     }

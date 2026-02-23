@@ -1,3 +1,4 @@
+use rootcause::Report;
 use std::{
     fmt,
     net::{IpAddr, SocketAddr},
@@ -53,7 +54,7 @@ impl AttributeFactory for XorPeerAddressAttribute {
     fn from_raw_attr(
         raw_attr: stun_formats::attributes::RawAttribute,
         transaction_id: &stun_formats::header::TransactionId,
-    ) -> Result<Self, stun_formats::errors::StunMessageError> {
+    ) -> Result<Self, Report> {
         check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE)?;
         let mut buffer = raw_attr.value.as_slice();
         let address =

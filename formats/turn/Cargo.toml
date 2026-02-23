@@ -16,6 +16,8 @@ byteorder = { workspace = true }
 num = { workspace = true }
 tokio-util = { workspace = true }
 inventory = { workspace = true }
+rootcause = { workspace = true }
+function_name = { workspace = true }
 
 utils = { workspace = true }
 stun-formats = { workspace = true }

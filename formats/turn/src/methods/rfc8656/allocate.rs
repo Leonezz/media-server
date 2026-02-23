@@ -1,4 +1,5 @@
 use crate::attributes::rfc8656;
+use rootcause::bail;
 use stun_formats::{
     MessageChecker,
     attributes::{AttributeExtStatic, rfc8489},
@@ -34,7 +35,7 @@ impl MessageChecker for ALLOCATE {
                         .is_some()
             })
         {
-            return Err(stun_formats::errors::StunMessageError::InvalidMessage(
+            bail!(stun_formats::errors::StunMessageError::InvalidMessage(
                 format!(
                     "{} request with {} attribute cannot have {}, {} or {} also",
                     Self::STATIC_NAME,
@@ -43,7 +44,7 @@ impl MessageChecker for ALLOCATE {
                     rfc8656::RequestedAddressFamilyAttribute::STATIC_NAME,
                     rfc8656::AdditionalAddressFamilyAttribute::STATIC_NAME
                 ),
-            ));
+            ))
         }
         Ok(())
     }

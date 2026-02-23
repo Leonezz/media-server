@@ -1,3 +1,4 @@
+use rootcause::Report;
 use stun_formats::builder::MessageBuilder;
 use thiserror::Error;
 #[derive(Debug, Error)]
@@ -12,18 +13,16 @@ pub enum TurnMessageError {
     UnknownFirstByte(u8),
 }
 
-pub type TurnMessageResult<T> = Result<T, TurnMessageError>;
+pub type TurnMessageResult<T> = Result<T, Report>;
 
 impl TurnMessageError {
     pub fn try_prepare_error_response(
-        self,
+        &self,
         message_builder: &mut MessageBuilder,
-    ) -> TurnMessageResult<()> {
+    ) -> TurnMessageResult<bool> {
         match self {
-            Self::Io(_) | Self::NotChannelData(_) | Self::UnknownFirstByte(_) => Err(self),
-            Self::Stun(stun) => stun
-                .try_prepare_error_response(message_builder)
-                .map_err(TurnMessageError::Stun),
+            Self::Io(..) | Self::NotChannelData(..) | Self::UnknownFirstByte(..) => Ok(false),
+            Self::Stun(stun) => stun.try_prepare_error_response(message_builder),
         }
     }
 }

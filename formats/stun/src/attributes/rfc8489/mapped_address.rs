@@ -5,7 +5,8 @@ use std::{
 };
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
+use rootcause::{Report, bail};
+use utils::{errors::context::LocationExt, traits::dynamic_sized_packet::DynamicSizedPacket};
 
 use crate::{
     MessageChecker,
@@ -13,7 +14,7 @@ use crate::{
         AttributeExtDynamic, AttributeExtStatic, AttributeFactory, RawAttribute, check_attr_match,
     },
     define_attribute,
-    errors::StunMessageError,
+    errors::{StunMessageError, StunMessageResult},
 };
 
 ///  0                   1                   2                   3
@@ -103,37 +104,43 @@ impl From<MappedAddressAttribute> for RawAttribute {
 }
 
 impl TryFrom<RawAttribute> for MappedAddressAttribute {
-    type Error = StunMessageError;
+    type Error = Report;
     fn try_from(value: RawAttribute) -> Result<Self, Self::Error> {
-        check_attr_match(value.attr_type, Self::STATIC_ATTR_TYPE)?;
+        check_attr_match(value.attr_type, Self::STATIC_ATTR_TYPE).trace()?;
         let mut bytes = value.value.as_slice();
-        let first_byte = bytes.read_u8()?;
+        let first_byte = bytes.read_u8().map_err(StunMessageError::from)?;
         if first_byte != 0 {
-            return Err(StunMessageError::SyntaxError(format!(
+            bail!(StunMessageError::SyntaxError(format!(
                 "first byte of {:?} is not zero: {}",
                 Self::STATIC_ATTR_TYPE,
                 first_byte
-            )));
+            )))
         }
 
-        let family = bytes.read_u8()?;
-        let port = bytes.read_u16::<BigEndian>()?;
+        let family = bytes.read_u8().map_err(StunMessageError::from)?;
+        let port = bytes
+            .read_u16::<BigEndian>()
+            .map_err(StunMessageError::from)?;
         let address = match family {
             ADDRESS_FAMILY_V4 => {
                 let mut octets = [0_u8; IPV4_LEN];
-                bytes.read_exact(&mut octets)?;
+                bytes
+                    .read_exact(&mut octets)
+                    .map_err(StunMessageError::from)?;
                 IpAddr::V4(Ipv4Addr::from_octets(octets))
             }
             ADDRESS_FAMILY_V6 => {
                 let mut octets = [0_u8; IPV6_LEN];
-                bytes.read_exact(&mut octets)?;
+                bytes
+                    .read_exact(&mut octets)
+                    .map_err(StunMessageError::from)?;
                 IpAddr::V6(Ipv6Addr::from_octets(octets))
             }
             _ => {
-                return Err(StunMessageError::SyntaxError(format!(
+                bail!(StunMessageError::SyntaxError(format!(
                     "invalid ip address family: {}",
                     family
-                )));
+                )))
             }
         };
         Ok(Self {
@@ -152,7 +159,7 @@ impl AttributeFactory for MappedAddressAttribute {
     fn from_raw_attr(
         raw_attr: RawAttribute,
         _transaction_id: &crate::header::TransactionId,
-    ) -> Result<Self, StunMessageError> {
+    ) -> StunMessageResult<Self> {
         raw_attr.try_into()
     }
     fn into_raw_attr(self, _transaction_id: &crate::header::TransactionId) -> RawAttribute {

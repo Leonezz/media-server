@@ -1,4 +1,5 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use rootcause::{Report, bail};
 use std::{
     fmt,
     io::{Read, Write},
@@ -43,16 +44,16 @@ impl AttributeFactory for AddressErrorCodeAttrbute {
     fn from_raw_attr(
         raw_attr: stun_formats::attributes::RawAttribute,
         _transaction_id: &stun_formats::header::TransactionId,
-    ) -> Result<Self, stun_formats::errors::StunMessageError> {
+    ) -> Result<Self, Report> {
         stun_formats::attributes::check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE)?;
         let mut buffer = raw_attr.value.as_slice();
         let family = buffer.read_u8()?;
         if family != stun_formats::attributes::rfc8489::ADDRESS_FAMILY_V4
             && family != stun_formats::attributes::rfc8489::ADDRESS_FAMILY_V6
         {
-            return Err(stun_formats::errors::StunMessageError::InvalidMessage(
+            bail!(stun_formats::errors::StunMessageError::InvalidMessage(
                 format!("invalid family: {}", family),
-            ));
+            ))
         }
 
         let class = buffer.read_u16::<BigEndian>()?;

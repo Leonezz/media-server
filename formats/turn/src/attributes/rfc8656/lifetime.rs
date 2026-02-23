@@ -1,5 +1,6 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use num::ToPrimitive;
+use rootcause::{Report, bail};
 use std::{fmt, time::Duration};
 use stun_formats::{
     MessageChecker,
@@ -46,16 +47,16 @@ impl AttributeFactory for LifeTimeAttribute {
     fn from_raw_attr(
         raw_attr: stun_formats::attributes::RawAttribute,
         _transaction_id: &stun_formats::header::TransactionId,
-    ) -> Result<Self, stun_formats::errors::StunMessageError> {
+    ) -> Result<Self, Report> {
         stun_formats::attributes::check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE)?;
         if raw_attr.value.len() != LIFE_TIME_ATTR_LEN {
-            return Err(stun_formats::errors::StunMessageError::SyntaxError(
+            bail!(stun_formats::errors::StunMessageError::SyntaxError(
                 format!(
                     "lifetime attribute expects {} bytes of value, got {} bytes instead",
                     LIFE_TIME_ATTR_LEN,
                     raw_attr.value.len()
                 ),
-            ));
+            ))
         }
         let mut buffer = raw_attr.value.as_slice();
         let lifetime = buffer.read_u32::<BigEndian>()?;

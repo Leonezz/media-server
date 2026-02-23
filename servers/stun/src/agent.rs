@@ -4,11 +4,13 @@ use std::{
     time::{Duration, Instant},
 };
 
+use rootcause::report;
 use stun_formats::{
-    attributes::rfc8489::XorMappedAddressAttribute, header::TransactionId, message::Message,
-    methods::MethodExtStatic,
+    attributes::rfc8489::XorMappedAddressAttribute, errors::StunMessageError,
+    header::TransactionId, message::Message, methods::MethodExtStatic,
 };
 use tokio::sync::mpsc::{Receiver, Sender};
+use utils::errors::context::{ContextExt, LocationExt};
 
 use crate::errors::{StunSessionError, StunSessionResult};
 
@@ -119,14 +121,66 @@ impl Agent {
         message: (Message, SocketAddr),
     ) -> StunSessionResult<AgentEvent> {
         let (message, remote) = message;
-        tracing::debug!("incoming message: {} from {}", message, remote);
+        let transaction_id = message.transaction_id().clone();
+        tracing::debug!(
+            "incoming message: {} from {}, transaction_id: {}",
+            message,
+            remote,
+            transaction_id
+        );
+        match message.check()
+            .operation("checking incoming STUN message")
+            .resource("remote", remote)
+            .resource("transaction", transaction_id)
+            .trace()
+        {
+            Ok(()) => {}
+            Err(report) => {
+                tracing::warn!(
+                    "message from remote: {}, transaction_id: {}, check failed with error: {}",
+                    remote,
+                    transaction_id,
+                    report,
+                );
+                if let Some(error) = report.downcast_current_context::<StunMessageError>() {
+                    let mut response_builder = Message::builder()
+                        .transaction_id(transaction_id)
+                        .method(message.message_method().clone());
+                    let prepare_error_response_res =
+                        error.try_prepare_error_response(&mut response_builder);
+                    if let Err(err) = prepare_error_response_res {
+                        tracing::error!(
+                            "trying to prepare error response from message checking error failed: {}, remote: {}, transaction_id: {}",
+                            err,
+                            remote,
+                            transaction_id
+                        );
+                        return Err(err);
+                    }
+                    if let Ok(false) = prepare_error_response_res {
+                        tracing::warn!("unable to convert error into error response, ignore");
+                        return Err(report);
+                    }
+                    let response = response_builder
+                        .finger_print()
+                        .trace()?
+                        .build()
+                        .operation("building error response")
+                        .resource("transaction", transaction_id)
+                        .trace()?;
+                    return Ok(AgentEvent::OutgoingMessage(response));
+                } else {
+                    return Err(report);
+                }
+            }
+        };
         match message.message_class() {
             stun_formats::header::MessageClass::Request => match message.message_method().value() {
                 stun_formats::methods::rfc8489::BINDING::STATIC_VALUE => {
                     let response = Message::builder()
                         .success()
                         .binding()
-                        .transaction_id(message.transaction_id().clone())
+                        .transaction_id(transaction_id)
                         .attribute(XorMappedAddressAttribute::new(remote))
                         .unwrap()
                         .finger_print()
@@ -149,7 +203,9 @@ impl Agent {
                     );
                     return Ok(AgentEvent::OutgoingMessage(message));
                 }
-                Err(StunSessionError::UnknownTransaction(message))
+                Err(report!(StunSessionError::UnknownTransaction(message)).into_dynamic())
+                    .operation("matching response to transaction")
+                    .resource("transaction", transaction_id)
             }
         }
     }
@@ -187,7 +243,8 @@ impl Agent {
             tokio::select! {
                 Some(cmd) = self.command_rx.recv() => match cmd {
                     AgentCommand::IncomingMessage(msg) => {
-                        let event = self.on_incoming_message(msg)?;
+                        let event = self.on_incoming_message(msg)
+                            .operation("processing incoming STUN command")?;
                         self.process_events(vec![event]).await?;
                     }
                     AgentCommand::SendRequest(req) => {

@@ -4,16 +4,20 @@ use std::{
 };
 
 use num::ToPrimitive;
+use rootcause::{Report, bail};
 use tokio_util::{
     bytes::{Buf, BufMut},
     codec::{Decoder, Encoder},
 };
-use utils::traits::{
-    self,
-    dynamic_sized_packet::DynamicSizedPacket,
-    fixed_packet::FixedPacket,
-    reader::{ReadFrom, ReadRemainingFrom, TryReadRemainingFrom},
-    writer::WriteTo,
+use utils::{
+    errors::context::{ContextExt, LocationExt},
+    traits::{
+        self,
+        dynamic_sized_packet::DynamicSizedPacket,
+        fixed_packet::FixedPacket,
+        reader::{ReadFrom, ReadRemainingFrom, TryReadRemainingFrom},
+        writer::WriteTo,
+    },
 };
 
 use crate::{
@@ -35,7 +39,7 @@ pub struct Message {
 
 impl traits::protocol_message::ProtocolMessage for Message {
     type Codec = MessageFramed;
-    type Error = StunMessageError;
+    type Error = Report;
     type In = Message;
     type Out = Message;
     fn codec() -> Self::Codec {
@@ -138,7 +142,9 @@ impl Message {
         self.attributes.iter().find_map(|item| {
             if Attr::STATIC_ATTR_TYPE == item.attr_type {
                 let raw_attribute = item.clone();
-                return Attr::from_raw_attr(raw_attribute, self.transaction_id()).ok();
+                return Attr::from_raw_attr(raw_attribute, self.transaction_id())
+                    .resource("transaction", self.transaction_id())
+                    .ok();
             }
             None
         })
@@ -146,7 +152,7 @@ impl Message {
 
     pub fn require(&self, attr_type: u16) -> StunMessageResult<()> {
         if self.get_attribute(attr_type).is_none() {
-            return Err(StunMessageError::InvalidMessage(format!(
+            bail!(StunMessageError::InvalidMessage(format!(
                 "no {:?} found in message: {:?}",
                 attr_type, self
             )));
@@ -155,7 +161,7 @@ impl Message {
     }
 
     pub fn require_ext<A: AttributeExtStatic>(&self) -> StunMessageResult<()> {
-        self.require(A::STATIC_ATTR_TYPE)
+        self.require(A::STATIC_ATTR_TYPE).trace()
     }
 
     pub fn count(&self, attr_type: u16) -> usize {
@@ -168,20 +174,23 @@ impl Message {
     }
 
     pub fn check(&self) -> StunMessageResult<()> {
-        self.message_class().check(self)?;
-        self.message_method().check(self)?;
+        self.message_class()
+            .check(self)
+            .operation("validating STUN message")
+            .trace()?;
+        self.message_method().check(self).trace()?;
         let mut unknown_attributes = vec![];
         self.attributes().iter().try_for_each(|item| {
             let ext = item.clone().into_extension(*self.transaction_id());
             if let Some(attr) = ext {
-                attr?.check(self)?;
+                attr.trace()?.check(self).trace()?;
             } else if item.is_comprehension_required() {
                 unknown_attributes.push(item.attr_type);
             }
-            Ok::<(), StunMessageError>(())
+            Ok::<(), Report>(())
         })?;
         if !unknown_attributes.is_empty() {
-            return Err(StunMessageError::UnknownAttributes(unknown_attributes));
+            bail!(StunMessageError::UnknownAttributes(unknown_attributes))
         }
         Ok(())
     }
@@ -206,28 +215,34 @@ impl<W: io::Write> WriteTo<W> for Message {
 }
 
 impl<R: io::Read> ReadFrom<R> for Message {
-    type Error = StunMessageError;
+    type Error = Report;
     fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let header = MessageHeader::read_from(reader)?;
-        Self::read_remaining_from(header, reader)
+        let message = Self::read_remaining_from(header.clone(), reader)
+            .trace_with(|| format!("header: {}", header))?;
+        Ok(message)
     }
 }
 
 // for turn ChannelData interleaving
 impl<R: io::Read> ReadRemainingFrom<u8, R> for Message {
-    type Error = StunMessageError;
+    type Error = Report;
     fn read_remaining_from(header: u8, reader: &mut R) -> Result<Self, Self::Error> {
         assert!(header <= 3);
         let mut message_header_bytes = vec![0; MessageHeader::bytes_count()];
         message_header_bytes[0] = header;
-        reader.read_exact(&mut message_header_bytes[1..])?;
+        reader
+            .read_exact(&mut message_header_bytes[1..])
+            .map_err(StunMessageError::from)?;
         let message_header = MessageHeader::read_from(&mut message_header_bytes.reader())?;
         Self::read_remaining_from(message_header, reader)
+            .operation("reading STUN message from channel-data interleaving")
+            .trace()
     }
 }
 
 impl<R: AsRef<[u8]>> TryReadRemainingFrom<u8, R> for Message {
-    type Error = StunMessageError;
+    type Error = Report;
     fn try_read_remaining_from(
         header: u8,
         reader: &mut io::Cursor<R>,
@@ -238,14 +253,16 @@ impl<R: AsRef<[u8]>> TryReadRemainingFrom<u8, R> for Message {
         }
         let mut message_header_bytes = vec![0; MessageHeader::bytes_count()];
         message_header_bytes[0] = header;
-        reader.read_exact(&mut message_header_bytes[1..])?;
+        reader
+            .read_exact(&mut message_header_bytes[1..])
+            .map_err(StunMessageError::from)?;
         let message_header = MessageHeader::read_from(&mut message_header_bytes.reader())?;
-        Self::try_read_remaining_from(message_header, reader)
+        Self::try_read_remaining_from(message_header, reader).trace()
     }
 }
 
 impl<R: AsRef<[u8]>> TryReadRemainingFrom<MessageHeader, R> for Message {
-    type Error = StunMessageError;
+    type Error = Report;
     fn try_read_remaining_from(
         header: MessageHeader,
         reader: &mut io::Cursor<R>,
@@ -254,32 +271,34 @@ impl<R: AsRef<[u8]>> TryReadRemainingFrom<MessageHeader, R> for Message {
             return Ok(None);
         }
         let mut remaining_bytes = vec![0_u8; header.message_length as usize];
-        reader.read_exact(&mut remaining_bytes)?;
+        reader
+            .read_exact(&mut remaining_bytes)
+            .map_err(StunMessageError::from)?;
         let mut bytes = remaining_bytes.as_slice();
         let mut attributes = Vec::new();
-        while bytes.has_data_left()? {
+        while bytes.has_data_left().map_err(StunMessageError::from)? {
             let raw_attr = RawAttribute::read_from(&mut bytes)?;
             attributes.push(raw_attr);
         }
         let message = Self { header, attributes };
-        message.check()?;
         Ok(Some(message))
     }
 }
 
 impl<R: io::Read> ReadRemainingFrom<MessageHeader, R> for Message {
-    type Error = StunMessageError;
+    type Error = Report;
     fn read_remaining_from(header: MessageHeader, reader: &mut R) -> Result<Self, Self::Error> {
         let mut remaining_bytes = vec![0_u8; header.message_length as usize];
-        reader.read_exact(&mut remaining_bytes)?;
+        reader
+            .read_exact(&mut remaining_bytes)
+            .map_err(StunMessageError::from)?;
         let mut bytes = remaining_bytes.as_slice();
         let mut attributes = Vec::new();
-        while bytes.has_data_left()? {
+        while bytes.has_data_left().map_err(StunMessageError::from)? {
             let raw_attr = RawAttribute::read_from(&mut bytes)?;
             attributes.push(raw_attr);
         }
         let message = Self { header, attributes };
-        message.check()?;
         Ok(message)
     }
 }
@@ -287,7 +306,7 @@ impl<R: io::Read> ReadRemainingFrom<MessageHeader, R> for Message {
 #[derive(Debug)]
 pub struct MessageFramed;
 impl Encoder<Message> for MessageFramed {
-    type Error = StunMessageError;
+    type Error = Report;
     fn encode(
         &mut self,
         item: Message,
@@ -299,7 +318,7 @@ impl Encoder<Message> for MessageFramed {
 }
 
 impl Decoder for MessageFramed {
-    type Error = StunMessageError;
+    type Error = Report;
     type Item = Message;
     fn decode(
         &mut self,
@@ -310,13 +329,13 @@ impl Decoder for MessageFramed {
         }
         let (res, position) = {
             let mut cursor = io::Cursor::new(&src);
-            let res = Message::read_from(cursor.by_ref());
+            let res = Message::read_from(cursor.by_ref()).trace();
             (res, cursor.position())
         };
         if let Ok(res) = res {
             src.advance(position as usize);
             return Ok(Some(res));
         }
-        Err(res.unwrap_err())
+        Err(res.unwrap_err().into())
     }
 }

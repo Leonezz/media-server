@@ -1,5 +1,6 @@
 use byteorder::{BigEndian, ReadBytesExt};
 use iana_formats::addrress_family::AddressFamilyStatic;
+use rootcause::{Report, bail};
 use std::{fmt, io};
 use stun_formats::{
     MessageChecker,
@@ -29,9 +30,9 @@ impl RequestedAddressFamilyAttribute {
         if family as u16 != iana_formats::addrress_family::IPv4::DECIMAL
             && family as u16 != iana_formats::addrress_family::IPv6::DECIMAL
         {
-            return Err(stun_formats::errors::StunMessageError::InvalidMessage(
+            bail!(stun_formats::errors::StunMessageError::InvalidMessage(
                 format!("invalid family: {}", family),
-            ));
+            ))
         }
         let family = iana_formats::addrress_family::from_number(family as u16)
             .unwrap()
@@ -66,13 +67,13 @@ impl MessageChecker for RequestedAddressFamilyAttribute {
             .get_attribute(rfc8656::AdditionalAddressFamilyAttribute::STATIC_ATTR_TYPE)
             .is_some()
         {
-            return Err(stun_formats::errors::StunMessageError::InvalidMessage(
+            bail!(stun_formats::errors::StunMessageError::InvalidMessage(
                 format!(
                     "request with {} attribute cannot have {} attribute also",
                     Self::STATIC_NAME,
                     rfc8656::AdditionalAddressFamilyAttribute::STATIC_NAME
                 ),
-            ));
+            ))
         }
         Ok(())
     }
@@ -82,16 +83,16 @@ impl AttributeFactory for RequestedAddressFamilyAttribute {
     fn from_raw_attr(
         raw_attr: stun_formats::attributes::RawAttribute,
         _transaction_id: &stun_formats::header::TransactionId,
-    ) -> Result<Self, stun_formats::errors::StunMessageError> {
+    ) -> Result<Self, Report> {
         stun_formats::attributes::check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE)?;
         if raw_attr.value.len() != REQUESTED_ADDRESS_FAMILY_ATTR_LEN {
-            return Err(stun_formats::errors::StunMessageError::SyntaxError(
+            bail!(stun_formats::errors::StunMessageError::SyntaxError(
                 format!(
                     "requested address family attribute expects {} bytes, got {} bytes instead",
                     REQUESTED_ADDRESS_FAMILY_ATTR_LEN,
                     raw_attr.value.len()
                 ),
-            ));
+            ))
         }
 
         let mut buffer = raw_attr.value.as_slice();

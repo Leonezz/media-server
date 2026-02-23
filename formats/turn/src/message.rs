@@ -5,6 +5,8 @@ use std::{
 
 use crate::{channel_data::ChannelData, errors::TurnMessageError};
 use byteorder::ReadBytesExt;
+use rootcause::{Report, bail, report};
+use utils::errors::context::ContextExt;
 use tokio_util::{
     bytes::{Buf, BufMut},
     codec::{Decoder, Encoder},
@@ -43,26 +45,29 @@ impl From<ChannelData> for Message {
 }
 
 impl<R: std::io::Read> ReadFrom<R> for Message {
-    type Error = TurnMessageError;
+    type Error = Report;
     fn read_from(reader: &mut R) -> Result<Self, Self::Error> {
         let first_byte = reader.read_u8()?;
         match first_byte {
             0..=3 => {
                 let stun_message =
-                    stun_formats::message::Message::read_remaining_from(first_byte, reader)?;
+                    stun_formats::message::Message::read_remaining_from(first_byte, reader)
+                        .operation("reading STUN message from TURN frame")?;
                 Ok(Self::Stun(stun_message))
             }
             64..=79 => {
-                let channel_data = ChannelData::read_remaining_from(first_byte, reader)?;
+                let channel_data = ChannelData::read_remaining_from(first_byte, reader)
+                    .map_err(|e| report!(e).into_dynamic())
+                    .operation("reading channel data from TURN frame")?;
                 Ok(Self::ChannelData(channel_data))
             }
-            _ => Err(TurnMessageError::UnknownFirstByte(first_byte)),
+            _ => bail!(TurnMessageError::UnknownFirstByte(first_byte)),
         }
     }
 }
 
 impl<R: AsRef<[u8]>> TryReadFrom<R> for Message {
-    type Error = TurnMessageError;
+    type Error = Report;
     fn try_read_from(reader: &mut io::Cursor<R>) -> Result<Option<Self>, Self::Error> {
         if !reader.has_remaining() {
             return Ok(None);
@@ -80,7 +85,7 @@ impl<R: AsRef<[u8]>> TryReadFrom<R> for Message {
                     .map(|item| Self::ChannelData(item));
                 Ok(channel_data)
             }
-            _ => Err(TurnMessageError::UnknownFirstByte(first_byte)),
+            _ => bail!(TurnMessageError::UnknownFirstByte(first_byte)),
         }
     }
 }
@@ -101,7 +106,7 @@ impl<W: io::Write> WriteTo<W> for Message {
 #[derive(Debug)]
 pub struct MessageFramed;
 impl Encoder<Message> for MessageFramed {
-    type Error = TurnMessageError;
+    type Error = Report;
     fn encode(
         &mut self,
         item: Message,
@@ -113,7 +118,7 @@ impl Encoder<Message> for MessageFramed {
 }
 
 impl Decoder for MessageFramed {
-    type Error = TurnMessageError;
+    type Error = Report;
     type Item = Message;
     fn decode(
         &mut self,
@@ -133,7 +138,7 @@ impl Decoder for MessageFramed {
 
 impl ProtocolMessage for Message {
     type Codec = MessageFramed;
-    type Error = TurnMessageError;
+    type Error = Report;
     type In = Message;
     type Out = Message;
     fn codec() -> Self::Codec {

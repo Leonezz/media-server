@@ -1,3 +1,4 @@
+use rootcause::Report;
 use std::fmt;
 use stun_formats::{
     MessageChecker,
@@ -44,7 +45,7 @@ impl AttributeFactory for DataAttribute {
     fn from_raw_attr(
         raw_attr: stun_formats::attributes::RawAttribute,
         _transaction_id: &stun_formats::header::TransactionId,
-    ) -> Result<Self, stun_formats::errors::StunMessageError> {
+    ) -> Result<Self, Report> {
         stun_formats::attributes::check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE)?;
         Ok(Self {
             data: raw_attr.value,

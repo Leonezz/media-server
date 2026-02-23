@@ -3,6 +3,7 @@ use std::{
     fmt,
     mem::MaybeUninit,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
+    process::Termination,
     sync::{Arc, atomic::AtomicBool},
     time::{Duration, Instant},
 };
@@ -18,6 +19,8 @@ use pnet::packet::{
     ipv6::Ipv6Packet,
     udp::UdpPacket,
 };
+use rootcause::{bail, report};
+use utils::errors::context::ContextExt;
 use socket2::{Domain, Type};
 use stun_server::errors::StunSessionResult;
 use tokio::{
@@ -220,9 +223,11 @@ impl Allocation {
                 outgoing = outgoing_message.recv().fuse() => {
                     if let Some((message, peer)) = outgoing {
                         tracing::debug!("relay message send to peer: {}, len: {}", peer, message.len());
-                        let _ = relay_endpoint.send_to(&message, peer).await.inspect_err(|err| {
-                            tracing::error!("error send outgoing relay message to peer: {}, peer: {}, relay addr: {}", err, peer, relayed_address);
-                        })?;
+                        relay_endpoint.send_to(&message, peer).await
+                            .map_err(|e| report!(e).into_dynamic())
+                            .operation("relaying UDP packet to peer")
+                            .resource("peer", peer)
+                            .resource("relay", relayed_address)?;
                     } else {
                         tracing::warn!("relay outgoing message sender has been closed, relay addr: {}", relayed_address);
                         return Ok(())
@@ -254,11 +259,13 @@ impl Allocation {
                                 })
                                 .await
                                 .map_err(|err| {
-                                    std::io::Error::new(std::io::ErrorKind::BrokenPipe,
+                                    report!(std::io::Error::new(std::io::ErrorKind::BrokenPipe,
                                         format!("send incoming relay message to allocation event failed: {}, the allocation must have been ended. relay addr: {}",
                                         err, relayed_address)
-                                    )
-                                });
+                                    )).into_dynamic()
+                                })
+                                .operation("forwarding relayed packet to session")
+                                .resource("peer", peer);
                             if let Err(err) = res {
                                 tracing::error!("{}", err);
                             }
@@ -412,11 +419,13 @@ impl Allocation {
                                 })
                                 .await
                                 .map_err(|err| {
-                                    std::io::Error::new(std::io::ErrorKind::BrokenPipe,
+                                    report!(std::io::Error::new(std::io::ErrorKind::BrokenPipe,
                                         format!("send incoming relay message to allocation event failed: {}, the allocation must have been ended. relay addr: {}",
                                         err, relayed_address)
-                                    )
-                                });
+                                    )).into_dynamic()
+                                })
+                                .operation("forwarding ICMP event to session")
+                                .resource("relay", relayed_address);
                                 if let Err(err) = res {
                                     tracing::error!("{}", err);
                                 }
@@ -577,17 +586,19 @@ impl Allocation {
                 .send((message, peer))
                 .await
                 .map_err(|err| {
-                    std::io::Error::new(
+                    report!(std::io::Error::new(
                         std::io::ErrorKind::BrokenPipe,
                         format!(
                             "send outgoing relay message to relay socket failed: {}, peer: {}, relay addr: {}",
                             err, peer, local
                         ),
-                    )
-                });
+                    )).into_dynamic()
+                })
+                .operation("sending outgoing relay packet")
+                .resource("peer", peer);
             if let Err(err) = res {
                 tracing::error!("{}", err);
-                return Err(err.into());
+                return Err(err);
             }
         }
         Ok(())
@@ -737,14 +748,15 @@ impl Allocation {
         let instant = Instant::now().checked_add(lifetime).unwrap();
         *time_to_expiry.write().await = instant;
         result_tx.send(Ok(lifetime)).map_err(|err| {
-            std::io::Error::new(
+            report!(std::io::Error::new(
                 std::io::ErrorKind::BrokenPipe,
                 format!(
                     "send create channel binding success back to session failed: {:?}",
                     err
                 ),
-            )
-        })?;
+            )).into_dynamic()
+        })
+        .operation("returning refresh result to session")?;
         Ok(())
     }
 
@@ -780,9 +792,13 @@ impl Allocation {
             .send((local_addr.ip(), data.application_data, binded_addr))
             .await
             .map_err(|err| {
-                std::io::Error::new(std::io::ErrorKind::BrokenPipe,
-                    format!("send outgoing message from channel data to relay failed: {}, peer: {}, relay addr: {}", err, binded_addr, local_addr))
-            })?;
+                report!(std::io::Error::new(std::io::ErrorKind::BrokenPipe,
+                    format!("send outgoing message from channel data to relay failed: {}, peer: {}, relay addr: {}", err, binded_addr, local_addr)
+                )).into_dynamic()
+            })
+            .operation("relaying channel data")
+            .resource("channel", data.channel_number)
+            .resource("peer", binded_addr)?;
         Ok(())
     }
 
@@ -803,9 +819,12 @@ impl Allocation {
             .send((local_addr.ip(), data, peer_addr))
             .await
             .map_err(|err| {
-                std::io::Error::new(std::io::ErrorKind::BrokenPipe,
-                    format!("send outgoing message from send indication to relay failed: {}, peer: {}, relay addr: {}", err, peer_addr, local_addr))
-            })?;
+                report!(std::io::Error::new(std::io::ErrorKind::BrokenPipe,
+                    format!("send outgoing message from send indication to relay failed: {}, peer: {}, relay addr: {}", err, peer_addr, local_addr)
+                )).into_dynamic()
+            })
+            .operation("relaying send-indication")
+            .resource("peer", peer_addr)?;
         Ok(())
     }
 
@@ -832,19 +851,22 @@ impl Allocation {
         };
         if !channel_check {
             result_tx
-                .send(Err(TurnSessionError::ChannelNotMatch {
+                .send(Err(report!(TurnSessionError::ChannelNotMatch {
                     channel_number,
                     peer: peer_addr,
-                }))
+                })
+                .into_dynamic()))
                 .map_err(|err| {
-                    std::io::Error::new(
+                    report!(std::io::Error::new(
                         std::io::ErrorKind::BrokenPipe,
                         format!(
                             "send create channel binding failed back to session failed: {:?}",
                             err
                         ),
-                    )
-                })?;
+                    )).into_dynamic()
+                })
+                .operation("returning channel-bind result")
+                .resource("channel", channel_number)?;
             return Ok(());
         }
         let time_to_expiry = Instant::now()
@@ -870,14 +892,16 @@ impl Allocation {
             ))
             .refresh();
         result_tx.send(Ok(())).map_err(|err| {
-            std::io::Error::new(
+            report!(std::io::Error::new(
                 std::io::ErrorKind::BrokenPipe,
                 format!(
                     "send create channel binding success back to session failed: {:?}",
                     err
                 ),
-            )
-        })?;
+            )).into_dynamic()
+        })
+        .operation("returning channel-bind result")
+        .resource("channel", channel_number)?;
         Ok(())
     }
 
@@ -899,7 +923,7 @@ impl Allocation {
                     ip,
                     ip_family
                 );
-                result = Err(TurnSessionError::PeerAddressFamilyNotMatch(ip_family))
+                result = Err(report!(TurnSessionError::PeerAddressFamilyNotMatch(ip_family)).into_dynamic())
             }
             guard
                 .entry(ip)
@@ -907,14 +931,15 @@ impl Allocation {
                 .refresh();
         }
         result_tx.send(result).map_err(|err| {
-            std::io::Error::new(
+            report!(std::io::Error::new(
                 std::io::ErrorKind::BrokenPipe,
                 format!(
                     "send create permission success back to session failed: {:?}",
                     err
                 ),
-            )
-        })?;
+            )).into_dynamic()
+        })
+        .operation("returning permission result")?;
         Ok(())
     }
 }
@@ -975,7 +1000,7 @@ impl AllocationBuilder {
         protocol: iana_formats::protocol_numbers::Protocol,
     ) -> TurnSessionResult<Self> {
         if protocol != iana_formats::protocol_numbers::UDP::PROTOCOL {
-            return Err(crate::errors::TurnSessionError::UnsupportedProtocol(
+            bail!(crate::errors::TurnSessionError::UnsupportedProtocol(
                 protocol,
             ));
         }
@@ -993,7 +1018,7 @@ impl AllocationBuilder {
         ]
         .contains(&family)
         {
-            return Err(crate::errors::TurnSessionError::UnsupportedAddressFamily(
+            bail!(crate::errors::TurnSessionError::UnsupportedAddressFamily(
                 family,
             ));
         }
@@ -1055,7 +1080,9 @@ impl AllocationBuilder {
                 Domain::for_address(address),
                 Type::DGRAM,
                 Some(socket2::Protocol::UDP),
-            )?;
+            ).map_err(|e| report!(e).into_dynamic())
+            .operation("creating UDP relay endpoint")
+            .resource("address", address)?;
             socket.set_reuse_address(true)?;
             socket.set_reuse_port(true)?;
             socket.set_nonblocking(true)?;
@@ -1069,7 +1096,7 @@ impl AllocationBuilder {
             }
             count += 1;
             if count == 10 {
-                return Err(TurnSessionError::NoEvenPortAvaliable);
+                bail!(TurnSessionError::NoEvenPortAvaliable);
             }
         }
         let std_socket: std::net::UdpSocket = socket.into();
@@ -1084,7 +1111,10 @@ impl AllocationBuilder {
             SocketAddr::V6(_) => socket2::Protocol::ICMPV6,
         };
         let icmp_socket =
-            socket2::Socket::new(Domain::for_address(address), Type::RAW, Some(ip_protocol))?;
+            socket2::Socket::new(Domain::for_address(address), Type::RAW, Some(ip_protocol))
+                .map_err(|e| report!(e).into_dynamic())
+                .operation("creating ICMP relay endpoint")
+                .resource("address", address)?;
         icmp_socket.set_nonblocking(true)?;
         icmp_socket.bind(&address.into())?;
         Ok(icmp_socket)
@@ -1127,30 +1157,38 @@ impl AllocationBuilder {
         &self,
     ) -> TurnSessionResult<(UdpSocket, Option<socket2::Socket>)> {
         if self.requested_address_family == iana_formats::addrress_family::IPv4::ADDRESS_FAMILY {
-            return self.make_ipv4_endpoint().await?.ok_or(
-                crate::errors::TurnSessionError::UnsupportedAddressFamily(
-                    iana_formats::addrress_family::IPv4::ADDRESS_FAMILY,
-                ),
-            );
+            return self
+                .make_ipv4_endpoint()
+                .await?
+                .ok_or_else(|| {
+                    report!(crate::errors::TurnSessionError::UnsupportedAddressFamily(
+                        iana_formats::addrress_family::IPv4::ADDRESS_FAMILY,
+                    ))
+                    .into_dynamic()
+                });
         }
         if self.requested_address_family == iana_formats::addrress_family::IPv6::ADDRESS_FAMILY {
-            return self.make_ipv6_endpoint().await?.ok_or(
-                crate::errors::TurnSessionError::UnsupportedAddressFamily(
-                    iana_formats::addrress_family::IPv6::ADDRESS_FAMILY,
-                ),
-            );
+            return self
+                .make_ipv6_endpoint()
+                .await?
+                .ok_or_else(|| {
+                    report!(crate::errors::TurnSessionError::UnsupportedAddressFamily(
+                        iana_formats::addrress_family::IPv6::ADDRESS_FAMILY,
+                    ))
+                    .into_dynamic()
+                });
         }
         unreachable!("unsupported ip family: {}", self.requested_address_family);
     }
 
     pub async fn build(mut self) -> TurnSessionResult<Allocation> {
         if self.local_addr.is_none() {
-            return Err(crate::errors::TurnSessionError::BuildAllocationError(
+            bail!(crate::errors::TurnSessionError::BuildAllocationError(
                 "local addr must be set before building".to_owned(),
             ));
         }
         if self.remote_addr.is_none() {
-            return Err(crate::errors::TurnSessionError::BuildAllocationError(
+            bail!(crate::errors::TurnSessionError::BuildAllocationError(
                 "remote addr must be set before building".to_owned(),
             ));
         }

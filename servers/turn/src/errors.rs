@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 
+use rootcause::Report;
 use stun_formats::{attributes::rfc8489::ErrorCodeAttribute, builder::MessageBuilder};
 use thiserror::Error;
 use turn_formats::error_codes;
@@ -46,27 +47,21 @@ pub enum TurnSessionError {
     InvalidReservationToken(turn_formats::attributes::rfc8656::ReservationTokenAttribute),
 }
 
-pub type TurnSessionResult<T> = Result<T, TurnSessionError>;
+pub type TurnSessionResult<T> = Result<T, Report>;
 
 impl TurnSessionError {
     pub fn try_prepare_error_response(
-        self,
+        &self,
         message_builder: &mut MessageBuilder,
-    ) -> TurnSessionResult<()> {
+    ) -> TurnSessionResult<bool> {
         match self {
             Self::Io(_)
             | Self::ExpectRequest(_)
             | Self::ExpectIndication(_)
-            | Self::BuildAllocationError(_) => Err(self),
-            Self::StunSessionError(stun) => stun
-                .try_prepare_error_response(message_builder)
-                .map_err(Self::StunSessionError),
-            Self::StunFormatError(stun) => stun
-                .try_prepare_error_response(message_builder)
-                .map_err(Self::StunFormatError),
-            Self::TurnFormatError(turn) => turn
-                .try_prepare_error_response(message_builder)
-                .map_err(Self::TurnFormatError),
+            | Self::BuildAllocationError(_) => Ok(false),
+            Self::StunSessionError(stun) => stun.try_prepare_error_response(message_builder),
+            Self::StunFormatError(stun) => stun.try_prepare_error_response(message_builder),
+            Self::TurnFormatError(turn) => turn.try_prepare_error_response(message_builder),
             Self::UnsupportedProtocol(protocol) => {
                 message_builder
                     .error_mut()
@@ -74,9 +69,8 @@ impl TurnSessionError {
                         error_codes::rfc8656::UNSUPPORTED_TRANSPORT_PROTOCOL::new_with_reason(
                             format!("{} is not supported", protocol),
                         ),
-                    ))
-                    .map_err(Self::StunFormatError)?;
-                Ok(())
+                    ))?;
+                Ok(true)
             }
             Self::UnknownProtocol(number) => {
                 message_builder
@@ -85,9 +79,8 @@ impl TurnSessionError {
                         error_codes::rfc8656::UNSUPPORTED_TRANSPORT_PROTOCOL::new_with_reason(
                             format!("{} is not recognized as a protocol", number),
                         ),
-                    ))
-                    .map_err(Self::StunFormatError)?;
-                Ok(())
+                    ))?;
+                Ok(true)
             }
             Self::UnsupportedAddressFamily(family) => {
                 message_builder
@@ -96,9 +89,8 @@ impl TurnSessionError {
                         error_codes::rfc8656::ADDRESS_FAMILY_NOT_SUPPORTED::new_with_reason(
                             format!("{} is not supported", family),
                         ),
-                    ))
-                    .map_err(Self::StunFormatError)?;
-                Ok(())
+                    ))?;
+                Ok(true)
             }
             Self::PeerAddressFamilyNotMatch(family) => {
                 message_builder
@@ -110,9 +102,8 @@ impl TurnSessionError {
                                 family
                             ),
                         ),
-                    ))
-                    .map_err(Self::StunFormatError)?;
-                Ok(())
+                    ))?;
+                Ok(true)
             }
             Self::AllocationMismatch { remote, local } => {
                 message_builder
@@ -122,9 +113,8 @@ impl TurnSessionError {
                             "allocation from {} to {} mismatch",
                             remote, local
                         )),
-                    ))
-                    .map_err(Self::StunFormatError)?;
-                Ok(())
+                    ))?;
+                Ok(true)
             }
             Self::ChannelNotMatch { .. } => {
                 message_builder
@@ -134,9 +124,8 @@ impl TurnSessionError {
                             "{}",
                             self
                         )),
-                    ))
-                    .map_err(Self::StunFormatError)?;
-                Ok(())
+                    ))?;
+                Ok(true)
             }
             Self::NoEvenPortAvaliable => {
                 message_builder
@@ -145,9 +134,8 @@ impl TurnSessionError {
                         turn_formats::error_codes::rfc8656::INSUFFICIENT_CAPACITY::new_with_reason(
                             "no even port avaliable",
                         ),
-                    ))
-                    .map_err(Self::StunFormatError)?;
-                Ok(())
+                    ))?;
+                Ok(true)
             }
             Self::MakeReservationFailed(port) => {
                 message_builder
@@ -156,9 +144,8 @@ impl TurnSessionError {
                         turn_formats::error_codes::rfc8656::INSUFFICIENT_CAPACITY::new_with_reason(
                             format!("failed to make reservation with port: {}", port),
                         ),
-                    ))
-                    .map_err(Self::StunFormatError)?;
-                Ok(())
+                    ))?;
+                Ok(true)
             }
             Self::InvalidReservationToken(token) => {
                 message_builder
@@ -167,9 +154,8 @@ impl TurnSessionError {
                         turn_formats::error_codes::rfc8656::INSUFFICIENT_CAPACITY::new_with_reason(
                             format!("no reservation token found for: {}", token),
                         ),
-                    ))
-                    .map_err(Self::StunFormatError)?;
-                Ok(())
+                    ))?;
+                Ok(true)
             }
         }
     }

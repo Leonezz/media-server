@@ -1,5 +1,7 @@
 use crate::{errors::TurnSessionResult, session::Session};
 use iana_formats::protocol_numbers::ProtocolNumberStatic;
+use rootcause::{bail, report};
+use utils::errors::context::ContextExt;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use turn_formats::message::Message;
 
@@ -25,9 +27,9 @@ impl TurnServer {
         ]
         .contains(&protocol)
         {
-            return Err(crate::errors::TurnSessionError::UnsupportedProtocol(
+            bail!(crate::errors::TurnSessionError::UnsupportedProtocol(
                 protocol,
-            ));
+            ))
         }
         Ok(Self {
             protocol,
@@ -48,7 +50,11 @@ impl TurnServer {
         );
 
         let mut endpoint =
-            connection::endpoint::ServerEndpoint::new(self.protocol, self.address).await?;
+            connection::endpoint::ServerEndpoint::new(self.protocol, self.address)
+                .await
+                .map_err(|e| report!(e).into_dynamic())
+                .operation("creating TURN server endpoint")
+                .resource("address", self.address)?;
         while let Ok((remote_addr, conn, message_tx, message_rx)) =
             endpoint.accept::<Message>().await
         {

@@ -1,6 +1,9 @@
 use std::{fmt, io::BufRead};
 
-use utils::traits::{dynamic_sized_packet::DynamicSizedPacket, reader::ReadFrom, writer::WriteTo};
+use utils::{
+    errors::context::LocationExt,
+    traits::{dynamic_sized_packet::DynamicSizedPacket, reader::ReadFrom, writer::WriteTo},
+};
 
 use crate::{
     MessageChecker,
@@ -9,6 +12,7 @@ use crate::{
         rfc8489::password_algorithm::PasswordAlgorithm,
     },
     define_attribute,
+    errors::{StunMessageError, StunMessageResult},
 };
 
 ///  0                   1                   2                   3
@@ -55,11 +59,11 @@ impl AttributeFactory for PasswordAlgorithmsAttribute {
     fn from_raw_attr(
         raw_attr: crate::attributes::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
-    ) -> Result<Self, crate::errors::StunMessageError> {
-        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE)?;
+    ) -> StunMessageResult<Self> {
+        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE).trace()?;
         let mut bytes = raw_attr.value.as_slice();
         let mut algorithms = Vec::new();
-        while bytes.has_data_left()? {
+        while bytes.has_data_left().map_err(StunMessageError::from)? {
             algorithms.push(PasswordAlgorithm::read_from(&mut bytes)?);
         }
         Ok(Self { algorithms })

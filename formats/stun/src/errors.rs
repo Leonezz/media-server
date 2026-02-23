@@ -1,12 +1,14 @@
 use std::string::FromUtf8Error;
 
 use thiserror::Error;
+use utils::errors::context::LocationExt;
 
 use crate::{
     attributes::rfc8489::{ErrorCodeAttribute, UnknownAttributesAttribute},
     builder::MessageBuilder,
     error_codes::rfc8489::{BAD_REQUEST, UNKNOWN_ATTRIBUTE},
 };
+use rootcause::prelude::*;
 
 #[derive(Debug, Error)]
 pub enum StunMessageError {
@@ -28,16 +30,15 @@ pub enum StunMessageError {
     BuilderError(String),
 }
 
-pub type StunMessageResult<T> = Result<T, StunMessageError>;
+pub type StunMessageResult<T> = Result<T, Report>;
 
 impl StunMessageError {
     pub fn try_prepare_error_response(
-        self,
+        &self,
         message_builder: &mut MessageBuilder,
-    ) -> StunMessageResult<()> {
+    ) -> Result<bool, Report> {
         match self {
-            Self::IoError(..) => Err(self),
-            Self::BuilderError(_) => Err(self),
+            Self::IoError(..) | Self::BuilderError(..) => Ok(false),
             Self::SyntaxError(_)
             | Self::InvalidUtf8String(_)
             | Self::InvalidMessage(_)
@@ -47,15 +48,20 @@ impl StunMessageError {
                     .error_mut()
                     .attribute_mut(ErrorCodeAttribute::new_concrete(
                         BAD_REQUEST::new_with_reason(self.to_string()),
-                    ))?;
-                Ok(())
+                    ))
+                    .trace()?;
+                Ok(true)
             }
             Self::UnknownAttributes(attrs) => {
                 message_builder
                     .error_mut()
-                    .attribute_mut(ErrorCodeAttribute::new_concrete(UNKNOWN_ATTRIBUTE::new()))?
-                    .attribute_mut(UnknownAttributesAttribute { attributes: attrs })?;
-                Ok(())
+                    .attribute_mut(ErrorCodeAttribute::new_concrete(UNKNOWN_ATTRIBUTE::new()))
+                    .trace()?
+                    .attribute_mut(UnknownAttributesAttribute {
+                        attributes: attrs.clone(),
+                    })
+                    .trace()?;
+                Ok(true)
             }
         }
     }
