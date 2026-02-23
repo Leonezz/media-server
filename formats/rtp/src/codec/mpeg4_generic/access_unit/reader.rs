@@ -1,6 +1,6 @@
 use super::{AccessUnit, AccessUnitFragment, AccessUnitSection};
 use crate::codec::mpeg4_generic::{
-    au_header::AuHeader, errors::RtpMpeg4Error, parameters::RtpMpeg4Fmtp,
+    au_header::AuHeader, errors::RtpMpeg4Error, parameters::rfc3640::RtpMpeg4Fmtp,
 };
 use num::ToPrimitive;
 use std::io::{self, Read};

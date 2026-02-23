@@ -1,23 +1,23 @@
 [package]
 name = "rtp-session"
-version = "0.1.0"
-edition = "2024"
+description = "server and session for rtp/rtcp send and receive"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["lib"]
 
 [dependencies]
-thiserror = "2.0.7"
-tokio = { version = "1.44.2", features = ["full"] }
-tokio-util = { version = "0.7.13", features = ["full"] }
-futures = "0.3.31"
-rtp-formats = { path = "../../formats/rtp" }
-tracing = "0.1.41"
-num = "0.4.3"
-unified-io = { path = "../../unifiedio" }
-utils = { path = "../../utils" }
-uuid = { version = "1.11.0", features = [
-    "v7",
-    "fast-rng",
-    "macro-diagnostics",
-] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tokio-util = { workspace = true, features = ["full"] }
+futures = { workspace = true }
+tracing = { workspace = true }
+num = { workspace = true }
+uuid = { workspace = true, features = ["v7", "fast-rng", "macro-diagnostics"] }
 
-[lints.clippy]
-uninlined_format_args = "allow"
+rtp-formats = { workspace = true }
+unified-io = { workspace = true }
+utils = { workspace = true }

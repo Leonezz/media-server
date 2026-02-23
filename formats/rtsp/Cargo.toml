@@ -1,17 +1,20 @@
 [package]
 name = "rtsp-formats"
-version = "0.1.0"
-edition = "2024"
+description = "encoder and decoder for rtsp protocol formats"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
 
+[lib]
+crate-type = ["lib"]
 
 [dependencies]
-thiserror = "2.0.7"
-tokio-util = { version = "0.7.13", features = ["full"] }
-byteorder = "1.5.0"
-num = "0.4.3"
-url = "2.5.4"
-utils = { path = "../../utils" }
-sdp-formats = { path = "../sdp" }
+thiserror = { workspace = true }
+tokio-util = { workspace = true, features = ["full"] }
+byteorder = { workspace = true }
+num = { workspace = true }
+url = { workspace = true }
 
-[lints.clippy]
-uninlined_format_args = "allow"
+utils = { workspace = true }
+sdp-formats = { workspace = true }

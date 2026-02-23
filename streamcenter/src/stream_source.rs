@@ -6,17 +6,14 @@ use crate::{
     signal::StreamSignal,
     stream_center::StreamSourceDynamicInfo,
 };
-use codec_common::{
-    audio::{AudioCodecCommon, AudioConfig},
-    video::{H264VideoConfig, VideoCodecCommon},
-};
+use codec_common::video::{H264VideoConfig, VideoCodecCommon};
 use num::ToPrimitive;
 use std::{
     cmp::{max, min},
     collections::HashMap,
     fmt,
     sync::Arc,
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
 use tokio::sync::{RwLock, mpsc};
 use tokio_util::bytes::Bytes;
@@ -151,7 +148,9 @@ impl StreamSource {
             gop_cache: GopQueue::new(6_0000, 8000),
             status: StreamStatus::NotStarted,
             signal_receiver,
-            mix_queue: MixQueue::new(100, 100),
+            mix_queue: MixQueue::new(200, 50)
+                .with_drain_timeout(Duration::from_millis(500))
+                .with_av_sync_tolerance(Duration::from_millis(80)),
         }
     }
 
@@ -236,9 +235,7 @@ impl StreamSource {
         };
 
         if !self.data_distributer.read().await.is_empty() && self.gop_cache.script_frame.is_none() {
-            let audio_codec = self.gop_cache.audio_config.as_ref().map(|(v, _)| match v {
-                AudioConfig::AAC(_) => AudioCodecCommon::AAC,
-            });
+            let audio_codec = self.gop_cache.audio_config.as_ref().map(|(v, _)| v.into());
             if let Some((video_codec, video_height, video_width)) =
                 self.gop_cache.video_config.as_ref().map(|v| match v {
                     codec_common::video::VideoConfig::H264(H264VideoConfig {
@@ -275,22 +272,23 @@ impl StreamSource {
                 || (!handler.stat.video_sh_sent && !handler.parsed_context.audio_only)
             {
                 self.on_new_consumer(key, handler, update_stat).await?;
+            } else {
+                if handler.parsed_context.audio_only && frame.is_video() {
+                    continue;
+                }
+                if handler.parsed_context.video_only && frame.is_audio() {
+                    continue;
+                }
+                let res = handler.data_sender.try_send(frame.clone());
+                if res.is_err() {
+                    tracing::error!("distribute frame data to {} failed: {:?}", key, res);
+                    invalid_ids.push(*key);
+                }
+                if frame.is_video_key_frame() {
+                    handler.stat.first_key_frame_sent = true;
+                }
+                update_stat(&mut handler.stat, &frame, res.is_err());
             }
-            if handler.parsed_context.audio_only && frame.is_video() {
-                continue;
-            }
-            if handler.parsed_context.video_only && frame.is_audio() {
-                continue;
-            }
-            let res = handler.data_sender.try_send(frame.clone());
-            if res.is_err() {
-                tracing::error!("distribute frame data to {} failed: {:?}", key, res);
-                invalid_ids.push(*key);
-            }
-            if frame.is_video_key_frame() {
-                handler.stat.first_key_frame_sent = true;
-            }
-            update_stat(&mut handler.stat, &frame, res.is_err());
         }
 
         self.data_distributer.write().await.retain(|key, value| {

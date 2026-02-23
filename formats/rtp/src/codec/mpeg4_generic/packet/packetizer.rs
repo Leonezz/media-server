@@ -4,7 +4,7 @@ use crate::{
         access_unit::{AccessUnit, AccessUnitFragment, AccessUnitSection},
         au_header::{AuHeader, AuHeaderSection, packet_size::AuHeaderBitsCountWrapper},
         errors::{RtpMpeg4Error, RtpMpeg4Result},
-        parameters::RtpMpeg4Fmtp,
+        parameters::rfc3640::RtpMpeg4Fmtp,
     },
     errors::RtpError,
     header::{RtpHeader, RtpHeaderBuilder},

@@ -2,7 +2,7 @@ use std::{fmt, str::FromStr};
 
 use crate::errors::RtspMessageError;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Npt {
     Seconds(f64),
     HHMMSS {

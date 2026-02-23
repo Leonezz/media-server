@@ -74,8 +74,7 @@ impl HttpFlvSession {
             .get(VIDEO_ONLY_KEY)
             .map_or_else(|| true, |_| false)
             && response.has_audio;
-
-        let mut bytes = Vec::with_capacity(4096);
+        let mut bytes = Vec::with_capacity(self._config.chunk_size as usize * 2);
 
         {
             let flv_file_header = FLVHeader::new(self.has_audio, self.has_video);
@@ -88,7 +87,9 @@ impl HttpFlvSession {
         let mut has_audio_sequence_header = !self.has_audio;
         loop {
             match response.media_receiver.recv().await {
-                None => {}
+                None => {
+                    break;
+                }
                 Some(frame) => {
                     if !has_audio_sequence_header {
                         has_audio_sequence_header = frame.is_audio() && frame.is_sequence_header();
@@ -106,6 +107,9 @@ impl HttpFlvSession {
                     }
 
                     self.write_flv_tag(frame, &mut bytes)?;
+                    if bytes.len() < self._config.chunk_size as usize {
+                        continue;
+                    }
 
                     let res = self
                         .http_response_bytes_sender
@@ -123,6 +127,12 @@ impl HttpFlvSession {
                 }
             };
         }
+        if !bytes.is_empty() {
+            let _ = self
+                .http_response_bytes_sender
+                .send(BytesMut::from(&bytes[..]));
+        }
+        Ok(())
     }
 
     pub fn write_flv_tag<W: io::Write>(

@@ -1,6 +1,6 @@
 use super::{DEFAULT_BUFFER_CAPACITY, RtpH264BufferItem};
 use crate::{
-    codec::h264::{paramters::RtpH264Fmtp, util::don_diff},
+    codec::h264::{paramters::rfc6184::RtpH264Fmtp, util::don_diff},
     errors::RtpError,
 };
 use std::{collections::VecDeque, time};

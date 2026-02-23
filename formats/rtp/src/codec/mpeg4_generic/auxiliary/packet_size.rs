@@ -1,9 +1,7 @@
+use super::AuxiliaryData;
+use crate::codec::mpeg4_generic::parameters::rfc3640::RtpMpeg4Fmtp;
 use num::ToPrimitive;
 use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
-
-use crate::codec::mpeg4_generic::parameters::RtpMpeg4Fmtp;
-
-use super::AuxiliaryData;
 
 pub struct AuxiliaryDataBytesCountWrapper<'a>(pub &'a AuxiliaryData, pub &'a RtpMpeg4Fmtp);
 

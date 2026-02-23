@@ -1,10 +1,8 @@
-use std::io;
-
+use crate::codec::mpeg4_generic::{errors::RtpMpeg4Error, parameters::rfc3640::RtpMpeg4Fmtp};
 use bitstream_io::{BigEndian, BitWrite, BitWriter};
 use num::ToPrimitive;
+use std::io;
 use utils::traits::writer::WriteTo;
-
-use crate::codec::mpeg4_generic::{errors::RtpMpeg4Error, parameters::RtpMpeg4Fmtp};
 
 use super::AuxiliaryData;
 

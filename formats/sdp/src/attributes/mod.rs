@@ -1,4 +1,5 @@
 pub mod conf_type;
+pub mod extension;
 pub mod fmtp;
 pub mod media_direction;
 pub mod orient;
@@ -56,14 +57,29 @@ pub enum SDPAttribute {
     Fmtp(FormatParameters),
 }
 
-#[derive(Debug, Clone)]
-pub enum SessionAttribute {
-
-}
-
-#[derive(Debug, Clone)]
-pub enum MediaAttribute {
-    
+impl SDPAttribute {
+    pub fn name(&self) -> &str {
+        match self {
+            #[allow(deprecated)]
+            Self::Cat(_) => "cat",
+            #[allow(deprecated)]
+            Self::Keywds(_) => "keywds",
+            Self::Tool(_) => "tool",
+            Self::PTime(_) => "ptime",
+            Self::MaxPTime(_) => "maxptime",
+            Self::RtpMap(_) => "rtpmap",
+            Self::MediaDirection(d) => d.to_str(),
+            Self::Orient(_) => "orient",
+            Self::Type(_) => "type",
+            Self::Charset(_) => "charset",
+            Self::SDPLang(_) => "sdplang",
+            Self::Lang(_) => "lang",
+            Self::Framerate(_) => "framerate",
+            Self::Quality(_) => "quality",
+            Self::Fmtp(_) => "fmtp",
+            Self::Trivial(trivial) => trivial.name.as_ref(),
+        }
+    }
 }
 
 impl FromStr for SDPAttribute {
@@ -112,26 +128,26 @@ impl FromStr for SDPAttribute {
 
 impl fmt::Display for SDPAttribute {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())?;
         match self {
             #[allow(deprecated)]
-            Self::Cat(cat) => write!(f, "cat:{}", cat),
+            Self::Cat(cat) => write!(f, ":{}", cat),
             #[allow(deprecated)]
-            Self::Keywds(keywds) => write!(f, "keywds:{}", keywds),
-            Self::Tool(tool) => write!(f, "tool:{}", tool),
-            Self::PTime(ptime) => write!(f, "ptime:{}", ptime),
-            Self::MaxPTime(max_ptime) => write!(f, "maxptime:{}", max_ptime),
-            Self::RtpMap(rtpmap) => write!(f, "rtpmap:{}", rtpmap),
-            Self::MediaDirection(direction) => write!(f, "{}", direction),
-            Self::Orient(orient) => write!(f, "orient:{}", orient),
-            Self::Type(tp) => write!(f, "type:{}", tp),
-            Self::Charset(cs) => write!(f, "charset:{}", cs),
-            Self::SDPLang(lang) => write!(f, "sdplang:{}", lang),
-            Self::Lang(lang) => write!(f, "lang:{}", lang),
-            Self::Framerate(fr) => write!(f, "framerate:{}", fr),
-            Self::Quality(qu) => write!(f, "quality:{}", qu),
-            Self::Fmtp(fmtp) => write!(f, "fmtp:{}", fmtp),
+            Self::Keywds(keywds) => write!(f, ":{}", keywds),
+            Self::Tool(tool) => write!(f, ":{}", tool),
+            Self::PTime(ptime) => write!(f, ":{}", ptime),
+            Self::MaxPTime(max_ptime) => write!(f, ":{}", max_ptime),
+            Self::RtpMap(rtpmap) => write!(f, ":{}", rtpmap),
+            Self::MediaDirection(_) => Ok(()),
+            Self::Orient(orient) => write!(f, ":{}", orient),
+            Self::Type(tp) => write!(f, ":{}", tp),
+            Self::Charset(cs) => write!(f, ":{}", cs),
+            Self::SDPLang(lang) => write!(f, ":{}", lang),
+            Self::Lang(lang) => write!(f, ":{}", lang),
+            Self::Framerate(fr) => write!(f, ":{}", fr),
+            Self::Quality(qu) => write!(f, ":{}", qu),
+            Self::Fmtp(fmtp) => write!(f, ":{}", fmtp),
             Self::Trivial(trivial) => {
-                write!(f, "{}", trivial.name)?;
                 if let Some(value) = &trivial.value {
                     write!(f, ":{}", value)?;
                 }

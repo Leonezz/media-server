@@ -1,13 +1,10 @@
-use std::io;
-
+use super::AuxiliaryData;
+use crate::codec::mpeg4_generic::{errors::RtpMpeg4Error, parameters::rfc3640::RtpMpeg4Fmtp};
 use bitstream_io::{BigEndian, BitRead2, BitReader};
 use num::ToPrimitive;
+use std::io;
 use tokio_util::bytes::Bytes;
 use utils::traits::reader::ReadRemainingFrom;
-
-use crate::codec::mpeg4_generic::{errors::RtpMpeg4Error, parameters::RtpMpeg4Fmtp};
-
-use super::AuxiliaryData;
 
 impl<R: io::Read> ReadRemainingFrom<&RtpMpeg4Fmtp, R> for AuxiliaryData {
     type Error = RtpMpeg4Error;

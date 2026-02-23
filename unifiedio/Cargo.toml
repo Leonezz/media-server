@@ -1,14 +1,17 @@
 [package]
 name = "unified-io"
-version = "0.1.0"
-edition = "2024"
+description = "unified io representation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["lib"]
 
 [dependencies]
-thiserror = "2.0.7"
-tokio = { version = "1.44.2", features = ["net", "time"] }
-tokio-util = { version = "0.7.14", features = ["full"] }
-tracing = "0.1.41"
-futures = "0.3.31"
-
-[lints.clippy]
-uninlined_format_args = "allow"
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["net", "time"] }
+tokio-util = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+futures = { workspace = true }

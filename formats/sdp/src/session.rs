@@ -1,7 +1,9 @@
 //! @see: RFC 8866 SDP: Session Description Protocol
 use crate::{
     CRLF,
-    attributes::{SDPAttribute, fmtp::FormatParameters, rtpmap::RtpMap},
+    attributes::{
+        SDPAttribute, extension::SdpAttributeExtension, fmtp::FormatParameters, rtpmap::RtpMap,
+    },
     errors::SDPError,
     reader::SessionDescriptionReader,
 };
@@ -462,6 +464,48 @@ impl fmt::Display for SDPMediaLine {
     }
 }
 
+pub trait SDPAttrManager {
+    fn attrs(&self) -> &[SDPAttribute];
+    fn attrs_mut(&mut self) -> &mut Vec<SDPAttribute>;
+    fn get_extension_attr<T>(&self) -> Option<T>
+    where
+        T: SdpAttributeExtension,
+    {
+        self.attrs().iter().find_map(|item| {
+            if !T::match_attribute(item) {
+                return None;
+            }
+            if let Ok(res) = T::try_from_attr(item) {
+                return Some(res);
+            }
+            None
+        })
+    }
+    fn get_all_extension_attr<T>(&self) -> Vec<T>
+    where
+        T: SdpAttributeExtension,
+    {
+        self.attrs()
+            .iter()
+            .flat_map(|item| {
+                if !T::match_attribute(item) {
+                    return vec![];
+                }
+                if let Ok(res) = T::try_from_attr(item) {
+                    return vec![res];
+                }
+                vec![]
+            })
+            .collect()
+    }
+    fn set_extension_attr<T>(&mut self, attr: T)
+    where
+        T: SdpAttributeExtension,
+    {
+        self.attrs_mut().push(attr.into_attr());
+    }
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct SDPMediaDescription {
     pub media_line: SDPMediaLine,
@@ -470,6 +514,16 @@ pub struct SDPMediaDescription {
     pub bandwidth: Vec<SDPBandWidthInformation>,
     pub encryption_key: Option<SDPEncryptionKeys>,
     pub attributes: Vec<SDPAttribute>,
+}
+
+impl SDPAttrManager for SDPMediaDescription {
+    fn attrs(&self) -> &[SDPAttribute] {
+        &self.attributes
+    }
+
+    fn attrs_mut(&mut self) -> &mut Vec<SDPAttribute> {
+        &mut self.attributes
+    }
 }
 
 impl SDPMediaDescription {
@@ -531,6 +585,16 @@ pub struct Sdp {
     pub encryption_keys: Option<SDPEncryptionKeys>,
     pub attributes: Vec<SDPAttribute>,
     pub media_description: Vec<SDPMediaDescription>,
+}
+
+impl SDPAttrManager for Sdp {
+    fn attrs(&self) -> &[SDPAttribute] {
+        &self.attributes
+    }
+
+    fn attrs_mut(&mut self) -> &mut Vec<SDPAttribute> {
+        &mut self.attributes
+    }
 }
 
 impl Sdp {

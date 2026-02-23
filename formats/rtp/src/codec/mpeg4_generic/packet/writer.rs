@@ -1,13 +1,10 @@
-use std::io;
-
-use utils::traits::writer::WriteTo;
-
+use super::RtpMpeg4GenericPacket;
 use crate::codec::mpeg4_generic::{
     au_header::writer::AuHeaderSectionWriteWrapper, auxiliary::writer::AuxiliaryDataWriteWrapper,
-    errors::RtpMpeg4Error, parameters::RtpMpeg4Fmtp,
+    errors::RtpMpeg4Error, parameters::rfc3640::RtpMpeg4Fmtp,
 };
-
-use super::RtpMpeg4GenericPacket;
+use std::io;
+use utils::traits::writer::WriteTo;
 
 pub struct RtpMpeg4GenericPacketWriteWrapper<'a>(
     pub &'a RtpMpeg4GenericPacket,

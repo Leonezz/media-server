@@ -6,20 +6,19 @@ use codec_h264::avc_decoder_configuration_record::AvcDecoderConfigurationRecord;
 use futures::SinkExt;
 use rtp_formats::{
     codec::{
-        h264::{packet::{packetizer::RtpH264PacketPacketizer, sequencer::RtpH264Sequencer}, paramters::RtpH264Fmtp},
-        mpeg4_generic::{packet::{packetizer::RtpMpeg4GenericPacketPacketizer, sequencer::RtpMpeg4GenericSequencer}, parameters::RtpMpeg4Fmtp},
-    }, packet::{packetizer::{RtpPacketizerItem, RtpTrivialPacketPacketizer}, sequencer::{RtpBufferedSequencer, RtpTrivialSequencer}, RtpTrivialPacket}, payload_types::rtp_payload_type::get_rtp_clockrate, rtcp::RtcpPacket
+        h264::{packet::{packetizer::RtpH264PacketPacketizer, sequencer::RtpH264Sequencer}, paramters::rfc6184::RtpH264Fmtp},
+        mpeg4_generic::{packet::{packetizer::RtpMpeg4GenericPacketPacketizer, sequencer::RtpMpeg4GenericSequencer}, parameters::rfc3640::RtpMpeg4Fmtp},
+    }, packet::{packetizer::RtpTrivialPacketPacketizer, sequencer::{RtpBufferedSequencer, RtpTrivialSequencer}, RtpTrivialPacket}, payload_types::rtp_payload_type::get_rtp_clockrate, rtcp::RtcpPacket
 };
 use rtp_session::{
     session::{RtpSession, RtpSessionCommand},
     simple_statistics::RtpSessionSimpleStatistics,
 };
 use rtsp_formats::{
-    header::transport::{TransportHeader, TransportProtocol}, interleaved::RtspInterleavedPacket,
-    sdp_extension::attribute::RtspSDPControl,
+    header::transport::{TransportHeader, TransportProtocol}, interleaved::RtspInterleavedPacket, sdp_extension::control::RtspSDPControl,
 };
 use sdp_formats::{
-    attributes::{fmtp::FormatParameters, rtpmap::RtpMap, SDPAttribute}, session::{SDPBandwidthType, SDPMediaDescription, SDPMediaType}
+    attributes::{fmtp::FormatParameters, rtpmap::RtpMap}, session::{SDPAttrManager, SDPBandwidthType, SDPMediaDescription, SDPMediaType}
 };
 use stream_center::{gop::MediaFrame};
 use tokio::sync::broadcast::error::TryRecvError;
@@ -317,7 +316,7 @@ impl RtspMediaSession {
         tracing::info!("got {} encoding, creating packetizer with fmtp: {}", encoding_name, fmtp);
         match encoding_name.to_lowercase().as_str() {
             "h264" => {
-                let h264_fmtp: RtpH264Fmtp = fmtp.params.parse()?;
+                let h264_fmtp: RtpH264Fmtp = fmtp.try_into()?;
                 let packetizer = RtpH264PacketPacketizer::new(
                     1400, h264_fmtp.packetization_mode.unwrap_or_default(), ssrc
                 );
@@ -354,7 +353,7 @@ impl RtspMediaSession {
                         "unable to create h264 rtp unpacker with fmtp being None".to_owned(),
                     ));
                 }
-                let h264_fmtp: RtpH264Fmtp = fmtp.clone().unwrap().params.parse()?;
+                let h264_fmtp: RtpH264Fmtp = fmtp.as_ref().unwrap().try_into()?;
                 tracing::info!("fmtp params for h264 parsed from sdp: {:?}", h264_fmtp);
                 if h264_fmtp.packetization_mode.is_none() {
                     return Err(RtspServerError::InvalidParamForRtpUnpacker(
@@ -555,7 +554,7 @@ impl RtspMediaSession {
             ))),
             Some(frame) => span.in_scope(async || {
                 rtp_packetizer.set_frame_timestamp(frame.get_presentation_timestamp_ms());
-                if let Some(item) = RtpPacketizerItem::from_media_frame(frame) {
+                if let Some(item) = frame.to_rtp_packetizer_item() {
                 rtp_packetizer.packetize(item).inspect_err(|err| {
                     tracing::error!("error while packetizing media frame to rtp: {}", err);
                 })?;
@@ -618,7 +617,7 @@ impl RtspMediaSession {
                     if let Some(fmtp) = fmtp {
                         match rtpmap.encoding_name.to_lowercase().as_str() {
                             "h264" => {
-                                let h264_fmtp: RtpH264Fmtp = fmtp.params.parse()?;
+                                let h264_fmtp: RtpH264Fmtp = fmtp.try_into()?;
                                 let config: AvcDecoderConfigurationRecord =
                                     (&h264_fmtp).try_into()?;
                                 tracing::debug!("make avc decoder configuration record from fmtp: {:#?}", config);
@@ -657,7 +656,9 @@ impl RtspMediaSession {
                         }
                     }
                     for packet in ready_packets {
-                        match media_frame_sender.send(packet.to_media_frame(first_rtp_timestamp.unwrap(), rtp_clockrate)).await {
+                        match media_frame_sender.send(
+                            MediaFrame::from_rtp_buffer_item(packet, first_rtp_timestamp.unwrap(), rtp_clockrate)
+                        ).await {
                             Ok(()) => {}
                             Err(err) => {
                                 tracing::error!(
@@ -732,15 +733,7 @@ impl RtspMediaSession {
     fn extract_control_attribute(
         media_description: &SDPMediaDescription,
     ) -> RtspServerResult<RtspSDPControl> {
-        let control = media_description.attributes.iter().find_map(|attr| {
-            if let SDPAttribute::Trivial(attr) = attr
-                && attr.name == "control"
-            {
-                Some(RtspSDPControl::try_from(attr))
-            } else {
-                None
-            }
-        });
+        let control = media_description.get_extension_attr::<RtspSDPControl>();
         if control.is_none() {
             tracing::warn!("media control attribute not found");
             return Err(RtspServerError::InvalidMediaDescription(
@@ -748,7 +741,7 @@ impl RtspMediaSession {
             ));
         }
 
-        Ok(control.unwrap()?)
+        Ok(control.unwrap())
     }
 
     fn extract_bandwidth(media_description: &SDPMediaDescription) -> RtspServerResult<u64> {

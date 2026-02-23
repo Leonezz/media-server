@@ -35,6 +35,8 @@ pub enum RtspMessageError {
     InvalidSdpControlAttribute(String),
     #[error("Invalid sdp time range: {0}")]
     InvalidSdpRangeAttribute(String),
+    #[error("Invalid sdp mtag attribute: {0}")]
+    InvalidSdpMtagAttribute(String),
     #[error("Invalid Absolute Time: {0}")]
     InvalidAbsoluteTime(String),
     #[error("Invalid npt: {0}")]

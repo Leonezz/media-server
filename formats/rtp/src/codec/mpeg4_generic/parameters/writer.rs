@@ -1,6 +1,5 @@
+use crate::codec::mpeg4_generic::parameters::rfc3640::RtpMpeg4Fmtp;
 use std::fmt;
-
-use super::RtpMpeg4Fmtp;
 
 impl From<&RtpMpeg4Fmtp> for String {
     fn from(value: &RtpMpeg4Fmtp) -> Self {

@@ -2,7 +2,7 @@ use std::{fmt, str::FromStr};
 
 use crate::errors::RtspMessageError;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Smpte {
     pub(crate) hours: u8,
     pub(crate) minutes: u8,

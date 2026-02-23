@@ -3,7 +3,6 @@ use std::net::IpAddr;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(crate = "rocket::serde")]
 pub struct HttpServerConfig {
     // ip address to serve on
     pub address: IpAddr,

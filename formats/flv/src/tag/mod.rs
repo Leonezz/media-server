@@ -1,5 +1,6 @@
 use flv_tag_body::FLVTagBodyWithFilter;
 use flv_tag_header::FLVTagHeader;
+use utils::traits::{dynamic_sized_packet::DynamicSizedPacket, fixed_packet::FixedPacket};
 
 pub mod audio_tag_header;
 pub mod audio_tag_header_info;
@@ -18,4 +19,10 @@ pub mod writer;
 pub struct FLVTag {
     pub tag_header: FLVTagHeader,
     pub body_with_filter: FLVTagBodyWithFilter,
+}
+
+impl DynamicSizedPacket for FLVTag {
+    fn get_packet_bytes_count(&self) -> usize {
+        FLVTagHeader::bytes_count() + self.tag_header.data_size as usize
+    }
 }

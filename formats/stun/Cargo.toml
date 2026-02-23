@@ -1,0 +1,16 @@
+[package]
+name = "stun-formats"
+description = "encoder and decoder for stun protocol formats"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+thiserror = { workspace = true }
+tracing = { workspace = true }
+utils = { workspace = true }
+byteorder = { workspace = true }

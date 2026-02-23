@@ -1,0 +1,20 @@
+[package]
+name = "webrtc-formats"
+description = "encoder and decoder for webrtc whip/whep related formats"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+thiserror = { workspace = true }
+tokio-util = { workspace = true, features = ["full"] }
+byteorder = { workspace = true }
+num = { workspace = true }
+url = { workspace = true }
+
+utils = { workspace = true }
+sdp-formats = { workspace = true }

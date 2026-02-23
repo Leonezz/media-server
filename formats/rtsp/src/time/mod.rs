@@ -10,7 +10,7 @@ pub mod absolute;
 pub mod npt;
 pub mod smpte;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum MediaTimeFormat {
     SMPTE {
         tc: String,
@@ -37,7 +37,7 @@ impl fmt::Display for MediaTimeFormat {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TimeRange {
     pub start_time: Option<MediaTimeFormat>,
     pub end_time: Option<MediaTimeFormat>,
