@@ -13,3 +13,7 @@ crate-type = ["lib"]
 rand = "0.9.1"
 rand_core = "0.9.3"
 bitstream-io = { workspace = true }
+ring = { workspace = true }
+md5 = "0.8.0"
+crc = "3.3.0"
+tokio-util = { workspace = true }

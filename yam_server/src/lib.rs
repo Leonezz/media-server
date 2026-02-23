@@ -1,14 +1,16 @@
 use http_server::{config::HttpServerConfig, server::HttpServer};
 use rtsp_server::server::RtspServer;
 use stream_center::stream_center;
-use tokio::signal;
 use tracing::{self};
 pub mod config;
 use config::AppConfig;
 pub mod cli;
 mod errors;
 
-pub async fn app_run(config: AppConfig) {
+pub async fn app_run<F>(config: AppConfig, stop: F)
+where
+    F: Future<Output = ()> + Send + 'static,
+{
     {
         let msg = format!("yam_server is starting with config: {:?}", config);
         tracing::info!(msg);
@@ -102,5 +104,5 @@ pub async fn app_run(config: AppConfig) {
         tracing::info!(msg);
         println!("{}", msg);
     }
-    let _ = signal::ctrl_c().await;
+    stop.await;
 }

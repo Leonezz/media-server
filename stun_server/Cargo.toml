@@ -1,0 +1,22 @@
+[package]
+name = "stun_server"
+description = "a simple stun server tool based on stun-formats and stun-server implementation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+tokio = { workspace = true }
+tracing = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+thiserror = { workspace = true }
+scopeguard = "1.2.0"
+
+stun-server = { workspace = true }
+stun-formats = { workspace = true }
+unified-io = { workspace = true }
+utils = { workspace = true }

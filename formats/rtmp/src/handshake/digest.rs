@@ -1,6 +1,3 @@
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
-
 use super::{
     consts::{RTMP_CLIENT_KEY, RTMP_HANDSHAKE_SIZE, SHA256_DIGEST_SIZE},
     errors::DigestError,
@@ -88,9 +85,7 @@ pub fn validate_c1_digest(random_bytes: &[u8; RTMP_HANDSHAKE_SIZE]) -> DigestRes
 }
 
 pub fn make_digest(key: &[u8], message: &[u8]) -> DigestResult<Vec<u8>> {
-    let mut hmac = Hmac::<Sha256>::new_from_slice(key).expect("HMAC can take key of any size");
-    hmac.update(message);
-    let result = hmac.finalize().into_bytes();
+    let result = utils::cypto::hmac::new_sha256_hmac(key, message);
     if result.len() != SHA256_DIGEST_SIZE {
         return Err(DigestError::WrongLength {
             length: result.len(),

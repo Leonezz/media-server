@@ -27,7 +27,11 @@ pub enum UnderlyingIO {
 }
 
 pub trait UnifiedIO:
-    Stream<Item = Result<Bytes, std::io::Error>> + Sink<Bytes, Error = std::io::Error> + Debug + Send
+    Stream<Item = Result<Bytes, std::io::Error>>
+    + Sink<Bytes, Error = std::io::Error>
+    + Debug
+    + Send
+    + Sync
 {
     fn get_underlying_io_type(&self) -> UnderlyingIO;
     fn get_local_addr(&self) -> Option<SocketAddr> {

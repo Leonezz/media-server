@@ -1,0 +1,121 @@
+use std::fmt;
+
+use utils::traits::{
+    dynamic_sized_packet::DynamicSizedPacket, fixed_packet::FixedPacket, writer::WriteTo,
+};
+
+use crate::{
+    attribute::{Attribute, AttributeExt},
+    attributes::check_attr_match,
+    errors::STUNMessageResult,
+    message::Message,
+};
+
+#[derive(Clone, PartialEq, Eq, Copy)]
+pub struct FingerPrintAttribute {
+    fingerprint: u32,
+}
+
+impl FingerPrintAttribute {
+    pub fn new_dummy() -> Self {
+        Self { fingerprint: 0 }
+    }
+
+    pub fn sign(message: Message) -> Self {
+        let dummy_self = Attribute::FingerPrint(Self::new_dummy());
+        let attr_length = dummy_self.get_packet_bytes_count();
+        let dummy_message = message.prepare_dummy_message_bytes(dummy_self);
+        let mut bytes_to_hash = Vec::with_capacity(dummy_message.get_packet_bytes_count());
+        dummy_message.write_to(&mut bytes_to_hash).unwrap();
+        let checksum = utils::cypto::crc::new_crc32(&bytes_to_hash[..attr_length]);
+        Self {
+            fingerprint: checksum ^ FINGERPRINT_XOR_VALUE,
+        }
+    }
+
+    pub fn finger_print(&self) -> u32 {
+        self.fingerprint
+    }
+
+    pub fn check(&self, message: &Message) -> STUNMessageResult<()> {
+        if let Some(Attribute::FingerPrint(fingerprint)) = message.attributes().last()
+            && fingerprint == self
+        {
+            let mut dummy_attributes = message.attributes().clone();
+            dummy_attributes.pop();
+            let dummy_message = Message::new(*message.header(), dummy_attributes);
+            let real = Self::sign(dummy_message);
+            if &real != self {
+                return Err(crate::errors::StunMessageError::InvalidMessage(format!(
+                    "finger print not match, expected: 0x{:x}, real: 0x{:x}",
+                    self.fingerprint, real.fingerprint
+                )));
+            }
+            Ok(())
+        } else {
+            Err(crate::errors::StunMessageError::InvalidMessage(format!(
+                "last attribute of message not match: {:?} -> {:?}",
+                message, self
+            )))
+        }
+    }
+}
+
+impl fmt::Debug for FingerPrintAttribute {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "AttrType: {:?}, value: 0x{:x}",
+            self.get_type(),
+            self.fingerprint
+        )
+    }
+}
+
+// The value of the attribute is computed as the CRC-32
+// of the STUN message up to (but excluding)
+// the FINGERPRINT attribute itself,
+// XOR’ed with the 32-bit value 0x5354554e
+pub const FINGERPRINT_XOR_VALUE: u32 = 0x5354554e;
+pub const FINGERPRINT_LEN: usize = 4;
+
+impl FixedPacket for FingerPrintAttribute {
+    fn bytes_count() -> usize {
+        FINGERPRINT_LEN
+    }
+}
+
+impl AttributeExt for FingerPrintAttribute {
+    const STATIC_ATTR_TYPE: Option<crate::attribute::AttrType> =
+        Some(crate::attribute::AttrType::FingerPrint);
+    fn get_type(&self) -> crate::attribute::AttrType {
+        Self::STATIC_ATTR_TYPE.unwrap()
+    }
+
+    fn from_raw_attr(
+        raw_attr: crate::attribute::RawAttribute,
+        _transaction_id: &crate::header::TransactionId,
+    ) -> Result<Self, crate::errors::StunMessageError> {
+        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE.unwrap())?;
+        if raw_attr.value.len() != Self::bytes_count() {
+            return Err(crate::errors::StunMessageError::SyntaxError(format!(
+                "value length for {:?} is not 4: {}",
+                Self::STATIC_ATTR_TYPE.unwrap(),
+                raw_attr.value.len(),
+            )));
+        }
+
+        let fingerprint = u32::from_be_bytes(raw_attr.value.try_into().unwrap());
+        Ok(Self { fingerprint })
+    }
+
+    fn into_raw_attr(
+        self,
+        _transaction_id: &crate::header::TransactionId,
+    ) -> crate::attribute::RawAttribute {
+        crate::attribute::RawAttribute::new(
+            self.get_type(),
+            self.fingerprint.to_be_bytes().to_vec(),
+        )
+    }
+}

@@ -1,0 +1,20 @@
+[package]
+name = "connection"
+description = "unified socket level connection"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["net", "time"] }
+tokio-util = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+futures = { workspace = true }
+utils = { workspace = true }
+
+pin-project = "1"
