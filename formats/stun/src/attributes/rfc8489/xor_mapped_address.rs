@@ -1,6 +1,5 @@
 use std::{
-    fmt,
-    io::Read,
+    fmt, io,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
 };
 
@@ -8,10 +7,14 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use utils::traits::{dynamic_sized_packet::DynamicSizedPacket, writer::WriteTo};
 
 use crate::{
-    attribute::{AttrType, AttributeExt},
-    attributes::check_attr_match,
+    MessageChecker,
+    attributes::{
+        AttributeExtDynamic, AttributeExtStatic, AttributeFactory, check_attr_match,
+        rfc8489::mapped_address::{ADDRESS_FAMILY_V4, ADDRESS_FAMILY_V6, IPV4_LEN, IPV6_LEN},
+    },
+    define_attribute,
+    errors::StunMessageResult,
     header::{MAGIC_COOKIE, TRANSACTION_ID_LEN},
-    rfc8489::mapped_address::{ADDRESS_FAMILY_V4, ADDRESS_FAMILY_V6, IPV4_LEN, IPV6_LEN},
 };
 
 ///  0                   1                   2                   3
@@ -78,50 +81,39 @@ impl XorMappedAddressAttribute {
         self.xport
     }
 
-    pub fn address(&self) -> IpAddr {
+    pub fn ip(&self) -> IpAddr {
         self.xaddress
     }
-}
 
-fn xor_inplace<const L: usize>(dst: &mut [u8; L], xor: &[u8; L]) {
-    for (x, y) in dst.iter_mut().zip(xor.iter()) {
-        *x ^= *y;
-    }
-}
-
-impl AttributeExt for XorMappedAddressAttribute {
-    const STATIC_ATTR_TYPE: Option<AttrType> = Some(crate::attribute::AttrType::XorMappedAddress);
-    fn get_type(&self) -> crate::attribute::AttrType {
-        Self::STATIC_ATTR_TYPE.unwrap()
+    pub fn address(&self) -> SocketAddr {
+        SocketAddr::new(self.ip(), self.port())
     }
 
-    fn from_raw_attr(
-        raw_attr: crate::attribute::RawAttribute,
+    pub fn read_without_type<R: io::Read>(
+        reader: &mut R,
         transaction_id: &crate::header::TransactionId,
-    ) -> Result<Self, crate::errors::StunMessageError> {
-        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE.unwrap())?;
-        let mut bytes = raw_attr.value.as_slice();
-        let first_byte = bytes.read_u8()?;
+    ) -> StunMessageResult<Self> {
+        let first_byte = reader.read_u8()?;
         if first_byte != 0 {
             return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "first byte of {:?} is not 0: {}",
-                Self::STATIC_ATTR_TYPE.unwrap(),
+                Self::STATIC_ATTR_TYPE,
                 first_byte
             )));
         }
-        let family = bytes.read_u8()?;
-        let port = bytes.read_u16::<BigEndian>()?;
+        let family = reader.read_u8()?;
+        let port = reader.read_u16::<BigEndian>()?;
         let port = port ^ (MAGIC_COOKIE >> 16) as u16;
         let address = match family {
             ADDRESS_FAMILY_V4 => {
                 let mut ipv4_bytes = [0_u8; IPV4_LEN];
-                bytes.read_exact(&mut ipv4_bytes)?;
+                reader.read_exact(&mut ipv4_bytes)?;
                 xor_inplace(&mut ipv4_bytes, &MAGIC_COOKIE.to_be_bytes());
                 IpAddr::V4(Ipv4Addr::from_octets(ipv4_bytes))
             }
             ADDRESS_FAMILY_V6 => {
                 let mut ipv6_bytes = [0_u8; IPV6_LEN];
-                bytes.read_exact(&mut ipv6_bytes)?;
+                reader.read_exact(&mut ipv6_bytes)?;
                 let mut xor_value = Vec::with_capacity(4 + TRANSACTION_ID_LEN);
                 xor_value.extend_from_slice(&MAGIC_COOKIE.to_be_bytes());
                 transaction_id.write_to(&mut xor_value).unwrap();
@@ -142,20 +134,18 @@ impl AttributeExt for XorMappedAddressAttribute {
         })
     }
 
-    fn into_raw_attr(
-        self,
+    pub fn write_without_type<W: io::Write>(
+        &self,
+        writer: &mut W,
         transaction_id: &crate::header::TransactionId,
-    ) -> crate::attribute::RawAttribute {
-        let mut value = Vec::with_capacity(self.get_packet_bytes_count());
-        value.write_u16::<BigEndian>(self.family()).unwrap();
-        value
-            .write_u16::<BigEndian>(self.xport ^ (MAGIC_COOKIE >> 16) as u16)
-            .unwrap();
+    ) -> StunMessageResult<()> {
+        writer.write_u16::<BigEndian>(self.family())?;
+        writer.write_u16::<BigEndian>(self.xport ^ (MAGIC_COOKIE >> 16) as u16)?;
         match self.xaddress {
             IpAddr::V4(ipv4) => {
                 let mut ipv4_bytes = ipv4.octets();
                 xor_inplace(&mut ipv4_bytes, &MAGIC_COOKIE.to_be_bytes());
-                value.extend_from_slice(&ipv4_bytes);
+                writer.write_all(&ipv4_bytes)?;
             }
             IpAddr::V6(ipv6) => {
                 let mut ipv6_bytes = ipv6.octets();
@@ -163,9 +153,38 @@ impl AttributeExt for XorMappedAddressAttribute {
                 xor_value.extend_from_slice(&MAGIC_COOKIE.to_be_bytes());
                 transaction_id.write_to(&mut xor_value).unwrap();
                 xor_inplace(&mut ipv6_bytes, &xor_value.try_into().unwrap());
-                value.extend_from_slice(&ipv6_bytes);
+                writer.write_all(&ipv6_bytes)?;
             }
         }
-        crate::attribute::RawAttribute::new(self.get_type(), value)
+        Ok(())
+    }
+}
+
+fn xor_inplace<const L: usize>(dst: &mut [u8; L], xor: &[u8; L]) {
+    for (x, y) in dst.iter_mut().zip(xor.iter()) {
+        *x ^= *y;
+    }
+}
+
+define_attribute!(0x0020, XorMappedAddressAttribute, "XOR_MAPPED_ADDRESS");
+
+impl MessageChecker for XorMappedAddressAttribute {}
+
+impl AttributeFactory for XorMappedAddressAttribute {
+    fn from_raw_attr(
+        raw_attr: crate::attributes::RawAttribute,
+        transaction_id: &crate::header::TransactionId,
+    ) -> Result<Self, crate::errors::StunMessageError> {
+        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE)?;
+        let mut bytes = raw_attr.value.as_slice();
+        Self::read_without_type(&mut bytes, transaction_id)
+    }
+    fn into_raw_attr(
+        self,
+        transaction_id: &crate::header::TransactionId,
+    ) -> crate::attributes::RawAttribute {
+        let mut value = Vec::with_capacity(self.get_packet_bytes_count());
+        self.write_without_type(&mut value, transaction_id).unwrap();
+        crate::attributes::RawAttribute::new(self.get_type(), value)
     }
 }

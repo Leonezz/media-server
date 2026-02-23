@@ -100,6 +100,8 @@ async fn main() {
                     .with_timer(LocalTime::new(format_description!(
                         "[hour]:[minute]:[second]"
                     )))
+                    .with_file(true)
+                    .with_line_number(true)
                     .compact()
                     .with_ansi(true),
             )

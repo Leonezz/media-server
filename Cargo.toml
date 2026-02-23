@@ -23,6 +23,10 @@ path = "src/stun_client.rs"
 name = "stun_server"
 path = "src/stun_server.rs"
 
+[[bin]]
+name = "turn_server"
+path = "src/turn_server.rs"
+
 [workspace]
 members = [
     ".",
@@ -36,6 +40,8 @@ members = [
     "debug_tools",
     "yam_server",
     "stun_client",
+    "stun_server",
+    "turn_server",
 ]
 
 [workspace.package]
@@ -48,7 +54,7 @@ repository = "https://github.com/leonezz/media-server"
 [workspace.dependencies]
 tokio = { version = "1.47.1", features = ["full", "tracing"] }
 console-subscriber = "0.4.1"
-tokio-util = "0.7.16"
+tokio-util = { version = "0.7.16", features = ["full"] }
 tracing = "0.1.41"
 clap = { version = "4.5.48", features = ["string"] }
 thiserror = "2.0.17"
@@ -66,6 +72,7 @@ futures = "0.3.31"
 base64 = "0.22.1"
 url = "2.5.7"
 chrono = "0.4.40"
+inventory = "0.3.21"
 
 codec-aac = { path = "codec/aac" }
 codec-bitstream = { path = "codec/bitstream" }
@@ -82,12 +89,15 @@ rtsp-formats = { path = "formats/rtsp" }
 sdp-formats = { path = "formats/sdp" }
 stun-formats = { path = "formats/stun" }
 webrtc-formats = { path = "formats/webrtc" }
+iana-formats = { path = "formats/iana" }
+turn-formats = { path = "formats/turn" }
 
 http-server = { path = "servers/http" }
 rtmp-server = { path = "servers/rtmp" }
 rtp-session = { path = "servers/rtp" }
 rtsp-server = { path = "servers/rtsp" }
 stun-server = { path = "servers/stun" }
+turn-server = { path = "servers/turn" }
 server-utils = { path = "servers/utils" }
 
 unified-io = { path = "unifiedio" }
@@ -118,6 +128,7 @@ config = { workspace = true }
 yam_server = { path = "yam_server" }
 stun_client = { path = "stun_client" }
 stun_server = { path = "stun_server" }
+turn_server = { path = "turn_server" }
 
 [profile.dev]
 incremental = true

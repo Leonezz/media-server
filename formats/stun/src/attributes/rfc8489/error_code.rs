@@ -1,5 +1,5 @@
 use std::{
-    fmt,
+    fmt::{self, Debug},
     io::{Read, Write},
 };
 
@@ -7,13 +7,26 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
 
 use crate::{
-    attribute::AttributeExt,
-    attributes::{STUN_ATTRIBUTE_PADDING_SIZE, check_attr_match, get_after_padding_size},
-    errors::{STUNMessageResult, StunMessageError},
+    MessageChecker,
+    attributes::{
+        AttributeExtDynamic, AttributeExtStatic, AttributeFactory, STUN_ATTRIBUTE_PADDING_SIZE,
+        check_attr_match, get_after_padding_size, rfc8489,
+    },
+    define_attribute,
+    error_codes::{
+        ErrorCodeExtDynamic, ErrorCodeExtStatic, from_code, from_code_with_reason,
+        rfc8489::{TRY_ALTERNATE, UNAUTHENTICATED, UNKNOWN_ATTRIBUTE},
+    },
+    errors::{StunMessageError, StunMessageResult},
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ErrorCode(u16);
+impl Debug for ErrorCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "error code: {}", self.0)
+    }
+}
 
 impl ErrorCode {
     pub fn get_class(&self) -> u8 {
@@ -22,6 +35,10 @@ impl ErrorCode {
 
     pub fn get_number(&self) -> u8 {
         (self.0 % 100) as u8
+    }
+
+    pub fn code(self) -> u16 {
+        self.into()
     }
 }
 
@@ -37,15 +54,6 @@ impl From<u16> for ErrorCode {
     }
 }
 
-impl fmt::Debug for ErrorCode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match (*self).try_into() {
-            Err(_) => write!(f, "{}", self.0),
-            Ok(str) => f.write_str(str),
-        }
-    }
-}
-
 ///  0                   1                   2                   3
 ///  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -53,52 +61,75 @@ impl fmt::Debug for ErrorCode {
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 /// | Reason Phrase (variable)                                     ..
 /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-#[derive(Clone)]
-pub struct ErrorCodeAttribute {
-    error_code: ErrorCode,
-    reason_phrase: String,
+pub struct ErrorCodeAttribute(Box<dyn ErrorCodeExtDynamic>);
+
+impl Clone for ErrorCodeAttribute {
+    fn clone(&self) -> Self {
+        Self(crate::error_codes::from_code_with_reason(self.0.code(), self.0.reason()).unwrap())
+    }
 }
 
 impl ErrorCodeAttribute {
-    pub fn new(error_code: ErrorCode) -> STUNMessageResult<Self> {
-        let reason: &str = error_code.try_into().unwrap_or("unknown");
-        Self::new_with_reason(error_code, reason)
+    pub fn new(error_code: ErrorCode) -> StunMessageResult<Self> {
+        let err = from_code(error_code.0);
+        if err.is_none() {
+            return Err(crate::errors::StunMessageError::UnknownErrorCode(
+                error_code,
+            ));
+        }
+        Ok(Self(err.unwrap()))
     }
 
-    pub fn new_with_reason(error_code: ErrorCode, reason_phrase: &str) -> STUNMessageResult<Self> {
-        if reason_phrase.len() > ERROR_CODE_REASON_PHRASE_MAX_LEN {
+    pub fn new_concrete<E: ErrorCodeExtDynamic + 'static>(error_code: E) -> Self {
+        Self(Box::new(error_code))
+    }
+
+    pub fn get<T: ErrorCodeExtStatic>(&self) -> Option<T> {
+        if self.error_code().0 == T::STATIC_CODE {
+            return Some(T::default());
+        }
+        None
+    }
+
+    pub fn new_with_reason<S: Into<String>>(
+        error_code: ErrorCode,
+        reason_phrase: S,
+    ) -> StunMessageResult<Self> {
+        let reason = reason_phrase.into();
+        if reason.len() > ERROR_CODE_REASON_PHRASE_MAX_LEN {
             return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "length of reason phrase of {:?}: {} exceeds max length: {}",
-                Self::STATIC_ATTR_TYPE.unwrap(),
-                reason_phrase.len(),
+                Self::STATIC_ATTR_TYPE,
+                reason.len(),
                 ERROR_CODE_REASON_PHRASE_MAX_LEN
             )));
         }
 
-        Ok(Self {
-            error_code,
-            reason_phrase: reason_phrase.to_owned(),
-        })
+        let err = from_code_with_reason(error_code.0, &reason);
+        if err.is_none() {
+            return Err(crate::errors::StunMessageError::UnknownErrorCode(
+                error_code,
+            ));
+        }
+        Ok(Self(err.unwrap()))
     }
 
     pub fn error_code(&self) -> ErrorCode {
-        self.error_code
+        self.0.code().into()
     }
 
-    pub fn reason_phrase(&self) -> &String {
-        &self.reason_phrase
+    pub fn reason(&self) -> &str {
+        self.0.reason()
+    }
+
+    pub fn name(&self) -> &str {
+        self.0.name()
     }
 }
 
 impl fmt::Debug for ErrorCodeAttribute {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "AttrType: {:?}, code: {:?}, reason: {}",
-            self.get_type(),
-            self.error_code,
-            self.reason_phrase
-        )
+        write!(f, "AttrType: {:?}, {:?}", Self::STATIC_ATTR_TYPE, self.0)
     }
 }
 
@@ -109,22 +140,53 @@ pub const ERROR_CODE_REASON_PHRASE_MAX_LEN: usize = 763;
 
 impl DynamicSizedPacket for ErrorCodeAttribute {
     fn get_packet_bytes_count(&self) -> usize {
-        get_after_padding_size(4 + self.reason_phrase.len(), STUN_ATTRIBUTE_PADDING_SIZE)
+        get_after_padding_size(4 + self.reason().len(), STUN_ATTRIBUTE_PADDING_SIZE)
     }
 }
 
-impl AttributeExt for ErrorCodeAttribute {
-    const STATIC_ATTR_TYPE: Option<crate::attribute::AttrType> =
-        Some(crate::attribute::AttrType::ErrorCode);
-    fn get_type(&self) -> crate::attribute::AttrType {
-        Self::STATIC_ATTR_TYPE.unwrap()
-    }
+define_attribute!(0x0009, ErrorCodeAttribute, "ERROR_CODE");
 
+impl MessageChecker for ErrorCodeAttribute {
+    fn allowed_in(&self, message_class: crate::header::MessageClass) -> bool {
+        matches!(message_class, crate::header::MessageClass::ErrorResponse)
+    }
+    fn check_error_response(&self, message: &crate::message::Message) -> StunMessageResult<()> {
+        let class = message.message_class();
+        assert_eq!(class, crate::header::MessageClass::ErrorResponse);
+        let error_code = message.get_attribute_ext::<ErrorCodeAttribute>().unwrap();
+        match error_code.error_code().code() {
+            UNKNOWN_ATTRIBUTE::STATIC_CODE => {
+                message.require_ext::<rfc8489::UnknownAttributesAttribute>()?;
+            }
+            TRY_ALTERNATE::STATIC_CODE => {
+                message.require_ext::<rfc8489::AlternateServerAttribute>()?
+            }
+            UNAUTHENTICATED::STATIC_CODE => {
+                if message.has_authentication() {
+                    return Err(StunMessageError::InvalidMessage(format!(
+                        "no authentication attributes should be inside a {:?} message",
+                        error_code
+                    )));
+                }
+            }
+            v if v >= 300 && v <= 699 => {}
+            v => {
+                return Err(StunMessageError::InvalidMessage(format!(
+                    "unknown error code: {}",
+                    v
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
+impl AttributeFactory for ErrorCodeAttribute {
     fn from_raw_attr(
-        raw_attr: crate::attribute::RawAttribute,
+        raw_attr: crate::attributes::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
-    ) -> Result<Self, crate::errors::StunMessageError> {
-        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE.unwrap())?;
+    ) -> Result<Self, StunMessageError> {
+        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE)?;
         let mut bytes = raw_attr.value.as_slice();
         let class = (bytes.read_u24::<BigEndian>()? & 0b111) as u16;
         let number = bytes.read_u8()? as u16;
@@ -132,95 +194,27 @@ impl AttributeExt for ErrorCodeAttribute {
         if bytes.len() > ERROR_CODE_REASON_PHRASE_MAX_LEN {
             return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "length of reason phrase of {:?}: {} exceeds max length: {}",
-                Self::STATIC_ATTR_TYPE.unwrap(),
+                Self::STATIC_ATTR_TYPE,
                 bytes.len(),
                 ERROR_CODE_REASON_PHRASE_MAX_LEN
             )));
         }
         let mut reason_phrase = String::new();
         bytes.read_to_string(&mut reason_phrase)?;
-        Ok(Self {
-            error_code: error_code.into(),
-            reason_phrase,
-        })
+        Self::new_with_reason(error_code.into(), reason_phrase)
     }
-
     fn into_raw_attr(
         self,
         _transaction_id: &crate::header::TransactionId,
-    ) -> crate::attribute::RawAttribute {
-        assert!(self.reason_phrase.len() < ERROR_CODE_REASON_PHRASE_MAX_LEN);
+    ) -> crate::attributes::RawAttribute {
+        assert!(self.reason().len() < ERROR_CODE_REASON_PHRASE_MAX_LEN);
         let mut value = Vec::with_capacity(self.get_packet_bytes_count());
         value
-            .write_u24::<BigEndian>(self.error_code.get_class() as u32)
+            .write_u24::<BigEndian>(self.error_code().get_class() as u32)
             .unwrap();
-        value.write_u8(self.error_code.get_number()).unwrap();
-        value.write_all(self.reason_phrase.as_bytes()).unwrap();
+        value.write_u8(self.error_code().get_number()).unwrap();
+        value.write_all(self.reason().as_bytes()).unwrap();
 
-        crate::attribute::RawAttribute::new(self.get_type(), value)
-    }
-}
-
-/// 300 Try Alternate:
-/// The client should contact an alternate server for this request.
-/// This error response MUST only be sent if the request included either
-/// a USERNAME or USERHASH attribute and a valid MESSAGE-INTEGRITY or
-/// MESSAGE-INTEGRITY-SHA256 attribute; otherwise,
-/// it MUST NOT be sent and error code 400 (Bad Request) is suggested.
-/// This error response MUST be protected with the MESSAGE-INTEGRITY or
-/// MESSAGE-INTEGRITY-SHA256 attribute,
-/// and receivers MUST validate the MESSAGE-INTEGRITY or
-/// MESSAGEINTEGRITY-SHA256 of this response before redirecting themselves to an alternate server.
-pub const ERROR_CODE_TRY_ALTERNATE: ErrorCode = ErrorCode(300);
-pub const ERROR_REASON_TRY_ALTERNATE: &str = "Try Alternate";
-
-/// 400 Bad Request:
-/// The request was malformed.
-/// The client SHOULD NOT retry the request without modification
-/// from the previous attempt.
-/// The server may not be able to generate a valid MESSAGE-INTEGRITY or
-/// MESSAGE-INTEGRITY-SHA256 for this error,
-/// so the client MUST NOT expect a valid MESSAGE-INTEGRITY or
-/// MESSAGEINTEGRITY-SHA256 attribute on this response.
-pub const ERROR_CODE_BAD_REQUEST: ErrorCode = ErrorCode(400);
-pub const ERROR_REASON_BAD_REQUEST: &str = "Bad Request";
-
-/// 401 Unauthenticated:
-/// The request did not contain the correct credentials to proceed.
-/// The client should retry the request with proper credentials.
-pub const ERROR_CODE_UNAUTHENTICATED: ErrorCode = ErrorCode(401);
-pub const ERROR_REASON_UNAUTHENTICATED: &str = "Unauthenticated";
-
-/// 420 Unknown Attribute:
-/// The server received a STUN packet containing a comprehension-required attribute
-/// that it did not understand.
-/// The server MUST put this unknown attribute in the UNKNOWNATTRIBUTE attribute of its error response.
-pub const ERROR_CODE_UNKNOWN_ATTRIBUTE: ErrorCode = ErrorCode(420);
-pub const ERROR_REASON_UNKNOWN_ATTRIBUTE: &str = "Unknown Attribute";
-
-/// 438 Stale Nonce:
-/// The NONCE used by the client was no longer valid.
-/// The client should retry, using the NONCE provided in the response.
-pub const ERROR_CODE_STALE_NONCE: ErrorCode = ErrorCode(438);
-pub const ERROR_REASON_STALE_NONCE: &str = "Stale Nonce";
-
-/// 500 Server Error:
-/// The server has suffered a temporary error. The client should try again.
-pub const ERROR_CODE_SERVER_ERROR: ErrorCode = ErrorCode(500);
-pub const ERROR_REASON_SERVER_ERROR: &str = "Server Error";
-
-impl TryFrom<ErrorCode> for &'static str {
-    type Error = StunMessageError;
-    fn try_from(value: ErrorCode) -> Result<Self, Self::Error> {
-        let reason = match value {
-            ERROR_CODE_TRY_ALTERNATE => ERROR_REASON_TRY_ALTERNATE,
-            ERROR_CODE_BAD_REQUEST => ERROR_REASON_BAD_REQUEST,
-            ERROR_CODE_UNAUTHENTICATED => ERROR_REASON_UNAUTHENTICATED,
-            ERROR_CODE_UNKNOWN_ATTRIBUTE => ERROR_REASON_UNKNOWN_ATTRIBUTE,
-            ERROR_CODE_STALE_NONCE => ERROR_REASON_STALE_NONCE,
-            ERROR_CODE_SERVER_ERROR => ERROR_REASON_SERVER_ERROR,
-            _ => return Err(StunMessageError::UnknownErrorCode(value)),
-        };
-        Ok(reason)
+        crate::attributes::RawAttribute::new(self.get_type(), value)
     }
 }

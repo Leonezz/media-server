@@ -10,7 +10,7 @@ use tokio::sync::{
 
 use crate::{
     agent::{Agent, AgentCommand, AgentEvent},
-    errors::{STUNSessionError, STUNSessionResult},
+    errors::{StunSessionError, StunSessionResult},
 };
 
 #[derive(Debug, Clone)]
@@ -65,27 +65,27 @@ impl STUNClient {
         }
     }
 
-    pub async fn send(&self, request: Message) -> STUNSessionResult<()> {
+    pub async fn send(&self, request: Message) -> StunSessionResult<()> {
         let (flush_tx, flush_rx) = tokio::sync::oneshot::channel();
         self.message_tx
             .send((request.clone(), Some(flush_tx)))
             .await
             .map_err(|err| {
-                STUNSessionError::ChannelError(format!("error sending message to socket: {}", err))
+                StunSessionError::ChannelError(format!("error sending message to socket: {}", err))
             })?;
         let _ = flush_rx.await.map_err(|err| {
-            STUNSessionError::ChannelError(format!("error waiting for flush ack: {}", err))
+            StunSessionError::ChannelError(format!("error waiting for flush ack: {}", err))
         })?;
         self.agent_command_tx
             .send(AgentCommand::SendRequest(request))
             .await
-            .map_err(|err| STUNSessionError::ChannelError(format!("{}", err)))?;
+            .map_err(|err| StunSessionError::ChannelError(format!("{}", err)))?;
         Ok(())
     }
 
-    pub async fn close(&self) -> STUNSessionResult<()> {
+    pub async fn close(&self) -> StunSessionResult<()> {
         self.close_tx.send(()).await.map_err(|err| {
-            STUNSessionError::ChannelError(format!("error sending close single: {}", err))
+            StunSessionError::ChannelError(format!("error sending close single: {}", err))
         })?;
         Ok(())
     }
@@ -129,6 +129,9 @@ impl STUNClient {
                             .inspect_err(|err| {
                                 tracing::error!("error sending timeout to observer: {}", err);
                             });
+                    }
+                    AgentEvent::FurtherProcess((message, remote)) => {
+                        tracing::warn!("unexpected message: {:?} from {}", message, remote);
                     }
                 }
             } else {

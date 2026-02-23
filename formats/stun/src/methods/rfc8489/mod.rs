@@ -1,31 +1,21 @@
-use std::fmt::Debug;
+use super::MethodExtStatic;
+use crate::{
+    MessageChecker,
+    attributes::rfc8489,
+    define_method,
+    methods::{MethodExtDynamic, MethodExtDynamicInner},
+};
 
-use crate::methods::MethodExt;
+define_method!(0x001, BINDING, "Binding");
 
-#[derive(Clone, Copy)]
-pub struct STUNMethodBinding;
-
-impl Debug for STUNMethodBinding {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(STUNMethodBinding::static_name())
+impl MessageChecker for BINDING {
+    fn allowed_in(&self, message_class: crate::header::MessageClass) -> bool {
+        !matches!(message_class, crate::header::MessageClass::Indication)
     }
-}
-
-impl MethodExt for STUNMethodBinding {
-    const STATIC_VALUE: u16 = 0x001;
-    fn static_name() -> &'static str {
-        "Binding"
-    }
-
-    fn check(&self, message: &crate::message::Message) -> crate::errors::STUNMessageResult<()> {
-        match message.message_class() {
-            crate::header::MessageClass::ErrorResponse => {
-                message.require(crate::attribute::AttrType::ErrorCode)
-            }
-            crate::header::MessageClass::SuccessResponse => {
-                message.require(crate::attribute::AttrType::XorMappedAddress)
-            }
-            _ => Ok(()),
-        }
+    fn check_success_response(
+        &self,
+        message: &crate::message::Message,
+    ) -> crate::errors::StunMessageResult<()> {
+        message.require_ext::<rfc8489::XorMappedAddressAttribute>()
     }
 }

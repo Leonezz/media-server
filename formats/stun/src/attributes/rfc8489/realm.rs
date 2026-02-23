@@ -3,9 +3,13 @@ use std::fmt;
 use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
 
 use crate::{
-    attribute::AttributeExt,
-    attributes::{STUN_ATTRIBUTE_PADDING_SIZE, check_attr_match, get_after_padding_size},
-    errors::STUNMessageResult,
+    MessageChecker,
+    attributes::{
+        AttributeExtDynamic, AttributeExtStatic, AttributeFactory, STUN_ATTRIBUTE_PADDING_SIZE,
+        check_attr_match, get_after_padding_size,
+    },
+    define_attribute,
+    errors::StunMessageResult,
 };
 
 #[derive(Clone)]
@@ -14,11 +18,11 @@ pub struct RealmAttribute {
 }
 
 impl RealmAttribute {
-    pub fn new(value: &str) -> STUNMessageResult<Self> {
+    pub fn new(value: &str) -> StunMessageResult<Self> {
         if value.len() > REALM_VALUE_MAX_LEN {
             return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "value length for {:?}: {} exceeds max length: {}",
-                Self::STATIC_ATTR_TYPE.unwrap(),
+                Self::STATIC_ATTR_TYPE,
                 value.len(),
                 REALM_VALUE_MAX_LEN
             )));
@@ -47,22 +51,20 @@ impl fmt::Debug for RealmAttribute {
 /// (which can be as long as 509 bytes when encoding them and as long as 763 bytes when decoding them)
 pub const REALM_VALUE_MAX_LEN: usize = 763;
 
-impl AttributeExt for RealmAttribute {
-    const STATIC_ATTR_TYPE: Option<crate::attribute::AttrType> =
-        Some(crate::attribute::AttrType::Realm);
-    fn get_type(&self) -> crate::attribute::AttrType {
-        Self::STATIC_ATTR_TYPE.unwrap()
-    }
+define_attribute!(0x0014, RealmAttribute, "REALM");
 
+impl MessageChecker for RealmAttribute {}
+
+impl AttributeFactory for RealmAttribute {
     fn from_raw_attr(
-        raw_attr: crate::attribute::RawAttribute,
+        raw_attr: crate::attributes::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
     ) -> Result<Self, crate::errors::StunMessageError> {
-        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE.unwrap())?;
+        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE)?;
         if raw_attr.value.len() > REALM_VALUE_MAX_LEN {
             return Err(crate::errors::StunMessageError::SyntaxError(format!(
                 "value length for {:?}: {} exceeds max length: {}",
-                Self::STATIC_ATTR_TYPE.unwrap(),
+                Self::STATIC_ATTR_TYPE,
                 raw_attr.value.len(),
                 REALM_VALUE_MAX_LEN
             )));
@@ -76,7 +78,7 @@ impl AttributeExt for RealmAttribute {
     fn into_raw_attr(
         self,
         _transaction_id: &crate::header::TransactionId,
-    ) -> crate::attribute::RawAttribute {
-        crate::attribute::RawAttribute::new(self.get_type(), self.value.into_bytes())
+    ) -> crate::attributes::RawAttribute {
+        crate::attributes::RawAttribute::new(self.get_type(), self.value.into_bytes())
     }
 }

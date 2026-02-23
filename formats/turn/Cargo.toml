@@ -1,0 +1,22 @@
+[package]
+name = "turn-formats"
+description = "encoder and decoder for turn protocol formats"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+thiserror = { workspace = true }
+tracing = { workspace = true }
+byteorder = { workspace = true }
+num = { workspace = true }
+tokio-util = { workspace = true }
+inventory = { workspace = true }
+
+utils = { workspace = true }
+stun-formats = { workspace = true }
+iana-formats = { workspace = true }

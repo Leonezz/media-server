@@ -15,5 +15,6 @@ tracing = { workspace = true }
 byteorder = { workspace = true }
 num = { workspace = true }
 tokio-util = { workspace = true }
+inventory = { workspace = true }
 
 utils = { workspace = true }

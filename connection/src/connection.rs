@@ -14,6 +14,8 @@ use tokio_util::{
     sync::PollSender,
 };
 
+use crate::io::WakerSource;
+
 type Ack = oneshot::Sender<()>;
 pub type Outgoing<T> = (T, Option<Ack>);
 
@@ -62,7 +64,7 @@ impl WriteState {
 #[pin_project]
 pub struct Connection<IO, C, E, In, Out>
 where
-    IO: AsyncRead + AsyncWrite + Unpin,
+    IO: AsyncRead + AsyncWrite + WakerSource + Unpin,
     E: From<std::io::Error>,
     C: Encoder<Out, Error = E> + Decoder<Item = In, Error = E>,
     In: Send + fmt::Debug,
@@ -83,7 +85,7 @@ where
 
 impl<IO, C, E, In, Out> Connection<IO, C, E, In, Out>
 where
-    IO: AsyncRead + AsyncWrite + Unpin,
+    IO: AsyncRead + AsyncWrite + WakerSource + Unpin,
     E: From<std::io::Error>,
     C: Encoder<Out, Error = E> + Decoder<Item = In, Error = E>,
     In: Send + fmt::Debug,
@@ -97,8 +99,8 @@ where
         tokio::sync::mpsc::Sender<Outgoing<Out>>,
         tokio::sync::mpsc::Receiver<In>,
     ) {
-        let (read_tx, read_rx) = tokio::sync::mpsc::channel(100);
-        let (write_tx, write_rx) = tokio::sync::mpsc::channel(100);
+        let (read_tx, read_rx) = tokio::sync::mpsc::channel(1000);
+        let (write_tx, write_rx) = tokio::sync::mpsc::channel(1000);
         let stream = Framed::new(io, codec);
         let conn = Self {
             stream,
@@ -125,26 +127,21 @@ where
                         .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "Channel closed"))?
                 );
                 let item = self.read_buffer.take().expect("buffered message missing");
-                tracing::debug!("send message to read channel, message: {:?}", item);
                 self.tx
                     .send_item(item)
                     .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "Channel closed"))?;
-                tracing::debug!("message sent")
             }
 
             let mut stream = Pin::new(&mut self.stream);
             match ready!(Stream::poll_next(stream.as_mut(), cx)) {
                 Some(Ok(item)) => {
-                    tracing::debug!("got message from stream: {:?}", item);
                     self.read_buffer = Some(item);
                 }
                 Some(Err(err)) => {
                     return Poll::Ready(Err(err));
                 }
                 None => {
-                    self.read_state = ReadState::Done;
-                    self.tx.close();
-                    return Poll::Ready(Ok(()));
+                    return Poll::Pending;
                 }
             }
         }
@@ -233,7 +230,7 @@ where
 
 impl<IO, C, E, In, Out> std::future::Future for Connection<IO, C, E, In, Out>
 where
-    IO: AsyncRead + AsyncWrite + Unpin,
+    IO: AsyncRead + AsyncWrite + WakerSource + Unpin,
     E: From<std::io::Error>,
     C: Decoder<Item = In, Error = E> + Encoder<Out, Error = E>,
     In: Send + fmt::Debug,
@@ -242,10 +239,6 @@ where
     type Output = Result<(), E>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if matches!(self.read_state, ReadState::Reading) {
-            _ = self.poll_read(cx)?;
-        }
-
         if matches!(self.write_state, WriteState::Writing) {
             _ = self.poll_write(cx)?;
         }
@@ -263,7 +256,11 @@ where
         {
             return Poll::Ready(Ok(()));
         }
+        if matches!(self.read_state, ReadState::Reading) {
+            _ = self.poll_read(cx)?;
+        }
 
+        self.stream.get_mut().register_waker(cx.waker());
         Poll::Pending
     }
 }

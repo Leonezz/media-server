@@ -1,13 +1,12 @@
-use std::{collections::HashMap, net::SocketAddr, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc, task::ready};
 
+use socket2::{Domain, Type};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     net::{TcpListener, TcpSocket, UdpSocket},
     sync::mpsc,
 };
 use tokio_util::bytes::Bytes;
-
-use crate::errors::ConnResult;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Protocol {
@@ -17,9 +16,116 @@ pub enum Protocol {
 }
 
 #[derive(Debug)]
-pub struct ClientEndpointIo {
-    protocol: Protocol,
-    local_addr: SocketAddr,
+pub enum ClientEndpointIo {
+    Tcp(TcpSocket),
+    Udp(UdpSocket),
+}
+
+impl ClientEndpointIo {
+    pub fn new_tcp(local_addr: SocketAddr) -> Result<Self, std::io::Error> {
+        let socket = socket2::Socket::new(
+            Domain::for_address(local_addr),
+            Type::STREAM,
+            Some(socket2::Protocol::TCP),
+        )?;
+        socket.set_reuse_address(true)?;
+        socket.set_reuse_port(true)?;
+        socket.set_keepalive(true)?;
+        socket.set_nonblocking(true)?;
+        socket.set_recv_buffer_size(10 * 1024 * 1024)?;
+        socket.set_send_buffer_size(10 * 1024 * 1024)?;
+        socket.bind(&local_addr.into())?;
+
+        let std_socket: std::net::TcpStream = socket.into();
+        let tokio_socket = tokio::net::TcpSocket::from_std_stream(std_socket);
+        Ok(Self::Tcp(tokio_socket))
+    }
+
+    pub async fn new_udp(local_addr: SocketAddr) -> Result<Self, std::io::Error> {
+        let socket = socket2::Socket::new(
+            Domain::for_address(local_addr),
+            Type::DGRAM,
+            Some(socket2::Protocol::UDP),
+        )?;
+        socket.set_reuse_address(true)?;
+        socket.set_reuse_port(true)?;
+        socket.set_nonblocking(true)?;
+        socket.bind(&local_addr.into())?;
+
+        let std_socket: std::net::UdpSocket = socket.into();
+        let tokio_socket = tokio::net::UdpSocket::from_std(std_socket)?;
+        Ok(Self::Udp(tokio_socket))
+    }
+
+    pub fn local_addr(&self) -> Result<SocketAddr, std::io::Error> {
+        match self {
+            Self::Tcp(socket) => socket.local_addr(),
+            Self::Udp(socket) => socket.local_addr(),
+        }
+    }
+
+    pub async fn connect(self, remote: SocketAddr) -> std::io::Result<ConnectionIo> {
+        let local_addr = self.local_addr()?;
+        match self {
+            Self::Tcp(socket) => {
+                let stream = socket.connect(remote).await?;
+                Ok(ConnectionIo::new(
+                    ConnectionIoInner::Tcp(stream),
+                    remote,
+                    local_addr,
+                    None,
+                ))
+            }
+            Self::Udp(socket) => {
+                socket.connect(remote).await?;
+                let (tx, rx) = mpsc::channel(100);
+                let socket = Arc::new(socket);
+                let client = ConnectionIo::new(
+                    ConnectionIoInner::Udp {
+                        socket: socket.clone(),
+                        bytes_rx: rx,
+                        read_buffer: None,
+                        peers: None,
+                    },
+                    remote,
+                    local_addr,
+                    None,
+                );
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 2048];
+                    loop {
+                        match socket.recv_from(&mut buf).await {
+                            Ok((len, addr)) => {
+                                if addr != remote {
+                                    tracing::warn!(
+                                        "received packet from unexpected address: {}, expected: {}",
+                                        addr,
+                                        remote
+                                    );
+                                    continue;
+                                }
+                                let data = Bytes::copy_from_slice(&buf[..len]);
+                                if let Err(err) = tx.send(data).await {
+                                    tracing::error!(
+                                        "error sending data to receiver {} -> {}: {}",
+                                        addr,
+                                        local_addr,
+                                        err
+                                    );
+                                    break;
+                                }
+                            }
+                            Err(err) => {
+                                tracing::error!("error receiving udp packet: {}", err);
+                                break;
+                            }
+                        }
+                    }
+                });
+                Ok(client)
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -50,6 +156,7 @@ pub enum ConnectionIoInner {
     Tcp(tokio::net::TcpStream),
     Udp {
         socket: Arc<tokio::net::UdpSocket>,
+        peers: Option<Arc<tokio::sync::Mutex<HashMap<SocketAddr, mpsc::Sender<Bytes>>>>>,
         bytes_rx: mpsc::Receiver<Bytes>,
         read_buffer: Option<Bytes>, // for udp accept new connection
     },
@@ -63,125 +170,90 @@ pub struct ConnectionIo {
     bytes_sent: usize,
     bytes_received: usize,
     shared: Arc<tokio::sync::Mutex<Shared>>,
+    waker: Option<std::task::Waker>,
+}
+
+pub trait WakerSource {
+    fn register_waker(&mut self, waker: &std::task::Waker);
+}
+
+impl WakerSource for ConnectionIo {
+    fn register_waker(&mut self, waker: &std::task::Waker) {
+        if let Some(old_waker) = self.waker.as_ref()
+            && old_waker.will_wake(waker)
+        {
+            return;
+        }
+        self.waker = Some(waker.clone());
+    }
 }
 
 impl Drop for ConnectionIo {
     fn drop(&mut self) {
         let shared = self.shared.clone();
+        let mut peers = match &self.inner {
+            ConnectionIoInner::Tcp(_) => None,
+            ConnectionIoInner::Udp { peers, .. } => peers.clone(),
+        };
+        let remote_addr = self.remote_addr;
+        let waker = self.waker.take();
         tokio::spawn(async move {
+            if let Some(peers) = peers.take() {
+                peers.lock().await.remove(&remote_addr);
+            }
             let mut shared = shared.lock().await;
             if shared.number_of_connections > 0 {
                 shared.number_of_connections -= 1;
+            }
+            if let Some(waker) = waker {
+                waker.wake();
             }
         });
     }
 }
 
-impl ClientEndpointIo {
-    pub fn new_tcp(local_addr: SocketAddr) -> ConnResult<Self> {
-        Ok(Self {
-            protocol: Protocol::Tcp,
-            local_addr,
-        })
-    }
-
-    pub fn new_udp(addr: SocketAddr) -> ConnResult<Self> {
-        Ok(Self {
-            protocol: Protocol::Udp,
-            local_addr: addr,
-        })
-    }
-
-    pub fn protocol(&self) -> Protocol {
-        self.protocol
-    }
-
-    pub fn local_addr(&self) -> SocketAddr {
-        self.local_addr
-    }
-
-    pub async fn connect(self, remote: SocketAddr) -> ConnResult<ConnectionIo> {
-        match self.protocol {
-            Protocol::Tcp => {
-                let tcp = match self.local_addr.ip() {
-                    std::net::IpAddr::V4(_) => TcpSocket::new_v4(),
-                    std::net::IpAddr::V6(_) => TcpSocket::new_v6(),
-                }?;
-                tcp.bind(self.local_addr)?;
-                let stream = tcp.connect(remote).await?;
-                Ok(ConnectionIo::new(
-                    ConnectionIoInner::Tcp(stream),
-                    remote,
-                    self.local_addr,
-                    None,
-                ))
-            }
-            Protocol::Udp => {
-                let udp = UdpSocket::bind(self.local_addr).await?;
-                udp.connect(remote).await?;
-                let (tx, rx) = mpsc::channel(100);
-                let socket = Arc::new(udp);
-                let client = ConnectionIo::new(
-                    ConnectionIoInner::Udp {
-                        socket: socket.clone(),
-                        bytes_rx: rx,
-                        read_buffer: None,
-                    },
-                    remote,
-                    self.local_addr,
-                    None,
-                );
-                tokio::spawn(async move {
-                    let mut buf = vec![0u8; 2048];
-                    loop {
-                        match socket.recv_from(&mut buf).await {
-                            Ok((len, addr)) => {
-                                if addr != remote {
-                                    tracing::warn!(
-                                        "received packet from unexpected address: {}, expected: {}",
-                                        addr,
-                                        remote
-                                    );
-                                    continue;
-                                }
-                                let data = Bytes::copy_from_slice(&buf[..len]);
-                                if let Err(err) = tx.send(data).await {
-                                    tracing::error!(
-                                        "error sending data to receiver {} -> {}: {}",
-                                        addr,
-                                        self.local_addr,
-                                        err
-                                    );
-                                    break;
-                                }
-                            }
-                            Err(err) => {
-                                tracing::error!("error receiving udp packet: {}", err);
-                                break;
-                            }
-                        }
-                    }
-                });
-                Ok(client)
-            }
-            _ => unreachable!("unsupported protocol"),
-        }
-    }
-}
-
 impl ServerEndpointIo {
     pub async fn new_tcp(local_addr: SocketAddr) -> std::io::Result<Self> {
-        let listener = TcpListener::bind(local_addr).await?;
+        let socket = socket2::Socket::new(
+            Domain::for_address(local_addr),
+            Type::STREAM,
+            Some(socket2::Protocol::TCP),
+        )?;
+        socket.set_reuse_address(true)?;
+        socket.set_reuse_port(true)?;
+        socket.set_keepalive(true)?;
+        socket.set_nonblocking(true)?;
+        socket.set_recv_buffer_size(10 * 1024 * 1024)?;
+        socket.set_send_buffer_size(10 * 1024 * 1024)?;
+        socket.bind(&local_addr.into())?;
+        socket.listen(1280)?;
+
+        let std_listener: std::net::TcpListener = socket.into();
+        let listener = TcpListener::from_std(std_listener)?;
+        let real_local_addr = listener.local_addr()?;
         Ok(Self {
             inner: ServerEndpointIoInner::Tcp(listener),
             protocol: Protocol::Tcp,
-            local_addr,
+            local_addr: real_local_addr,
             shared: Arc::new(tokio::sync::Mutex::new(Shared::default())),
         })
     }
 
     pub async fn new_udp(local_addr: SocketAddr) -> std::io::Result<Self> {
-        let socket = Arc::new(UdpSocket::bind(local_addr).await?);
+        let socket = socket2::Socket::new(
+            Domain::for_address(local_addr),
+            Type::DGRAM,
+            Some(socket2::Protocol::UDP),
+        )?;
+        socket.set_reuse_address(true)?;
+        socket.set_reuse_port(true)?;
+        socket.set_nonblocking(true)?;
+        socket.bind(&local_addr.into())?;
+
+        let std_socket: std::net::UdpSocket = socket.into();
+        let tokio_socket = tokio::net::UdpSocket::from_std(std_socket)?;
+        let real_local_addr = tokio_socket.local_addr()?;
+        let socket = Arc::new(tokio_socket);
         let peers = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
         let (new_connection_tx, new_connection_rx) = mpsc::channel(100);
         let server = Self {
@@ -191,11 +263,11 @@ impl ServerEndpointIo {
                 new_connection_rx,
             },
             protocol: Protocol::Udp,
-            local_addr,
+            local_addr: real_local_addr,
             shared: Arc::new(tokio::sync::Mutex::new(Shared::default())),
         };
         tokio::spawn(Self::udp_recv_loop(
-            local_addr,
+            real_local_addr,
             server.shared.clone(),
             socket,
             peers,
@@ -211,27 +283,36 @@ impl ServerEndpointIo {
         peers: Arc<tokio::sync::Mutex<HashMap<SocketAddr, mpsc::Sender<Bytes>>>>,
         new_connection_tx: mpsc::Sender<ConnectionIo>,
     ) {
-        let mut buf = vec![0u8; 2048];
+        let mut buf = Vec::with_capacity(1500);
+        tracing::debug!("udp recv start, local: {}", local_addr);
         loop {
-            match socket.recv_from(&mut buf).await {
+            buf.clear();
+            match socket.recv_buf_from(&mut buf).await {
                 Ok((len, addr)) => {
                     let data = Bytes::copy_from_slice(&buf[..len]);
-                    let mut peers = peers.lock().await;
-                    if let Some(tx) = peers.get(&addr) {
-                        if let Err(err) = tx.send(data).await {
+                    let mut peers_guard = peers.lock().await;
+                    if let Some(tx) = peers_guard.get(&addr) {
+                        if let Err(err) = tx.try_send(data) {
                             tracing::error!(
                                 "error sending data to receiver {} -> {}: {}",
                                 addr,
                                 local_addr,
                                 err
                             );
-                            peers.remove(&addr);
+                            peers_guard.remove(&addr);
                         }
                     } else {
-                        let (tx, rx) = mpsc::channel(100);
-                        peers.insert(addr, tx.clone());
+                        tracing::debug!(
+                            "udp new connection recved, len={}, local={}, remote: {}",
+                            len,
+                            local_addr,
+                            addr
+                        );
+                        let (tx, rx) = mpsc::channel(1000);
+                        peers_guard.insert(addr, tx);
                         let connection = ConnectionIo::new(
                             ConnectionIoInner::Udp {
+                                peers: Some(peers.clone()),
                                 socket: socket.clone(),
                                 bytes_rx: rx,
                                 read_buffer: Some(data),
@@ -242,7 +323,7 @@ impl ServerEndpointIo {
                         );
                         if let Err(err) = new_connection_tx.send(connection).await {
                             tracing::error!("error sending new connection notification: {}", err);
-                            peers.remove(&addr);
+                            peers_guard.remove(&addr);
                             continue;
                         }
                     }
@@ -253,6 +334,7 @@ impl ServerEndpointIo {
                 }
             }
         }
+        tracing::debug!("udp recv detached, local: {}", local_addr);
     }
 
     pub fn protocol(&self) -> Protocol {
@@ -263,7 +345,7 @@ impl ServerEndpointIo {
         self.local_addr
     }
 
-    pub async fn accept(&mut self) -> ConnResult<ConnectionIo> {
+    pub async fn accept(&mut self) -> std::io::Result<ConnectionIo> {
         match &mut self.inner {
             ServerEndpointIoInner::Tcp(listener) => {
                 let (stream, addr) = listener.accept().await?;
@@ -309,6 +391,7 @@ impl ConnectionIo {
             bytes_sent: 0,
             bytes_received: 0,
             shared: shared.unwrap_or_else(|| Arc::new(tokio::sync::Mutex::new(Shared::default()))),
+            waker: None,
         }
     }
 
@@ -339,13 +422,18 @@ impl AsyncRead for ConnectionIo {
         match &mut this.inner {
             ConnectionIoInner::Tcp(stream) => {
                 let pinned_stream = std::pin::Pin::new(stream);
-                match pinned_stream.poll_read(cx, buf) {
-                    std::task::Poll::Ready(Ok(())) => {
+                let res = match ready!(pinned_stream.poll_read(cx, buf)) {
+                    Ok(()) => {
                         this.bytes_received += buf.filled().len();
+
                         std::task::Poll::Ready(Ok(()))
                     }
-                    other => other,
+                    other => std::task::Poll::Ready(other),
+                };
+                if let Some(waker) = this.waker.as_ref() {
+                    waker.wake_by_ref();
                 }
+                res
             }
             ConnectionIoInner::Udp {
                 bytes_rx,
@@ -356,10 +444,13 @@ impl AsyncRead for ConnectionIo {
                     let len = data.len().min(buf.remaining());
                     buf.put_slice(&data[..len]);
                     this.bytes_received += len;
+                    if let Some(waker) = this.waker.as_ref() {
+                        waker.wake_by_ref();
+                    }
                     return std::task::Poll::Ready(Ok(()));
                 }
-                match bytes_rx.poll_recv(cx) {
-                    std::task::Poll::Ready(Some(data)) => {
+                let res = match ready!(bytes_rx.poll_recv(cx)) {
+                    Some(data) => {
                         let len = data.len().min(buf.remaining());
                         let (a, b) = data.split_at(len);
                         buf.put_slice(a);
@@ -367,14 +458,15 @@ impl AsyncRead for ConnectionIo {
                         read_buffer.replace(Bytes::copy_from_slice(b));
                         std::task::Poll::Ready(Ok(()))
                     }
-                    std::task::Poll::Ready(None) => {
-                        std::task::Poll::Ready(Err(std::io::Error::new(
-                            std::io::ErrorKind::UnexpectedEof,
-                            "udp connection closed",
-                        )))
-                    }
-                    std::task::Poll::Pending => std::task::Poll::Pending,
+                    None => std::task::Poll::Ready(Err(std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        "udp connection closed",
+                    ))),
+                };
+                if let Some(waker) = this.waker.as_ref() {
+                    waker.wake_by_ref();
                 }
+                res
             }
         }
     }
@@ -398,13 +490,15 @@ impl AsyncWrite for ConnectionIo {
                     other => other,
                 }
             }
-            ConnectionIoInner::Udp { socket, .. } => match socket.poll_send(cx, buf) {
-                std::task::Poll::Ready(Ok(len)) => {
-                    this.bytes_sent += len;
-                    std::task::Poll::Ready(Ok(len))
+            ConnectionIoInner::Udp { socket, .. } => {
+                match socket.poll_send_to(cx, buf, this.remote_addr) {
+                    std::task::Poll::Ready(Ok(len)) => {
+                        this.bytes_sent += len;
+                        std::task::Poll::Ready(Ok(len))
+                    }
+                    other => other,
                 }
-                other => other,
-            },
+            }
         }
     }
 

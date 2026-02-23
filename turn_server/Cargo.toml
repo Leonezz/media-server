@@ -1,0 +1,22 @@
+[package]
+name = "turn_server"
+description = "a simple turn server tool based on turn-formats and turn-server implementation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+tokio = { workspace = true, features = ["full", "tracing"] }
+tracing = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+scopeguard = "1.2.0"
+
+turn-server = { workspace = true }
+turn-formats = { workspace = true }
+iana-formats = { workspace = true }
+unified-io = { workspace = true }
+utils = { workspace = true }

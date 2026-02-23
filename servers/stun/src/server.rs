@@ -1,6 +1,6 @@
 use crate::{
     agent::{Agent, AgentCommand, AgentEvent},
-    errors::STUNSessionResult,
+    errors::StunSessionResult,
 };
 use connection::connection::Outgoing;
 use std::{io, net::SocketAddr};
@@ -17,7 +17,7 @@ impl STUNServer {
         Self { protocol, address }
     }
 
-    pub async fn run(self) -> STUNSessionResult<()> {
+    pub async fn run(self) -> StunSessionResult<()> {
         tracing::info!(
             "stun server is starting at: {}://{}",
             self.protocol,
@@ -103,7 +103,7 @@ impl STUNServer {
         mut message_rx: tokio::sync::mpsc::Receiver<Message>,
         agent_command_tx: tokio::sync::mpsc::Sender<AgentCommand>,
         mut agent_event_rx: tokio::sync::broadcast::Receiver<AgentEvent>,
-    ) -> STUNSessionResult<()> {
+    ) -> StunSessionResult<()> {
         while let Some(message) = message_rx.recv().await {
             tracing::info!("got stun message: {:?}", message);
             if !matches!(
