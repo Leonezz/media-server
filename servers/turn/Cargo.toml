@@ -17,6 +17,8 @@ tokio-util = { workspace = true }
 socket2 = "0.6.1"
 pnet = "0.35.0"
 futures = { workspace = true }
+rootcause = { workspace = true }
+function_name = { workspace = true }
 
 stun-formats = { workspace = true }
 turn-formats = { workspace = true }

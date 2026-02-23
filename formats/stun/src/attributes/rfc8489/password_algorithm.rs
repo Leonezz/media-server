@@ -7,11 +7,15 @@ use crate::{
         check_attr_match, get_after_padding_size,
     },
     define_attribute,
-    errors::StunMessageError,
+    errors::{StunMessageError, StunMessageResult},
     header::MessageClass,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use utils::traits::{dynamic_sized_packet::DynamicSizedPacket, reader::ReadFrom, writer::WriteTo};
+use rootcause::bail;
+use utils::{
+    errors::context::LocationExt,
+    traits::{dynamic_sized_packet::DynamicSizedPacket, reader::ReadFrom, writer::WriteTo},
+};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Algorithm(u16);
@@ -107,11 +111,11 @@ impl MessageChecker for PasswordAlgorithmAttribute {
     fn check(&self, message: &crate::message::Message) -> crate::errors::StunMessageResult<()> {
         let class = message.message_class();
         if !matches!(class, MessageClass::Request) {
-            return Err(StunMessageError::InvalidMessage(format!(
+            bail!(StunMessageError::InvalidMessage(format!(
                 "{:?} in {:?} message is not allowed",
                 Self::STATIC_ATTR_TYPE,
                 class
-            )));
+            )))
         }
         Ok(())
     }
@@ -121,8 +125,8 @@ impl AttributeFactory for PasswordAlgorithmAttribute {
     fn from_raw_attr(
         raw_attr: crate::attributes::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
-    ) -> Result<Self, StunMessageError> {
-        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE)?;
+    ) -> StunMessageResult<Self> {
+        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE).trace()?;
         let algorithm = PasswordAlgorithm::read_from(&mut raw_attr.value.as_slice())?;
         Ok(Self(algorithm))
     }

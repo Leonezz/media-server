@@ -1,6 +1,7 @@
 use std::{fmt, io::BufRead};
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use rootcause::bail;
 use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
 
 use crate::{
@@ -11,6 +12,7 @@ use crate::{
     },
     define_attribute,
     error_codes::{self, ErrorCodeExtStatic},
+    errors::{StunMessageError, StunMessageResult},
     header::MessageClass,
 };
 
@@ -49,29 +51,29 @@ impl MessageChecker for UnknownAttributesAttribute {
     fn check(&self, message: &crate::message::Message) -> crate::errors::StunMessageResult<()> {
         let class = message.message_class();
         if !matches!(class, MessageClass::ErrorResponse) {
-            return Err(crate::errors::StunMessageError::InvalidMessage(format!(
+            bail!(crate::errors::StunMessageError::InvalidMessage(format!(
                 "{:?} in {:?} message is not allowed",
                 Self::STATIC_ATTR_TYPE,
                 class
-            )));
+            )))
         }
         if let Some(error_code) = message.get_attribute_ext::<ErrorCodeAttribute>() {
             if error_code.error_code().code()
                 != error_codes::rfc8489::UNKNOWN_ATTRIBUTE::STATIC_CODE
             {
-                return Err(crate::errors::StunMessageError::InvalidMessage(format!(
+                bail!(crate::errors::StunMessageError::InvalidMessage(format!(
                     "code {:?} is required for message with {:?}, got {:?} instead",
                     error_codes::rfc8489::UNKNOWN_ATTRIBUTE::default(),
                     Self::STATIC_ATTR_TYPE,
                     error_code.error_code()
-                )));
+                )))
             }
         } else {
-            return Err(crate::errors::StunMessageError::InvalidMessage(format!(
+            bail!(crate::errors::StunMessageError::InvalidMessage(format!(
                 "{:?} is required for message with {:?}",
                 ErrorCodeAttribute::STATIC_ATTR_TYPE,
                 Self::STATIC_ATTR_TYPE
-            )));
+            )))
         }
         Ok(())
     }
@@ -81,11 +83,13 @@ impl AttributeFactory for UnknownAttributesAttribute {
     fn from_raw_attr(
         raw_attr: crate::attributes::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
-    ) -> Result<Self, crate::errors::StunMessageError> {
+    ) -> StunMessageResult<Self> {
         let mut attributes = Vec::with_capacity(raw_attr.value.len() / 2);
         let mut bytes = raw_attr.value.as_slice();
-        while bytes.has_data_left()? {
-            let attr = bytes.read_u16::<BigEndian>()?;
+        while bytes.has_data_left().map_err(StunMessageError::from)? {
+            let attr = bytes
+                .read_u16::<BigEndian>()
+                .map_err(StunMessageError::from)?;
             if attr == 0 {
                 break;
             }

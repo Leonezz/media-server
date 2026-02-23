@@ -11,9 +11,12 @@ use crate::{
     five_tuple::FiveTuple,
 };
 use iana_formats::{addrress_family::AddressFamilyStatic, protocol_numbers::Protocol};
+use rootcause::{bail, report};
+use utils::errors::context::ContextExt;
 use socket2::{Domain, Type};
 use stun_formats::{
     attributes::AttributeExtStatic,
+    errors::StunMessageError,
     header::{MessageClass, TransactionId},
     methods::MethodExtStatic,
 };
@@ -105,11 +108,13 @@ impl Session {
                             .send(AllocationCommond::ChannelData(data.clone()))
                             .await
                             .map_err(|err| {
-                                return std::io::Error::new(
+                                report!(std::io::Error::new(
                                     std::io::ErrorKind::BrokenPipe,
                                     format!("send command to allocation failed: {}, relay ip family: {}", err, family),
-                                );
-                            })?;
+                                )).into_dynamic()
+                            })
+                            .operation("relaying channel data to allocation")
+                            .resource("address-family", family)?;
                     }
                 }
                 Message::Stun(stun) => {
@@ -117,6 +122,8 @@ impl Session {
                     let response =
                         self.process_message(remote_addr, &stun)
                             .await
+                            .operation("processing TURN message")
+                            .resource("remote", remote_addr)
                             .inspect_err(|err| {
                                 tracing::error!(
                                     "process turn message: {} failed, err: {}",
@@ -128,11 +135,13 @@ impl Session {
                         tracing::info!("response for {}: {}", stun, response,);
                         if let Err(err) = self.message_tx.send((response.into(), None)).await {
                             tracing::error!("connection reset by peer, err: {}", err);
-                            return Err(std::io::Error::new(
+                            return Err(report!(std::io::Error::new(
                                 std::io::ErrorKind::ConnectionReset,
                                 format!("connection reset by peer"),
-                            )
-                            .into());
+                            ))
+                            .into_dynamic())
+                            .operation("sending TURN response to client")
+                            .resource("remote", remote_addr);
                         }
                     }
                 }
@@ -277,9 +286,24 @@ impl Session {
                 let mut error_builder = stun_formats::message::Message::builder()
                     .transaction_id(message.transaction_id().clone())
                     .method(message.message_method().clone_box());
-                err.try_prepare_error_response(&mut error_builder)?;
-                let response = error_builder.build()?;
-                Ok(Some(response))
+
+                // First try to handle as TurnSessionError (includes comprehensive TURN error codes)
+                if let Some(turn_err) = err.downcast_current_context::<TurnSessionError>()
+                    && turn_err.try_prepare_error_response(&mut error_builder)?
+                {
+                    let response = error_builder.build()?;
+                    return Ok(Some(response));
+                }
+
+                // Fall back to StunMessageError for basic STUN protocol errors
+                if let Some(stun_err) = err.downcast_current_context::<StunMessageError>()
+                    && stun_err.try_prepare_error_response(&mut error_builder)?
+                {
+                    let response = error_builder.build()?;
+                    return Ok(Some(response));
+                }
+
+                Err(err)
             }
             _ => res,
         }
@@ -291,9 +315,9 @@ impl Session {
         message: &stun_formats::message::Message,
     ) -> TurnSessionResult<Option<stun_formats::message::Message>> {
         if !matches!(message.message_class(), MessageClass::Indication) {
-            return Err(crate::errors::TurnSessionError::ExpectIndication(
+            bail!(crate::errors::TurnSessionError::ExpectIndication(
                 message.clone(),
-            ));
+            ))
         }
         debug_assert_eq!(
             message.message_method().value(),
@@ -328,11 +352,13 @@ impl Session {
             })
             .await
             .map_err(|err| {
-                return std::io::Error::new(
+                report!(std::io::Error::new(
                     std::io::ErrorKind::BrokenPipe,
                     format!("send command to allocation failed: {}", err),
-                );
-            })?;
+                )).into_dynamic()
+            })
+            .operation("relaying data to allocation")
+            .resource("peer", peer)?;
         } else {
             tracing::warn!(
                 "got send indication but requested peer addr family is not supported, messag: {}, peer: {}",
@@ -349,19 +375,19 @@ impl Session {
         message: &stun_formats::message::Message,
     ) -> TurnSessionResult<Option<stun_formats::message::Message>> {
         if !matches!(message.message_class(), MessageClass::Request) {
-            return Err(crate::errors::TurnSessionError::ExpectRequest(
+            bail!(crate::errors::TurnSessionError::ExpectRequest(
                 message.clone(),
-            ));
+            ))
         }
         debug_assert_eq!(
             message.message_method().value(),
             turn_formats::methods::rfc8656::REFRESH::STATIC_VALUE
         );
         if !self.allocation_set {
-            return Err(TurnSessionError::AllocationMismatch {
+            bail!(TurnSessionError::AllocationMismatch {
                 remote: remote_addr,
                 local: self.fivetuple.local_addr().into(),
-            });
+            })
         }
         debug_assert!(!self.allocation_command_tx.read().await.is_empty());
         let lifetime = message
@@ -380,23 +406,27 @@ impl Session {
                     result_tx,
                 };
                 tx.send(command).await.map_err(|err| {
-                    return std::io::Error::new(
+                    report!(std::io::Error::new(
                         std::io::ErrorKind::BrokenPipe,
                         format!("send command to allocation failed: {}", err),
-                    );
-                })?;
+                    )).into_dynamic()
+                })
+                .operation("sending refresh to allocation")
+                .resource("address-family", family)?;
                 duration = Some(result_rx.await.map_err(|err| {
-                    return std::io::Error::new(
+                    report!(std::io::Error::new(
                         std::io::ErrorKind::BrokenPipe,
                         format!("error recv command result from allocation: {}", err),
-                    );
-                })??);
+                    )).into_dynamic()
+                })
+                .operation("receiving refresh result")
+                .resource("address-family", family)??);
             }
         }
         if duration.is_none() && address_family.is_some() {
-            return Err(TurnSessionError::UnsupportedAddressFamily(
+            bail!(TurnSessionError::UnsupportedAddressFamily(
                 address_family.unwrap(),
-            ));
+            ))
         }
         return Ok(Some(
             stun_formats::message::Message::builder()
@@ -416,19 +446,19 @@ impl Session {
         message: &stun_formats::message::Message,
     ) -> TurnSessionResult<Option<stun_formats::message::Message>> {
         if !matches!(message.message_class(), MessageClass::Request) {
-            return Err(crate::errors::TurnSessionError::ExpectRequest(
+            bail!(crate::errors::TurnSessionError::ExpectRequest(
                 message.clone(),
-            ));
+            ))
         }
         debug_assert_eq!(
             message.message_method().value(),
             turn_formats::methods::rfc8656::CHANNEL_BIND::STATIC_VALUE
         );
         if !self.allocation_set {
-            return Err(TurnSessionError::AllocationMismatch {
+            bail!(TurnSessionError::AllocationMismatch {
                 remote: remote_addr,
                 local: self.fivetuple.local_addr().into(),
-            });
+            })
         }
         debug_assert!(!self.allocation_command_tx.read().await.is_empty());
         let channel_number = message
@@ -452,17 +482,21 @@ impl Session {
             };
 
             tx.send(command).await.map_err(|err| {
-                return std::io::Error::new(
+                report!(std::io::Error::new(
                     std::io::ErrorKind::BrokenPipe,
                     format!("send command to allocation failed: {}", err),
-                );
-            })?;
+                )).into_dynamic()
+            })
+            .operation("sending channel-bind to allocation")
+            .resource("channel", channel_number.unwrap())?;
             let _ = result_rx.await.map_err(|err| {
-                return std::io::Error::new(
+                report!(std::io::Error::new(
                     std::io::ErrorKind::BrokenPipe,
                     format!("error recv command result from allocation: {}", err),
-                );
-            })??;
+                )).into_dynamic()
+            })
+            .operation("receiving channel-bind result")
+            .resource("channel", channel_number.unwrap())??;
             return Ok(Some(
                 stun_formats::message::Message::builder()
                     .success()
@@ -471,7 +505,7 @@ impl Session {
                     .build()?,
             ));
         } else {
-            return Err(TurnSessionError::PeerAddressFamilyNotMatch(peer_family));
+            bail!(TurnSessionError::PeerAddressFamilyNotMatch(peer_family))
         }
     }
 
@@ -481,19 +515,19 @@ impl Session {
         message: &stun_formats::message::Message,
     ) -> TurnSessionResult<Option<stun_formats::message::Message>> {
         if !matches!(message.message_class(), MessageClass::Request) {
-            return Err(crate::errors::TurnSessionError::ExpectRequest(
+            bail!(crate::errors::TurnSessionError::ExpectRequest(
                 message.clone(),
-            ));
+            ))
         }
         debug_assert_eq!(
             message.message_method().value(),
             turn_formats::methods::rfc8656::CREATE_PERMISSION::STATIC_VALUE
         );
         if !self.allocation_set {
-            return Err(TurnSessionError::AllocationMismatch {
+            bail!(TurnSessionError::AllocationMismatch {
                 remote: remote_addr,
                 local: self.fivetuple.local_addr().into(),
-            });
+            })
         }
         debug_assert!(!self.allocation_command_tx.read().await.is_empty());
 
@@ -515,17 +549,19 @@ impl Session {
                 result_tx,
             };
             tx.send(command).await.map_err(|err| {
-                return std::io::Error::new(
+                report!(std::io::Error::new(
                     std::io::ErrorKind::BrokenPipe,
                     format!("send command to allocation failed: {}", err),
-                );
-            })?;
+                )).into_dynamic()
+            })
+            .operation("sending create-permission to allocation")?;
             let _ = result_rx.await.map_err(|err| {
-                return std::io::Error::new(
+                report!(std::io::Error::new(
                     std::io::ErrorKind::BrokenPipe,
                     format!("error recv command result from allocation: {}", err),
-                );
-            })??;
+                )).into_dynamic()
+            })
+            .operation("receiving create-permission result")??;
             return Ok(Some(
                 stun_formats::message::Message::builder()
                     .success()
@@ -534,9 +570,9 @@ impl Session {
                     .build()?,
             ));
         } else {
-            return Err(TurnSessionError::PeerAddressFamilyNotMatch(
+            bail!(TurnSessionError::PeerAddressFamilyNotMatch(
                 probe_address_family,
-            ));
+            ))
         }
     }
 
@@ -546,9 +582,9 @@ impl Session {
         message: &stun_formats::message::Message,
     ) -> TurnSessionResult<Option<stun_formats::message::Message>> {
         if !matches!(message.message_class(), MessageClass::Request) {
-            return Err(crate::errors::TurnSessionError::ExpectRequest(
+            bail!(crate::errors::TurnSessionError::ExpectRequest(
                 message.clone(),
-            ));
+            ))
         }
         debug_assert_eq!(
             message.message_method().value(),
@@ -561,9 +597,9 @@ impl Session {
                 && self.reservation.as_ref().unwrap().0.token()
                     == reservation_token.unwrap().token();
             if !reservation_match {
-                return Err(TurnSessionError::InvalidReservationToken(
+                bail!(TurnSessionError::InvalidReservationToken(
                     reservation_token.unwrap(),
-                ));
+                ))
             }
             let (_, socket, _) = self.reservation.take().unwrap();
             let allocation = Allocation::builder()
@@ -573,9 +609,12 @@ impl Session {
                 .remote_addr(remote_addr)
                 .with_reservation(Some(socket))
                 .build()
-                .await?;
+                .await
+                .operation("building TURN allocation")
+                .resource("remote", remote_addr)?;
             let relay_addr = allocation.relayed_transport_address();
-            self.setup_allocation(allocation).await?;
+            self.setup_allocation(allocation).await
+                .operation("setting up allocation relay")?;
             let response = stun_formats::message::Message::builder()
                 .transaction_id(message.transaction_id().clone())
                 .success()
@@ -630,7 +669,9 @@ impl Session {
                     .protocol(protocol.protocol())?
                     .require_even_port(require_even_port)
                     .build()
-                    .await?;
+                    .await
+                    .operation("building TURN allocation")
+                    .resource("remote", remote_addr)?;
                 let relay_address = allocation.relayed_transport_address();
                 if require_reservation {
                     debug_assert!(!additional);
@@ -644,7 +685,9 @@ impl Session {
                     ));
                 }
                 relay_addresses.push(relay_address);
-                self.setup_allocation(allocation).await?;
+                self.setup_allocation(allocation).await
+                    .operation("setting up allocation relay")
+                    .resource("address-family", family)?;
             }
         }
 
@@ -718,9 +761,9 @@ impl Session {
             if let Some(local_ipv6_addr) = self.local_ipv6_address {
                 SocketAddr::new(IpAddr::V6(local_ipv6_addr), next_port)
             } else {
-                return Err(TurnSessionError::UnsupportedAddressFamily(
+                bail!(TurnSessionError::UnsupportedAddressFamily(
                     iana_formats::addrress_family::IPv6::ADDRESS_FAMILY,
-                ));
+                ))
             }
         };
         let socket = socket2::Socket::new(
@@ -734,7 +777,7 @@ impl Session {
         socket.bind(&addr.into())?;
         let port = socket.local_addr()?.as_socket().unwrap().port();
         if port != next_port {
-            return Err(TurnSessionError::MakeReservationFailed(next_port));
+            bail!(TurnSessionError::MakeReservationFailed(next_port))
         }
         let std_socket: std::net::UdpSocket = socket.into();
         let udp_socket = tokio::net::UdpSocket::from_std(std_socket)?;

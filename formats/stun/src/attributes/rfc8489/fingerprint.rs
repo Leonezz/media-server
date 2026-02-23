@@ -1,7 +1,11 @@
 use std::fmt;
 
-use utils::traits::{
-    dynamic_sized_packet::DynamicSizedPacket, fixed_packet::FixedPacket, writer::WriteTo,
+use rootcause::bail;
+use utils::{
+    errors::context::LocationExt,
+    traits::{
+        dynamic_sized_packet::DynamicSizedPacket, fixed_packet::FixedPacket, writer::WriteTo,
+    },
 };
 
 use crate::{
@@ -68,7 +72,7 @@ define_attribute!(0x8028, FingerPrintAttribute, "FINGER_PRINT");
 impl MessageChecker for FingerPrintAttribute {
     fn check(&self, message: &Message) -> StunMessageResult<()> {
         if message.attributes().is_empty() {
-            return Err(crate::errors::StunMessageError::InvalidMessage(format!(
+            bail!(crate::errors::StunMessageError::InvalidMessage(format!(
                 "no attributes in message: {:?}",
                 message
             )));
@@ -87,14 +91,14 @@ impl MessageChecker for FingerPrintAttribute {
             let dummy_message = Message::new(message.header().clone(), dummy_attributes);
             let real = Self::sign(dummy_message);
             if &real != self {
-                return Err(crate::errors::StunMessageError::InvalidMessage(format!(
+                bail!(crate::errors::StunMessageError::InvalidMessage(format!(
                     "finger print not match, expected: 0x{:x}, real: 0x{:x}",
                     self.fingerprint, real.fingerprint
                 )));
             }
             Ok(())
         } else {
-            Err(crate::errors::StunMessageError::InvalidMessage(format!(
+            bail!(crate::errors::StunMessageError::InvalidMessage(format!(
                 "last attribute of message not match: {:?} -> {:?}",
                 message, self
             )))
@@ -106,14 +110,14 @@ impl AttributeFactory for FingerPrintAttribute {
     fn from_raw_attr(
         raw_attr: crate::attributes::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
-    ) -> Result<Self, crate::errors::StunMessageError> {
-        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE)?;
+    ) -> StunMessageResult<Self> {
+        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE).trace()?;
         if raw_attr.value.len() != Self::bytes_count() {
-            return Err(crate::errors::StunMessageError::SyntaxError(format!(
+            bail!(crate::errors::StunMessageError::SyntaxError(format!(
                 "value length for {:?} is not 4: {}",
                 Self::STATIC_ATTR_TYPE,
                 raw_attr.value.len(),
-            )));
+            )))
         }
 
         let fingerprint = u32::from_be_bytes(raw_attr.value.try_into().unwrap());

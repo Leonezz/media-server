@@ -5,6 +5,9 @@
 
 use std::fmt::Debug;
 
+use rootcause::bail;
+use utils::errors::context::LocationExt;
+
 use crate::errors::StunMessageResult;
 pub mod attributes;
 pub mod builder;
@@ -23,12 +26,12 @@ pub trait MessageChecker: Debug {
     }
     fn check_message_class(&self, message: &message::Message) -> StunMessageResult<()> {
         if !self.allowed_in(message.message_class()) {
-            return Err(crate::errors::StunMessageError::InvalidMessage(format!(
-                    "{:?} not allowed in {:?} class message",
-                    self,
-                    message.message_class()
+            bail!(crate::errors::StunMessageError::InvalidMessage(format!(
+                "{:?} not allowed in {:?} class message",
+                self,
+                message.message_class()
             )));
-            }
+        }
         Ok(())
     }
     #[allow(unused_variables)]
@@ -48,12 +51,12 @@ pub trait MessageChecker: Debug {
         Ok(())
     }
     fn check(&self, message: &message::Message) -> StunMessageResult<()> {
-        self.check_message_class(message)?;
+        self.check_message_class(message).trace()?;
         match message.message_class() {
-            header::MessageClass::Request => self.check_request(message),
-            header::MessageClass::SuccessResponse => self.check_success_response(message),
-            header::MessageClass::ErrorResponse => self.check_error_response(message),
-            header::MessageClass::Indication => self.check_indication(message),
+            header::MessageClass::Request => self.check_request(message).trace(),
+            header::MessageClass::SuccessResponse => self.check_success_response(message).trace(),
+            header::MessageClass::ErrorResponse => self.check_error_response(message).trace(),
+            header::MessageClass::Indication => self.check_indication(message).trace(),
         }
     }
 }

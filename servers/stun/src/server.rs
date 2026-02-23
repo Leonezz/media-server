@@ -1,10 +1,12 @@
 use crate::{
     agent::{Agent, AgentCommand, AgentEvent},
-    errors::StunSessionResult,
+    errors::{StunSessionError, StunSessionResult},
 };
 use connection::connection::Outgoing;
+use rootcause::report;
 use std::{io, net::SocketAddr};
 use stun_formats::message::Message;
+use utils::errors::context::ContextExt;
 
 pub struct STUNServer {
     protocol: iana_formats::protocol_numbers::Protocol,
@@ -53,13 +55,16 @@ impl STUNServer {
                     },
                     None => {
                         tracing::info!("agent event tx closed, exiting");
+                        break;
                     }
                 }
             }
         });
 
-        let mut endpoint =
-            connection::endpoint::ServerEndpoint::new(self.protocol, self.address).await?;
+        let mut endpoint = connection::endpoint::ServerEndpoint::new(self.protocol, self.address)
+            .await
+            .map_err(|e| report!(StunSessionError::from(e)).into_dynamic())
+            .operation("creating STUN server endpoint")?;
 
         while let Ok((remote_addr, conn, message_tx, message_rx)) =
             endpoint.accept::<Message>().await
@@ -67,7 +72,7 @@ impl STUNServer {
             tracing::info!("got new connection from {}", remote_addr);
             tokio::spawn(async move {
                 let _ = conn.await.inspect_err(|err| {
-                    tracing::error!("connection from {} closed with err: {}", remote_addr, err);
+                    tracing::error!("connection from {} closed with err:\n{}", remote_addr, err);
                 });
             });
             let agent_command_tx = agent_command_tx.clone();
@@ -127,7 +132,13 @@ impl STUNServer {
                     remote_addr,
                     err
                 );
-                return Err(std::io::Error::new(io::ErrorKind::BrokenPipe, err).into());
+                return Err(report!(StunSessionError::Io(std::io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    err
+                )))
+                .into_dynamic())
+                .operation("forwarding message to STUN agent")
+                .resource("remote", remote_addr);
             }
 
             loop {
@@ -144,9 +155,14 @@ impl STUNServer {
                                     remote_addr,
                                     err
                                 );
-                                return Err(
-                                    std::io::Error::new(io::ErrorKind::BrokenPipe, err).into()
-                                );
+                                return Err(report!(StunSessionError::Io(std::io::Error::new(
+                                    io::ErrorKind::BrokenPipe,
+                                    err
+                                )))
+                                .into_dynamic())
+                                .operation("sending response to client")
+                                .resource("transaction", message.transaction_id())
+                                .resource("remote", remote_addr);
                             }
                             tracing::debug!("waiting for flush ack from connection");
                             let _ = flush_rx.await;
@@ -161,7 +177,13 @@ impl STUNServer {
                             message,
                             err
                         );
-                        return Err(std::io::Error::new(io::ErrorKind::BrokenPipe, err).into());
+                        return Err(report!(StunSessionError::Io(std::io::Error::new(
+                            io::ErrorKind::BrokenPipe,
+                            err
+                        )))
+                        .into_dynamic())
+                        .operation("receiving response from STUN agent")
+                        .resource("transaction", message.transaction_id());
                     }
                 }
             }

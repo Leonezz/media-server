@@ -1,6 +1,10 @@
 use std::fmt;
 
-use utils::traits::{dynamic_sized_packet::DynamicSizedPacket, writer::WriteTo};
+use rootcause::bail;
+use utils::{
+    errors::context::LocationExt,
+    traits::{dynamic_sized_packet::DynamicSizedPacket, writer::WriteTo},
+};
 
 use crate::{
     MessageChecker,
@@ -98,14 +102,14 @@ impl MessageIntegritySHA256Attribute {
             let dummy_message = Message::new(message.header().clone(), dummy_attributes);
             let real = self.sign(dummy_message);
             if real.ne(&attr) {
-                return Err(crate::errors::StunMessageError::InvalidMessage(format!(
+                bail!(crate::errors::StunMessageError::InvalidMessage(format!(
                     "{:?} not match message: {:?}",
                     attr, message
-                )));
+                )))
             }
             Ok(())
         } else {
-            Err(crate::errors::StunMessageError::InvalidMessage(format!(
+            bail!(crate::errors::StunMessageError::InvalidMessage(format!(
                 "{:?} not found in message: {:?}",
                 self.get_type(),
                 message
@@ -155,17 +159,17 @@ impl AttributeFactory for MessageIntegritySHA256Attribute {
     fn from_raw_attr(
         raw_attr: crate::attributes::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
-    ) -> Result<Self, crate::errors::StunMessageError> {
-        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE)?;
+    ) -> StunMessageResult<Self> {
+        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE).trace()?;
         if raw_attr.value.len() < MESSAGE_INTEGRITY_SHA256_MIN_LEN
             || raw_attr.value.len() > MESSAGE_INTEGRITY_SHA256_MAX_LEN
             || !raw_attr.value.len().is_multiple_of(4)
         {
-            return Err(crate::errors::StunMessageError::SyntaxError(format!(
+            bail!(crate::errors::StunMessageError::SyntaxError(format!(
                 "length of value for {:?} is not valid: {}",
                 Self::STATIC_ATTR_TYPE,
                 raw_attr.value.len()
-            )));
+            )))
         }
 
         Ok(Self {

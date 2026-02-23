@@ -1,6 +1,7 @@
 use std::fmt;
 
-use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
+use rootcause::bail;
+use utils::{errors::context::LocationExt, traits::dynamic_sized_packet::DynamicSizedPacket};
 
 use crate::{
     MessageChecker,
@@ -9,7 +10,7 @@ use crate::{
         check_attr_match, get_after_padding_size,
     },
     define_attribute,
-    errors::StunMessageResult,
+    errors::{StunMessageError, StunMessageResult},
 };
 
 #[derive(Clone)]
@@ -20,7 +21,7 @@ pub struct RealmAttribute {
 impl RealmAttribute {
     pub fn new(value: &str) -> StunMessageResult<Self> {
         if value.len() > REALM_VALUE_MAX_LEN {
-            return Err(crate::errors::StunMessageError::SyntaxError(format!(
+            bail!(crate::errors::StunMessageError::SyntaxError(format!(
                 "value length for {:?}: {} exceeds max length: {}",
                 Self::STATIC_ATTR_TYPE,
                 value.len(),
@@ -59,19 +60,19 @@ impl AttributeFactory for RealmAttribute {
     fn from_raw_attr(
         raw_attr: crate::attributes::RawAttribute,
         _transaction_id: &crate::header::TransactionId,
-    ) -> Result<Self, crate::errors::StunMessageError> {
-        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE)?;
+    ) -> StunMessageResult<Self> {
+        check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE).trace()?;
         if raw_attr.value.len() > REALM_VALUE_MAX_LEN {
-            return Err(crate::errors::StunMessageError::SyntaxError(format!(
+            bail!(crate::errors::StunMessageError::SyntaxError(format!(
                 "value length for {:?}: {} exceeds max length: {}",
                 Self::STATIC_ATTR_TYPE,
                 raw_attr.value.len(),
                 REALM_VALUE_MAX_LEN
-            )));
+            )))
         }
 
         Ok(Self {
-            value: String::from_utf8(raw_attr.value)?,
+            value: String::from_utf8(raw_attr.value).map_err(StunMessageError::from)?,
         })
     }
 

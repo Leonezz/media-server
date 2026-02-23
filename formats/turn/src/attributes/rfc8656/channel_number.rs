@@ -1,6 +1,7 @@
 use std::fmt;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use rootcause::{Report, bail};
 use stun_formats::{
     MessageChecker,
     attributes::{AttributeExtDynamic, AttributeExtStatic, AttributeFactory},
@@ -33,16 +34,16 @@ impl AttributeFactory for ChannelNumberAttribute {
     fn from_raw_attr(
         raw_attr: stun_formats::attributes::RawAttribute,
         _transaction_id: &stun_formats::header::TransactionId,
-    ) -> Result<Self, stun_formats::errors::StunMessageError> {
+    ) -> Result<Self, Report> {
         stun_formats::attributes::check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE)?;
         if raw_attr.value.len() != CHANNEL_NUMBER_ATTR_LEN {
-            return Err(stun_formats::errors::StunMessageError::SyntaxError(
+            bail!(stun_formats::errors::StunMessageError::SyntaxError(
                 format!(
                     "channel number attribute expects {} bytes of value, got {} bytes instead",
                     CHANNEL_NUMBER_ATTR_LEN,
                     raw_attr.value.len()
                 ),
-            ));
+            ))
         }
         let mut buffer = raw_attr.value.as_slice();
         let channel_number = buffer.read_u16::<BigEndian>()?;

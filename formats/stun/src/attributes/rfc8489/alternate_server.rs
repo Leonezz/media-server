@@ -1,6 +1,6 @@
 use std::{fmt, net::SocketAddr};
 
-use utils::traits::dynamic_sized_packet::DynamicSizedPacket;
+use utils::{errors::context::LocationExt, traits::dynamic_sized_packet::DynamicSizedPacket};
 
 use crate::{
     MessageChecker,
@@ -8,6 +8,7 @@ use crate::{
         AttributeExtDynamic, AttributeExtStatic, AttributeFactory, rfc8489::MappedAddressAttribute,
     },
     define_attribute,
+    errors::StunMessageResult,
 };
 
 #[derive(Clone)]
@@ -45,11 +46,10 @@ impl AttributeFactory for AlternateServerAttribute {
     fn from_raw_attr(
         raw_attr: crate::attributes::RawAttribute,
         transaction_id: &crate::header::TransactionId,
-    ) -> Result<Self, crate::errors::StunMessageError> {
-        Ok(Self(MappedAddressAttribute::from_raw_attr(
-            raw_attr,
-            transaction_id,
-        )?))
+    ) -> StunMessageResult<Self> {
+        Ok(Self(
+            MappedAddressAttribute::from_raw_attr(raw_attr, transaction_id).trace()?,
+        ))
     }
     fn into_raw_attr(
         self,

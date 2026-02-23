@@ -2,6 +2,7 @@
 // It specifies the address and port that the server allocated to the client.
 // It is encoded in the same way as the XORMAPPED-ADDRESS attribute.
 
+use rootcause::Report;
 use std::{fmt, net::SocketAddr};
 use stun_formats::{
     MessageChecker,
@@ -40,7 +41,7 @@ impl AttributeFactory for XorRelayedAddressAttribute {
     fn from_raw_attr(
         raw_attr: stun_formats::attributes::RawAttribute,
         transaction_id: &stun_formats::header::TransactionId,
-    ) -> Result<Self, stun_formats::errors::StunMessageError> {
+    ) -> Result<Self, Report> {
         check_attr_match(raw_attr.attr_type, Self::STATIC_ATTR_TYPE)?;
         let mut buffer = raw_attr.value.as_slice();
         let address =

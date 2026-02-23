@@ -15,7 +15,7 @@ tracing = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 serde = { workspace = true }
 figment = { workspace = true }
-iana-formats = { workspace = true }
+iana-formats = { workspace = true, features = ["serde"] }
 thiserror = { workspace = true }
 scopeguard = "1.2.0"
 

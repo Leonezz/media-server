@@ -1,3 +1,4 @@
+use rootcause::Report;
 use stun_formats::{builder::MessageBuilder, message::Message};
 use thiserror::Error;
 #[derive(Debug, Error)]
@@ -12,18 +13,16 @@ pub enum StunSessionError {
     UnknownTransaction(Message),
 }
 
-pub type StunSessionResult<T> = Result<T, StunSessionError>;
+pub type StunSessionResult<T> = Result<T, Report>;
 
 impl StunSessionError {
     pub fn try_prepare_error_response(
-        self,
+        &self,
         message_builder: &mut MessageBuilder,
-    ) -> StunSessionResult<()> {
+    ) -> Result<bool, Report> {
         match self {
-            Self::Io(_) | Self::ChannelError(_) | Self::UnknownTransaction(_) => Err(self),
-            Self::MessageError(stun) => stun
-                .try_prepare_error_response(message_builder)
-                .map_err(Self::MessageError),
+            Self::Io(..) | Self::ChannelError(..) | Self::UnknownTransaction(..) => Ok(false),
+            Self::MessageError(stun) => stun.try_prepare_error_response(message_builder),
         }
     }
 }
