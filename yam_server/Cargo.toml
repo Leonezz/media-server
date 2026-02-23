@@ -15,9 +15,10 @@ tracing = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 serde = { workspace = true }
 thiserror = { workspace = true }
-config = { workspace = true }
 
 rtmp-server = { workspace = true }
 http-server = { workspace = true }
 rtsp-server = { workspace = true }
 stream-center = { workspace = true }
+iana-formats = { workspace = true }
+utils = { workspace = true }

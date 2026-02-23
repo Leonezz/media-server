@@ -1,37 +1,28 @@
-use std::process;
-
-use clap::Parser;
-
-use crate::logger::{read_logger_config, setup_logger};
+use clap::{CommandFactory, FromArgMatches, crate_authors, crate_version};
 mod errors;
 mod logger;
 #[tokio::main]
 async fn main() {
-    let cli = yam_server::cli::AppCli::parse();
-    let config_path = cli.config.clone().map(|v| v.to_string_lossy().to_string());
-    let config = yam_server::config::AppConfig::new(config_path.clone());
-
-    if config.is_err() {
-        eprintln!("app config is not valid: {}", config.unwrap_err());
-        process::exit(1);
+    let cmd = yam_server::cli::AppCli::command()
+        .name("yam_server")
+        .version(crate_version!())
+        .author(crate_authors!())
+        .about("yet another media server")
+        .help_template("{name} v{version} by {author-section}{about-section}\n{usage-heading}\n{usage}\n\n{all-args}")
+        .arg_required_else_help(false);
+    let matches = cmd.get_matches();
+    let cli = yam_server::cli::AppCli::from_arg_matches(&matches);
+    if let Err(err) = cli {
+        eprintln!("argument parse failed: {}", err);
+        std::process::exit(1);
     }
-
-    let mut config = config.unwrap();
-    let logger_config = read_logger_config(config_path);
-    if let Err(err) = logger_config.as_ref() {
-        eprintln!("read logger config failed: {}", err);
+    let cli = cli.unwrap().merge();
+    if let Err(err) = cli {
+        eprintln!("argument parse failed: {}", err);
+        std::process::exit(1);
     }
-    let logger_config = logger_config.unwrap_or_default();
-    setup_logger(format!("{},hyper=off", logger_config.level), logger_config);
-    config.apply(cli).unwrap();
-    let validate_res = config.validate();
-    if validate_res.is_err() {
-        panic!(
-            "config is not valid: {}.\nconfig is: {:?}",
-            validate_res.unwrap_err(),
-            config
-        );
-    }
-
-    yam_server::app_run(config, signal::stop()).await;
+    let cli = cli.unwrap();
+    let _guard = app_utils::logger::setup_logger(None, Some("yam_server"), &cli.inner.logger);
+    println!("yam server is running with config:\n{}", cli);
+    yam_server::app_run(app_utils::signal::stop(), cli.inner.inner).await;
 }

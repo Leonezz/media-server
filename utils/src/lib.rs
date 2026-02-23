@@ -1,4 +1,5 @@
 pub mod bytes;
+pub mod config;
 pub mod cypto;
 pub mod net;
 pub mod random;

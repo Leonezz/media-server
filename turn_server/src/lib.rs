@@ -1,17 +1,21 @@
-use iana_formats::protocol_numbers::ProtocolNumberStatic;
+pub mod cli;
 use tokio::select;
 
-pub async fn app_run<F>(stop: F)
+pub async fn app_run<F>(stop: F, config: cli::TurnServerCli)
 where
     F: Future<Output = ()> + Send + 'static,
 {
-    let local_ipv4_addr: std::net::SocketAddrV4 = "127.0.0.1:5799".parse().unwrap();
-    let local_ipv6_addr: std::net::SocketAddrV6 = "[::1]:5799".parse().unwrap();
+    let local_addr = std::net::SocketAddr::new(config.localaddr, config.localport);
     let server = turn_server::server::TurnServer::new(
-        iana_formats::protocol_numbers::UDP::PROTOCOL,
-        local_ipv4_addr.into(),
-        local_ipv4_addr,
-        local_ipv6_addr,
+        config.protocol,
+        local_addr,
+        config.local_ipv4_addr,
+        if config.use_ipv6 {
+            Some(config.local_ipv6_addr)
+        } else {
+            None
+        },
+        config.use_icmp,
     )
     .unwrap();
 

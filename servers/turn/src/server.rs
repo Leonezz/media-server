@@ -1,21 +1,23 @@
 use crate::{errors::TurnSessionResult, session::Session};
 use iana_formats::protocol_numbers::ProtocolNumberStatic;
-use std::net::{SocketAddr, SocketAddrV4, SocketAddrV6};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use turn_formats::message::Message;
 
 pub struct TurnServer {
     protocol: iana_formats::protocol_numbers::Protocol,
     address: SocketAddr,
-    ipv4_address: SocketAddrV4,
-    ipv6_address: SocketAddrV6,
+    ipv4_address: Ipv4Addr,
+    ipv6_address: Option<Ipv6Addr>,
+    use_icmp: bool,
 }
 
 impl TurnServer {
     pub fn new(
         protocol: iana_formats::protocol_numbers::Protocol,
         address: SocketAddr,
-        ipv4_address: SocketAddrV4,
-        ipv6_address: SocketAddrV6,
+        ipv4_address: Ipv4Addr,
+        ipv6_address: Option<Ipv6Addr>,
+        use_icmp: bool,
     ) -> TurnSessionResult<Self> {
         if ![
             iana_formats::protocol_numbers::UDP::PROTOCOL,
@@ -32,6 +34,7 @@ impl TurnServer {
             address,
             ipv4_address,
             ipv6_address,
+            use_icmp,
         })
     }
 
@@ -68,6 +71,7 @@ impl TurnServer {
                 self.ipv6_address,
                 message_tx,
                 message_rx,
+                self.use_icmp,
             );
             tokio::spawn(async move {
                 let _ = session.run().await.inspect_err(|err| {

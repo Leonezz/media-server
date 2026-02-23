@@ -1,5 +1,4 @@
 use super::{
-    config::RtmpSessionConfig,
     consts::{response_code, response_level},
     errors::RtmpServerResult,
 };
@@ -69,7 +68,9 @@ pub struct RtmpSession {
     video_nalu_size_length: Option<u8>,
     connect_info: ConnectCommandRequestObject,
     total_wrote_bytes: usize,
-    config: RtmpSessionConfig,
+    chunk_size: u32,
+    write_timeout_ms: u64,
+    read_timeout_ms: u64,
     stream_center_event_sender: mpsc::UnboundedSender<StreamCenterEvent>,
 }
 
@@ -77,22 +78,26 @@ impl RtmpSession {
     pub fn new(
         io: TcpStream,
         stream_center_event_sender: mpsc::UnboundedSender<StreamCenterEvent>,
-        config: RtmpSessionConfig,
+        chunk_size: u32,
+        write_timeout_ms: u64,
+        read_timeout_ms: u64,
     ) -> Self {
         Self {
             chunk_stream: RtmpChunkStream::new(
                 4096,
                 io,
-                config.chunk_size,
-                config.read_timeout_ms,
-                config.write_timeout_ms,
+                chunk_size,
+                read_timeout_ms,
+                write_timeout_ms,
             ),
             stream_properties: StreamProperties::default(),
             video_nalu_size_length: None,
             connect_info: Default::default(),
             runtime_handle: SessionRuntime::Unknown,
             total_wrote_bytes: 0,
-            config,
+            chunk_size,
+            write_timeout_ms,
+            read_timeout_ms,
             stream_center_event_sender,
         }
     }
@@ -914,7 +919,7 @@ impl RtmpSession {
 
         self.chunk_stream
             .chunk_writer()
-            .write_set_chunk_size(self.config.chunk_size)?;
+            .write_set_chunk_size(self.chunk_size)?;
         self.chunk_stream.flush_chunk().await?;
 
         self.chunk_stream

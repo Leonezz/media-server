@@ -12,11 +12,13 @@ crate-type = ["lib"]
 [dependencies]
 tokio = { workspace = true, features = ["full", "tracing"] }
 tracing = { workspace = true }
-clap = { workspace = true, features = ["derive"] }
+clap = { workspace = true }
+figment = { workspace = true }
+serde = { workspace = true }
 scopeguard = "1.2.0"
 
 turn-server = { workspace = true }
 turn-formats = { workspace = true }
-iana-formats = { workspace = true }
+iana-formats = { workspace = true, features = ["serde"] }
 unified-io = { workspace = true }
 utils = { workspace = true }

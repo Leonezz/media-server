@@ -1,0 +1,13 @@
+protocol = "udp"
+family = "ipv4"
+localaddr = "127.0.0.1"
+localport = 5799
+use_icmp = true
+use_ipv6 = true
+local_ipv4_addr = "127.0.0.1"
+local_ipv6_addr = "::"
+
+[logger]
+log_level = "trace"
+log_output = "file"
+log_dir = "./logs/turn"

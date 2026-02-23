@@ -1,4 +1,4 @@
-use crate::config::AppConfig;
+use crate::cli::StunClientCli;
 use scopeguard::defer;
 use std::net::{SocketAddr, ToSocketAddrs};
 use stun_formats::{
@@ -8,12 +8,11 @@ use stun_formats::{
 };
 use stun_server::client::STUNClientResult;
 use tokio::{select, task::block_in_place};
-use utils::net::protocol::Protocol;
 
-pub mod config;
+pub mod cli;
 pub mod errors;
 
-pub async fn app_run<F>(config: AppConfig, stop: F)
+pub async fn app_run<F>(stop: F, config: StunClientCli)
 where
     F: Future<Output = ()> + Send + 'static,
 {
@@ -33,15 +32,13 @@ where
     let mut client = None;
     for remote in remote_addrs {
         tracing::debug!("trying server address: {}", remote);
-        let endpoint = match config.protocol {
-            Protocol::Tcp => connection::endpoint::ClientEndpoint::new_tcp(local_addr),
-            Protocol::Udp => connection::endpoint::ClientEndpoint::new_udp(local_addr).await,
-        }
-        .inspect_err(|err| {
-            eprintln!("error creating socket: {}", err);
-            std::process::exit(1);
-        })
-        .unwrap();
+        let endpoint = connection::endpoint::ClientEndpoint::new(config.protocol, local_addr)
+            .await
+            .inspect_err(|err| {
+                eprintln!("error creating socket: {}", err);
+                std::process::exit(1);
+            })
+            .unwrap();
 
         match endpoint.connect::<Message>(remote).await {
             Ok((conn, message_tx, message_rx)) => {
